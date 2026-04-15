@@ -1,0 +1,29 @@
+{
+  "name": "kanagawa_dark",
+  "colors": {
+    "accent": "#7e9cd8",
+    "text_primary": "#dcd7ba",
+    "text_muted": "#938aa9",
+    "sidebar_highlight_bg": "#2a2a37",
+    "sidebar_highlight_fg": "#e6e0c2",
+    "selected_line_bg": "#223249",
+    "selection_marker": "#7fb4ca",
+    "added_sign": "#98bb6c",
+    "removed_sign": "#e46876",
+    "context_sign": "#7e9cd8",
+    "hunk_header": "#7fb4ca",
+    "meta": "#e6c384",
+    "thread_border": "#54546d",
+    "thread_background": "#1f1f28",
+    "comment_title": "#98bb6c",
+    "reply_title": "#957fb8",
+    "status_help": "#938aa9",
+    "markdown_heading": "#7e9cd8",
+    "markdown_quote_mark": "#727169",
+    "markdown_quote_text": "#c8c093",
+    "markdown_bullet": "#e6c384",
+    "markdown_fence": "#957fb8",
+    "markdown_code_fg": "#98bb6c",
+    "markdown_code_bg": "#16161d"
+  }
+}

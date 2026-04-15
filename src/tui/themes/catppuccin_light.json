@@ -1,0 +1,29 @@
+{
+  "name": "catppuccin_light",
+  "colors": {
+    "accent": "#1e66f5",
+    "text_primary": "#4c4f69",
+    "text_muted": "#6c6f85",
+    "sidebar_highlight_bg": "#ccd0da",
+    "sidebar_highlight_fg": "#303446",
+    "selected_line_bg": "#dce0e8",
+    "selection_marker": "#209fb5",
+    "added_sign": "#40a02b",
+    "removed_sign": "#d20f39",
+    "context_sign": "#1e66f5",
+    "hunk_header": "#209fb5",
+    "meta": "#df8e1d",
+    "thread_border": "#bcc0cc",
+    "thread_background": "#eff1f5",
+    "comment_title": "#40a02b",
+    "reply_title": "#8839ef",
+    "status_help": "#6c6f85",
+    "markdown_heading": "#1e66f5",
+    "markdown_quote_mark": "#8c8fa1",
+    "markdown_quote_text": "#5c5f77",
+    "markdown_bullet": "#df8e1d",
+    "markdown_fence": "#8839ef",
+    "markdown_code_fg": "#40a02b",
+    "markdown_code_bg": "#e6e9ef"
+  }
+}

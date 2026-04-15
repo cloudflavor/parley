@@ -1,0 +1,29 @@
+{
+  "name": "one_light",
+  "colors": {
+    "accent": "#4078f2",
+    "text_primary": "#383a42",
+    "text_muted": "#6c6f85",
+    "sidebar_highlight_bg": "#e5e5e6",
+    "sidebar_highlight_fg": "#383a42",
+    "selected_line_bg": "#eaeaeb",
+    "selection_marker": "#4078f2",
+    "added_sign": "#50a14f",
+    "removed_sign": "#e45649",
+    "context_sign": "#6c6f85",
+    "hunk_header": "#0184bc",
+    "meta": "#986801",
+    "thread_border": "#cfd2d8",
+    "thread_background": "#fafafa",
+    "comment_title": "#50a14f",
+    "reply_title": "#a626a4",
+    "status_help": "#6c6f85",
+    "markdown_heading": "#4078f2",
+    "markdown_quote_mark": "#a0a1a7",
+    "markdown_quote_text": "#5c6370",
+    "markdown_bullet": "#986801",
+    "markdown_fence": "#a626a4",
+    "markdown_code_fg": "#50a14f",
+    "markdown_code_bg": "#fafafa"
+  }
+}

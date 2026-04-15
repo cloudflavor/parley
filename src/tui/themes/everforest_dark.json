@@ -1,0 +1,29 @@
+{
+  "name": "everforest_dark",
+  "colors": {
+    "accent": "#7fbbb3",
+    "text_primary": "#d3c6aa",
+    "text_muted": "#9da9a0",
+    "sidebar_highlight_bg": "#374247",
+    "sidebar_highlight_fg": "#e5ddb5",
+    "selected_line_bg": "#2f383e",
+    "selection_marker": "#83c092",
+    "added_sign": "#a7c080",
+    "removed_sign": "#e67e80",
+    "context_sign": "#7fbbb3",
+    "hunk_header": "#83c092",
+    "meta": "#dbbc7f",
+    "thread_border": "#4f585e",
+    "thread_background": "#272e33",
+    "comment_title": "#a7c080",
+    "reply_title": "#d699b6",
+    "status_help": "#9da9a0",
+    "markdown_heading": "#7fbbb3",
+    "markdown_quote_mark": "#596066",
+    "markdown_quote_text": "#a7b0a6",
+    "markdown_bullet": "#dbbc7f",
+    "markdown_fence": "#d699b6",
+    "markdown_code_fg": "#a7c080",
+    "markdown_code_bg": "#232a2e"
+  }
+}

@@ -1,0 +1,29 @@
+{
+  "name": "ayu_dark",
+  "colors": {
+    "accent": "#59c2ff",
+    "text_primary": "#e6e1cf",
+    "text_muted": "#828c99",
+    "sidebar_highlight_bg": "#27303b",
+    "sidebar_highlight_fg": "#f4f1de",
+    "selected_line_bg": "#22303f",
+    "selection_marker": "#95e6cb",
+    "added_sign": "#aad94c",
+    "removed_sign": "#f07178",
+    "context_sign": "#59c2ff",
+    "hunk_header": "#95e6cb",
+    "meta": "#ffb454",
+    "thread_border": "#465261",
+    "thread_background": "#0a0e14",
+    "comment_title": "#aad94c",
+    "reply_title": "#d2a6ff",
+    "status_help": "#828c99",
+    "markdown_heading": "#59c2ff",
+    "markdown_quote_mark": "#5c6773",
+    "markdown_quote_text": "#bfbdb6",
+    "markdown_bullet": "#ffb454",
+    "markdown_fence": "#d2a6ff",
+    "markdown_code_fg": "#aad94c",
+    "markdown_code_bg": "#05080e"
+  }
+}

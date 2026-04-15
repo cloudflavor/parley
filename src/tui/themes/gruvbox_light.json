@@ -1,0 +1,29 @@
+{
+  "name": "gruvbox_light",
+  "colors": {
+    "accent": "#076678",
+    "text_primary": "#3c3836",
+    "text_muted": "#7c6f64",
+    "sidebar_highlight_bg": "#ebdbb2",
+    "sidebar_highlight_fg": "#3c3836",
+    "selected_line_bg": "#f2e5bc",
+    "selection_marker": "#076678",
+    "added_sign": "#79740e",
+    "removed_sign": "#9d0006",
+    "context_sign": "#7c6f64",
+    "hunk_header": "#076678",
+    "meta": "#b57614",
+    "thread_border": "#bdae93",
+    "thread_background": "#f2e5bc",
+    "comment_title": "#79740e",
+    "reply_title": "#8f3f71",
+    "status_help": "#7c6f64",
+    "markdown_heading": "#076678",
+    "markdown_quote_mark": "#a89984",
+    "markdown_quote_text": "#504945",
+    "markdown_bullet": "#b57614",
+    "markdown_fence": "#8f3f71",
+    "markdown_code_fg": "#79740e",
+    "markdown_code_bg": "#fbf1c7"
+  }
+}

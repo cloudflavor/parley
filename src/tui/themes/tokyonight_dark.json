@@ -1,0 +1,29 @@
+{
+  "name": "tokyonight_dark",
+  "colors": {
+    "accent": "#7aa2f7",
+    "text_primary": "#c0caf5",
+    "text_muted": "#7b88b6",
+    "sidebar_highlight_bg": "#2a3557",
+    "sidebar_highlight_fg": "#d5defb",
+    "selected_line_bg": "#2b3250",
+    "selection_marker": "#7dcfff",
+    "added_sign": "#9ece6a",
+    "removed_sign": "#f7768e",
+    "context_sign": "#7aa2f7",
+    "hunk_header": "#7dcfff",
+    "meta": "#e0af68",
+    "thread_border": "#3b4261",
+    "thread_background": "#1a1b26",
+    "comment_title": "#9ece6a",
+    "reply_title": "#bb9af7",
+    "status_help": "#7b88b6",
+    "markdown_heading": "#7aa2f7",
+    "markdown_quote_mark": "#565f89",
+    "markdown_quote_text": "#a9b1d6",
+    "markdown_bullet": "#e0af68",
+    "markdown_fence": "#bb9af7",
+    "markdown_code_fg": "#9ece6a",
+    "markdown_code_bg": "#16161e"
+  }
+}

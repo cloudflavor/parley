@@ -1,0 +1,29 @@
+{
+  "name": "nord",
+  "colors": {
+    "accent": "#88c0d0",
+    "text_primary": "#e5e9f0",
+    "text_muted": "#81a1c1",
+    "sidebar_highlight_bg": "#3b4252",
+    "sidebar_highlight_fg": "#eceff4",
+    "selected_line_bg": "#434c5e",
+    "selection_marker": "#88c0d0",
+    "added_sign": "#a3be8c",
+    "removed_sign": "#bf616a",
+    "context_sign": "#d8dee9",
+    "hunk_header": "#8fbcbb",
+    "meta": "#ebcb8b",
+    "thread_border": "#4c566a",
+    "thread_background": "#2e3440",
+    "comment_title": "#a3be8c",
+    "reply_title": "#b48ead",
+    "status_help": "#81a1c1",
+    "markdown_heading": "#88c0d0",
+    "markdown_quote_mark": "#4c566a",
+    "markdown_quote_text": "#d8dee9",
+    "markdown_bullet": "#ebcb8b",
+    "markdown_fence": "#b48ead",
+    "markdown_code_fg": "#a3be8c",
+    "markdown_code_bg": "#2e3440"
+  }
+}

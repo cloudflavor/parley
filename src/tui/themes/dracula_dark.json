@@ -1,0 +1,29 @@
+{
+  "name": "dracula_dark",
+  "colors": {
+    "accent": "#8be9fd",
+    "text_primary": "#f8f8f2",
+    "text_muted": "#94a3b8",
+    "sidebar_highlight_bg": "#44475a",
+    "sidebar_highlight_fg": "#f8f8f2",
+    "selected_line_bg": "#343746",
+    "selection_marker": "#50fa7b",
+    "added_sign": "#50fa7b",
+    "removed_sign": "#ff5555",
+    "context_sign": "#8be9fd",
+    "hunk_header": "#bd93f9",
+    "meta": "#f1fa8c",
+    "thread_border": "#6272a4",
+    "thread_background": "#282a36",
+    "comment_title": "#50fa7b",
+    "reply_title": "#ff79c6",
+    "status_help": "#94a3b8",
+    "markdown_heading": "#8be9fd",
+    "markdown_quote_mark": "#6272a4",
+    "markdown_quote_text": "#bdc7dd",
+    "markdown_bullet": "#f1fa8c",
+    "markdown_fence": "#ff79c6",
+    "markdown_code_fg": "#50fa7b",
+    "markdown_code_bg": "#21222c"
+  }
+}

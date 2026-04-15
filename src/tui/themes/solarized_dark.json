@@ -1,0 +1,29 @@
+{
+  "name": "solarized_dark",
+  "colors": {
+    "accent": "#2aa198",
+    "text_primary": "#93a1a1",
+    "text_muted": "#657b83",
+    "sidebar_highlight_bg": "#073642",
+    "sidebar_highlight_fg": "#eee8d5",
+    "selected_line_bg": "#0b3a46",
+    "selection_marker": "#2aa198",
+    "added_sign": "#859900",
+    "removed_sign": "#dc322f",
+    "context_sign": "#839496",
+    "hunk_header": "#268bd2",
+    "meta": "#b58900",
+    "thread_border": "#586e75",
+    "thread_background": "#073642",
+    "comment_title": "#859900",
+    "reply_title": "#d33682",
+    "status_help": "#657b83",
+    "markdown_heading": "#268bd2",
+    "markdown_quote_mark": "#586e75",
+    "markdown_quote_text": "#839496",
+    "markdown_bullet": "#b58900",
+    "markdown_fence": "#d33682",
+    "markdown_code_fg": "#859900",
+    "markdown_code_bg": "#002b36"
+  }
+}

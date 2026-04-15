@@ -1,0 +1,29 @@
+{
+  "name": "everforest_light",
+  "colors": {
+    "accent": "#3a94c5",
+    "text_primary": "#5c6a72",
+    "text_muted": "#829181",
+    "sidebar_highlight_bg": "#d8e1d3",
+    "sidebar_highlight_fg": "#3a4a50",
+    "selected_line_bg": "#e4ead9",
+    "selection_marker": "#35a77c",
+    "added_sign": "#8da101",
+    "removed_sign": "#f85552",
+    "context_sign": "#3a94c5",
+    "hunk_header": "#35a77c",
+    "meta": "#dfa000",
+    "thread_border": "#b8c5b2",
+    "thread_background": "#f4f0d9",
+    "comment_title": "#8da101",
+    "reply_title": "#df69ba",
+    "status_help": "#829181",
+    "markdown_heading": "#3a94c5",
+    "markdown_quote_mark": "#a0af9a",
+    "markdown_quote_text": "#5c6a72",
+    "markdown_bullet": "#dfa000",
+    "markdown_fence": "#df69ba",
+    "markdown_code_fg": "#8da101",
+    "markdown_code_bg": "#ece7cf"
+  }
+}

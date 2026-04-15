@@ -1,0 +1,29 @@
+{
+  "name": "nightfox_dark",
+  "colors": {
+    "accent": "#81a1c1",
+    "text_primary": "#cdcecf",
+    "text_muted": "#738091",
+    "sidebar_highlight_bg": "#39404a",
+    "sidebar_highlight_fg": "#e7e8e9",
+    "selected_line_bg": "#2f3742",
+    "selection_marker": "#63cdcf",
+    "added_sign": "#a1cd5e",
+    "removed_sign": "#c94f6d",
+    "context_sign": "#81a1c1",
+    "hunk_header": "#63cdcf",
+    "meta": "#dbc074",
+    "thread_border": "#575860",
+    "thread_background": "#192330",
+    "comment_title": "#a1cd5e",
+    "reply_title": "#9d79d6",
+    "status_help": "#738091",
+    "markdown_heading": "#81a1c1",
+    "markdown_quote_mark": "#4f5966",
+    "markdown_quote_text": "#b8babd",
+    "markdown_bullet": "#dbc074",
+    "markdown_fence": "#9d79d6",
+    "markdown_code_fg": "#a1cd5e",
+    "markdown_code_bg": "#131a24"
+  }
+}

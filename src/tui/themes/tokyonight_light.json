@@ -1,0 +1,29 @@
+{
+  "name": "tokyonight_light",
+  "colors": {
+    "accent": "#34548a",
+    "text_primary": "#3760bf",
+    "text_muted": "#6172b0",
+    "sidebar_highlight_bg": "#d9def5",
+    "sidebar_highlight_fg": "#1d2f6f",
+    "selected_line_bg": "#dde2f8",
+    "selection_marker": "#2e7de9",
+    "added_sign": "#587539",
+    "removed_sign": "#f52a65",
+    "context_sign": "#587539",
+    "hunk_header": "#2e7de9",
+    "meta": "#8c6c3e",
+    "thread_border": "#b7c0e2",
+    "thread_background": "#f2f4ff",
+    "comment_title": "#587539",
+    "reply_title": "#7847bd",
+    "status_help": "#6172b0",
+    "markdown_heading": "#34548a",
+    "markdown_quote_mark": "#7a88c0",
+    "markdown_quote_text": "#3760bf",
+    "markdown_bullet": "#8c6c3e",
+    "markdown_fence": "#7847bd",
+    "markdown_code_fg": "#587539",
+    "markdown_code_bg": "#e9edff"
+  }
+}
