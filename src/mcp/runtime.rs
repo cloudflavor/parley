@@ -117,7 +117,7 @@ async fn handle_request(service: &ReviewService, request: RpcRequest) -> Option<
     let result = match request.method.as_str() {
         "initialize" => Ok(json!({
             "protocolVersion": "2024-11-05",
-            "serverInfo": {"name": "parlar", "version": "0.1.0"},
+            "serverInfo": {"name": "parley", "version": "0.1.0"},
             "capabilities": {"tools": {}}
         })),
         "notifications/initialized" => return None,

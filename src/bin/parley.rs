@@ -2,5 +2,5 @@ use anyhow::Result;
 
 #[tokio::main]
 async fn main() -> Result<()> {
-    parlar::run().await
+    parley::run().await
 }

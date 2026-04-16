@@ -858,7 +858,7 @@ dependencies = [
 ]
 
 [[package]]
-name = "parlar"
+name = "parley"
 version = "0.1.0"
 dependencies = [
  "anyhow",

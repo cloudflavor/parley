@@ -4,7 +4,7 @@ use super::args::{AiProviderArg, AiSessionModeArg, AuthorArg, SideArg, StateArg}
 
 #[derive(Debug, StructOpt)]
 #[structopt(
-    name = "parlar",
+    name = "parley",
     about = "Local AI code review sessions for git changes"
 )]
 pub struct Cli {

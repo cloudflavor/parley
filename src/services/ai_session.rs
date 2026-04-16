@@ -611,7 +611,7 @@ fn codex_output_path(provider: AiProvider) -> Result<Option<std::path::PathBuf>>
     if !matches!(provider, AiProvider::Codex) {
         return Ok(None);
     }
-    let file = format!("parlar-codex-last-{}-{}.txt", now_ms()?, std::process::id());
+    let file = format!("parley-codex-last-{}-{}.txt", now_ms()?, std::process::id());
     Ok(Some(std::env::temp_dir().join(file)))
 }
 

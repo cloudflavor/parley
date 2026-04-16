@@ -68,8 +68,9 @@ pub struct AiConfig {
 }
 
 pub fn default_user_name() -> String {
-    std::env::var("PARLAR_USER_NAME")
+    std::env::var("PARLEY_USER_NAME")
         .ok()
+        .or_else(|| std::env::var("PARLAR_USER_NAME").ok())
         .or_else(|| std::env::var("USER").ok())
         .or_else(|| std::env::var("USERNAME").ok())
         .filter(|value| !value.trim().is_empty())

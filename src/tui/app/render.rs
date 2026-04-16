@@ -300,7 +300,7 @@ fn draw_shortcuts_modal(frame: &mut Frame<'_>, app: &mut TuiApp) {
     let colors = app.theme().colors.clone();
 
     let markdown = "\
-# PARLAR QUICK KEYS\n\
+# PARLEY QUICK KEYS\n\
 > `Esc`, `?`, or `F1` closes this pane.\n\
 \n\
 ## Move\n\
