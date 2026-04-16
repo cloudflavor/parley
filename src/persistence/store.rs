@@ -1,8 +1,12 @@
 use std::path::{Path, PathBuf};
 
+#[cfg(test)]
+use tempfile::tempdir;
 use tokio::fs;
 
 use crate::domain::{config::AppConfig, review::ReviewSession};
+#[cfg(test)]
+use crate::domain::config::{AiConfig, DiffViewMode};
 
 #[derive(Debug, thiserror::Error)]
 pub enum StoreError {
@@ -36,6 +40,7 @@ impl Store {
 
     pub async fn ensure_dirs(&self) -> StoreResult<()> {
         fs::create_dir_all(self.reviews_dir()).await?;
+        fs::create_dir_all(self.logs_dir()).await?;
         Ok(())
     }
 
@@ -122,6 +127,15 @@ impl Store {
         self.root.join("reviews")
     }
 
+    fn logs_dir(&self) -> PathBuf {
+        self.root.join("logs")
+    }
+
+    pub fn review_log_path(&self, review_name: &str) -> StoreResult<PathBuf> {
+        validate_review_name(review_name)?;
+        Ok(self.logs_dir().join(format!("{review_name}.log")))
+    }
+
     fn config_path(&self) -> PathBuf {
         self.root.join("config.toml")
     }
@@ -156,18 +170,11 @@ pub fn validate_review_name(name: &str) -> StoreResult<()> {
 
 #[cfg(test)]
 mod tests {
-    use tempfile::tempdir;
-    use tokio::fs;
-
-    use crate::domain::{config::AppConfig, review::ReviewSession};
-
-    use super::{Store, validate_review_name};
-
     #[tokio::test]
     async fn save_and_load_review_should_round_trip() {
-        let tmp = tempdir().expect("tempdir should exist");
-        let store = Store::from_project_root(tmp.path());
-        let review = ReviewSession::new("r1".into(), 1);
+        let tmp = super::tempdir().expect("tempdir should exist");
+        let store = super::Store::from_project_root(tmp.path());
+        let review = super::ReviewSession::new("r1".into(), 1);
 
         store
             .save_review(&review)
@@ -184,18 +191,21 @@ mod tests {
 
     #[test]
     fn validate_review_name_should_reject_slash() {
-        let result = validate_review_name("bad/name");
+        let result = super::validate_review_name("bad/name");
 
         assert!(result.is_err());
     }
 
     #[tokio::test]
     async fn save_and_load_config_should_round_trip() {
-        let tmp = tempdir().expect("tempdir should exist");
-        let store = Store::from_project_root(tmp.path());
-        let config = AppConfig {
+        let tmp = super::tempdir().expect("tempdir should exist");
+        let store = super::Store::from_project_root(tmp.path());
+        let config = super::AppConfig {
             user_name: "Vic".to_string(),
             theme: "nord".to_string(),
+            diff_view: super::DiffViewMode::Unified,
+            log_level: "debug".to_string(),
+            ai: super::AiConfig::default(),
         };
 
         store
@@ -212,14 +222,14 @@ mod tests {
 
     #[tokio::test]
     async fn load_config_should_support_legacy_name_field() {
-        let tmp = tempdir().expect("tempdir should exist");
-        let store = Store::from_project_root(tmp.path());
+        let tmp = super::tempdir().expect("tempdir should exist");
+        let store = super::Store::from_project_root(tmp.path());
         store
             .ensure_dirs()
             .await
             .expect("store dirs should be created");
 
-        fs::write(
+        super::fs::write(
             tmp.path().join(".parlar").join("config.toml"),
             "name = \"Vic\"\ntheme = \"nord\"\n",
         )
@@ -233,5 +243,7 @@ mod tests {
 
         assert_eq!(loaded.user_name, "Vic");
         assert_eq!(loaded.theme, "nord");
+        assert_eq!(loaded.diff_view, super::DiffViewMode::SideBySide);
+        assert_eq!(loaded.log_level, "info");
     }
 }

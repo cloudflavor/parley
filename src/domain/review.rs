@@ -20,6 +20,7 @@ pub enum Author {
 #[serde(rename_all = "snake_case")]
 pub enum CommentStatus {
     Open,
+    Pending,
     Addressed,
 }
 
@@ -109,6 +110,19 @@ impl ReviewSession {
         }
 
         if matches!(next, ReviewState::Done) {
+            let unresolved_threads = self
+                .comments
+                .iter()
+                .filter(|comment| !matches!(comment.status, CommentStatus::Addressed))
+                .count();
+            if unresolved_threads > 0 {
+                return Err(format!(
+                    "cannot set review to done: {unresolved_threads} unresolved thread(s)"
+                ));
+            }
+        }
+
+        if matches!(next, ReviewState::Done) {
             self.done_at_ms = Some(now_ms);
         }
         if matches!(self.state, ReviewState::Done) && !matches!(next, ReviewState::Done) {
@@ -139,6 +153,10 @@ impl ReviewSession {
         };
 
         self.comments.push(comment);
+        if matches!(self.state, ReviewState::Done) {
+            self.state = ReviewState::Pending;
+            self.done_at_ms = None;
+        }
         if matches!(self.state, ReviewState::WaitingForResponse) {
             self.state = ReviewState::Pending;
         }
@@ -169,6 +187,14 @@ impl ReviewSession {
             created_at_ms: now_ms,
         });
         comment.updated_at_ms = now_ms;
+        if author != comment.author {
+            comment.status = CommentStatus::Pending;
+            comment.addressed_at_ms = None;
+            if matches!(self.state, ReviewState::Done) {
+                self.state = ReviewState::Pending;
+                self.done_at_ms = None;
+            }
+        }
         if matches!(author, Author::Ai) && matches!(self.state, ReviewState::Pending) {
             self.state = ReviewState::WaitingForResponse;
         }
@@ -191,14 +217,15 @@ impl ReviewSession {
 
         match status {
             CommentStatus::Addressed => {
-                let can_address = comment.replies.iter().any(|reply| reply.author == actor);
-                if !can_address {
-                    return Err("only a replier can mark a comment addressed".to_string());
+                if comment.author != actor {
+                    return Err(
+                        "only the original commenter can mark a comment addressed".to_string()
+                    );
                 }
             }
-            CommentStatus::Open => {
+            CommentStatus::Open | CommentStatus::Pending => {
                 if comment.author != actor {
-                    return Err("only the original commenter can reopen a comment".to_string());
+                    return Err("only the original commenter can change thread status".to_string());
                 }
             }
         }
@@ -210,6 +237,13 @@ impl ReviewSession {
         } else {
             None
         };
+
+        if matches!(status, CommentStatus::Open | CommentStatus::Pending)
+            && matches!(self.state, ReviewState::Done)
+        {
+            self.state = ReviewState::Pending;
+            self.done_at_ms = None;
+        }
 
         if matches!(status, CommentStatus::Addressed) && matches!(self.state, ReviewState::Pending)
         {
@@ -252,6 +286,103 @@ mod tests {
     }
 
     #[test]
+    fn set_state_should_reject_done_to_pending() {
+        let mut session = ReviewSession::new("r1".into(), 1);
+        session
+            .set_state(ReviewState::Pending, 2)
+            .expect("state should move to pending");
+        session
+            .set_state(ReviewState::Done, 3)
+            .expect("state should move to done");
+
+        let result = session.set_state(ReviewState::Pending, 4);
+
+        assert!(result.is_err());
+        assert_eq!(session.state, ReviewState::Done);
+        assert_eq!(session.done_at_ms, Some(3));
+    }
+
+    #[test]
+    fn set_state_should_reject_done_with_unresolved_threads() {
+        let mut session = ReviewSession::new("r1".into(), 1);
+        session
+            .set_state(ReviewState::Pending, 2)
+            .expect("state should move to pending");
+        session.add_comment(
+            NewLineComment {
+                file_path: "src/lib.rs".into(),
+                old_line: None,
+                new_line: Some(1),
+                side: DiffSide::Right,
+                body: "needs refactor".into(),
+                author: Author::User,
+            },
+            3,
+        );
+
+        let result = session.set_state(ReviewState::Done, 4);
+
+        assert!(result.is_err());
+        assert_eq!(session.state, ReviewState::Pending);
+        assert_eq!(session.done_at_ms, None);
+    }
+
+    #[test]
+    fn set_state_should_allow_done_when_all_threads_are_addressed() {
+        let mut session = ReviewSession::new("r1".into(), 1);
+        session
+            .set_state(ReviewState::Pending, 2)
+            .expect("state should move to pending");
+        let comment_id = session.add_comment(
+            NewLineComment {
+                file_path: "src/lib.rs".into(),
+                old_line: None,
+                new_line: Some(1),
+                side: DiffSide::Right,
+                body: "needs refactor".into(),
+                author: Author::User,
+            },
+            3,
+        );
+        session
+            .set_comment_status(comment_id, CommentStatus::Addressed, Author::User, 4)
+            .expect("status should update");
+
+        let result = session.set_state(ReviewState::Done, 5);
+
+        assert!(result.is_ok());
+        assert_eq!(session.state, ReviewState::Done);
+        assert_eq!(session.done_at_ms, Some(5));
+    }
+
+    #[test]
+    fn add_comment_should_reopen_done_review() {
+        let mut session = ReviewSession::new("r1".into(), 1);
+        session
+            .set_state(ReviewState::Pending, 2)
+            .expect("state should move to pending");
+        session
+            .set_state(ReviewState::Done, 3)
+            .expect("state should move to done");
+
+        session.add_comment(
+            NewLineComment {
+                file_path: "src/lib.rs".into(),
+                old_line: None,
+                new_line: Some(1),
+                side: DiffSide::Right,
+                body: "new thread".into(),
+                author: Author::User,
+            },
+            4,
+        );
+
+        assert_eq!(session.state, ReviewState::Pending);
+        assert_eq!(session.done_at_ms, None);
+        assert_eq!(session.comments.len(), 1);
+    }
+
+    #[test]
     fn add_reply_should_move_pending_to_waiting_for_response_for_ai_author() {
         let mut session = ReviewSession::new("r1".into(), 1);
         session
@@ -272,6 +403,7 @@ mod tests {
         let reply = session.add_reply(comment_id, Author::Ai, "fixed".into(), 4);
 
         assert!(reply.is_ok());
+        assert_eq!(session.comments[0].status, CommentStatus::Pending);
         assert_eq!(session.state, ReviewState::WaitingForResponse);
     }
 
@@ -294,7 +426,7 @@ mod tests {
             .expect("ai reply should be added");
 
         session
-            .set_comment_status(comment_id, CommentStatus::Addressed, Author::Ai, 5)
+            .set_comment_status(comment_id, CommentStatus::Addressed, Author::User, 5)
             .expect("status should update");
 
         assert_eq!(session.comments[0].status, CommentStatus::Addressed);
@@ -302,7 +434,7 @@ mod tests {
     }
 
     #[test]
-    fn set_comment_status_should_require_replier_to_address() {
+    fn set_comment_status_should_require_op_to_address() {
         let mut session = ReviewSession::new("r1".into(), 1);
         let comment_id = session.add_comment(
             NewLineComment {
@@ -341,12 +473,35 @@ mod tests {
             .add_reply(comment_id, Author::Ai, "fixed".into(), 3)
             .expect("reply should be added");
         session
-            .set_comment_status(comment_id, CommentStatus::Addressed, Author::Ai, 4)
-            .expect("ai replier can address");
+            .set_comment_status(comment_id, CommentStatus::Addressed, Author::User, 4)
+            .expect("op can address");
 
         let result = session.set_comment_status(comment_id, CommentStatus::Open, Author::Ai, 5);
 
         assert!(result.is_err());
         assert_eq!(session.comments[0].status, CommentStatus::Addressed);
+    }
+
+    #[test]
+    fn add_reply_should_not_auto_address_comment() {
+        let mut session = ReviewSession::new("r1".into(), 1);
+        let comment_id = session.add_comment(
+            NewLineComment {
+                file_path: "src/lib.rs".into(),
+                old_line: None,
+                new_line: Some(1),
+                side: DiffSide::Right,
+                body: "needs refactor".into(),
+                author: Author::User,
+            },
+            2,
+        );
+
+        session
+            .add_reply(comment_id, Author::Ai, "done".into(), 3)
+            .expect("reply should be added");
+
+        assert_eq!(session.comments[0].status, CommentStatus::Pending);
+        assert_eq!(session.comments[0].addressed_at_ms, None);
     }
 }

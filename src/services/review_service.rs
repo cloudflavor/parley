@@ -1,4 +1,7 @@
-use std::time::{SystemTime, UNIX_EPOCH};
+use std::{
+    path::PathBuf,
+    time::{SystemTime, UNIX_EPOCH},
+};
 
 use anyhow::{Context, Result, anyhow};
 
@@ -79,6 +82,12 @@ impl ReviewService {
             .save_config(config)
             .await
             .context("failed to save parler config")
+    }
+
+    pub fn review_log_path(&self, review_name: &str) -> Result<PathBuf> {
+        self.store
+            .review_log_path(review_name)
+            .with_context(|| format!("failed to resolve log path for review {review_name}"))
     }
 
     pub async fn set_state(&self, name: &str, next: ReviewState) -> Result<ReviewSession> {

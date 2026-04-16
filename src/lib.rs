@@ -12,8 +12,12 @@ use structopt::StructOpt;
 use crate::{
     cli::{Cli, Command, ReviewCommand},
     domain::review::ReviewState,
+    git::review_name::resolve_tui_review_name,
     persistence::store::Store,
-    services::review_service::{AddCommentInput, AddReplyInput, ReviewService},
+    services::{
+        ai_session::{RunAiSessionInput, run_ai_session},
+        review_service::{AddCommentInput, AddReplyInput, ReviewService},
+    },
 };
 
 pub async fn run() -> Result<()> {
@@ -27,6 +31,7 @@ pub async fn run() -> Result<()> {
 
     match cli.command {
         Command::Tui { review, theme } => {
+            let review = resolve_default_review_for_tui(&service, review.as_deref()).await?;
             tui::run_tui(service, review, theme).await?;
         }
         Command::Review { command } => {
@@ -40,11 +45,36 @@ pub async fn run() -> Result<()> {
     Ok(())
 }
 
+async fn resolve_default_review_for_tui(
+    service: &ReviewService,
+    explicit: Option<&str>,
+) -> Result<String> {
+    let resolved = resolve_tui_review_name(explicit)?;
+    if explicit.is_some() {
+        return Ok(resolved);
+    }
+
+    if service.load_review(&resolved).await.is_ok() {
+        return Ok(resolved);
+    }
+
+    let existing = service.list_reviews().await?;
+    if existing.len() == 1 {
+        return Ok(existing[0].clone());
+    }
+
+    Ok(resolved)
+}
+
 async fn handle_review_command(command: ReviewCommand, service: &ReviewService) -> Result<()> {
     match command {
         ReviewCommand::Create { name } => {
             let review = service.create_review(&name).await?;
             println!("created review {} in {:?}", review.name, review.state);
+        }
+        ReviewCommand::Start { name } => {
+            let review = service.set_state(&name, ReviewState::Pending).await?;
+            println!("review {} started in {:?}", review.name, review.state);
         }
         ReviewCommand::List => {
             for review_name in service.list_reviews().await? {
@@ -65,6 +95,7 @@ async fn handle_review_command(command: ReviewCommand, service: &ReviewService) 
                         comment.id,
                         match comment.status {
                             crate::domain::review::CommentStatus::Open => "open",
+                            crate::domain::review::CommentStatus::Pending => "pending",
                             crate::domain::review::CommentStatus::Addressed => "addressed",
                         },
                         comment
@@ -149,6 +180,28 @@ async fn handle_review_command(command: ReviewCommand, service: &ReviewService) 
         ReviewCommand::Done { name } => {
             service.set_state(&name, ReviewState::Done).await?;
             println!("review {name} marked done");
+        }
+        ReviewCommand::Resolve { name } => {
+            service.set_state(&name, ReviewState::Done).await?;
+            println!("review {name} resolved");
+        }
+        ReviewCommand::RunAiSession {
+            name,
+            provider,
+            mode,
+            comment_ids,
+        } => {
+            let result = run_ai_session(
+                service,
+                RunAiSessionInput {
+                    review_name: name,
+                    provider: provider.0,
+                    comment_ids,
+                    mode: mode.0,
+                },
+            )
+            .await?;
+            println!("{}", serde_json::to_string_pretty(&result)?);
         }
     }
 

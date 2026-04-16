@@ -1,14 +1,18 @@
 use anyhow::{Context, Result, anyhow};
 use git2::{DiffFormat, DiffOptions, Repository};
+use tracing::{debug, info};
 
 use crate::domain::diff::{DiffDocument, DiffFile, DiffHunk, DiffLine, DiffLineKind};
 
 pub async fn load_git_diff_head() -> Result<DiffDocument> {
+    debug!("loading git diff against HEAD/index/worktree");
     let text = tokio::task::spawn_blocking(load_diff_text)
         .await
         .context("failed to join git2 diff worker")??;
 
-    parse_unified_diff(&text)
+    let document = parse_unified_diff(&text)?;
+    info!(files = document.files.len(), "git diff loaded");
+    Ok(document)
 }
 
 fn load_diff_text() -> Result<String> {
@@ -104,17 +108,27 @@ pub fn parse_unified_diff(text: &str) -> Result<DiffDocument> {
             continue;
         }
 
-        if let Some(rest) = line.strip_prefix("+++ b/") {
-            if let Some(file) = current_file.as_mut() {
-                file.path = rest.to_string();
-                file.header_lines.push(line.to_string());
-            }
-            continue;
-        }
-
         if let Some(file) = current_file.as_mut()
             && current_hunk.is_none()
         {
+            if line.starts_with("+++ ") {
+                if let Some(path) = parse_patch_path(line, "+++ ") {
+                    file.path = path;
+                }
+                file.header_lines.push(line.to_string());
+                continue;
+            }
+
+            if line.starts_with("--- ") {
+                if file.path.is_empty()
+                    && let Some(path) = parse_patch_path(line, "--- ")
+                {
+                    file.path = path;
+                }
+                file.header_lines.push(line.to_string());
+                continue;
+            }
+
             file.header_lines.push(line.to_string());
             continue;
         }
@@ -202,6 +216,23 @@ fn parse_range(value: &str) -> Result<(u32, u32)> {
     }
 }
 
+fn parse_patch_path(line: &str, marker: &str) -> Option<String> {
+    let raw = line.strip_prefix(marker)?.trim();
+    if raw == "/dev/null" {
+        return None;
+    }
+
+    let unquoted = raw
+        .strip_prefix('"')
+        .and_then(|v| v.strip_suffix('"'))
+        .unwrap_or(raw);
+    let normalized = unquoted
+        .strip_prefix("a/")
+        .or_else(|| unquoted.strip_prefix("b/"))
+        .unwrap_or(unquoted);
+    Some(normalized.to_string())
+}
+
 #[cfg(test)]
 mod tests {
     use crate::domain::diff::DiffLineKind;
@@ -231,5 +262,25 @@ mod tests {
         assert_eq!(hunk.lines[3].kind, DiffLineKind::Added);
         assert_eq!(hunk.lines[3].old_line, None);
         assert_eq!(hunk.lines[3].new_line, Some(2));
+    }
+
+    #[test]
+    fn parse_unified_diff_should_use_old_path_for_deleted_files() {
+        let input = "diff --git a/src/old.rs b/src/old.rs\nindex 123..456 100644\n--- a/src/old.rs\n+++ /dev/null\n@@ -1 +0,0 @@\n-fn old() {}\n";
+
+        let doc = parse_unified_diff(input).expect("diff should parse");
+
+        assert_eq!(doc.files.len(), 1);
+        assert_eq!(doc.files[0].path, "src/old.rs");
+    }
+
+    #[test]
+    fn parse_unified_diff_should_parse_quoted_paths() {
+        let input = "diff --git \"a/src/with space.rs\" \"b/src/with space.rs\"\nindex 123..456 100644\n--- \"a/src/with space.rs\"\n+++ \"b/src/with space.rs\"\n@@ -1 +1 @@\n-fn before() {}\n+fn after() {}\n";
+
+        let doc = parse_unified_diff(input).expect("diff should parse");
+
+        assert_eq!(doc.files.len(), 1);
+        assert_eq!(doc.files[0].path, "src/with space.rs");
     }
 }
