@@ -1,0 +1,150 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Parley Docs</title>
+    <meta
+      name="description"
+      content="Parley documentation: quickstart, review workflow, and MCP integration."
+    />
+    <style>
+      :root {
+        --bg: #f5f8fc;
+        --bg-panel: #ffffff;
+        --text: #1b2430;
+        --muted: #4d5f78;
+        --link: #1259c3;
+        --line: #cad8ea;
+      }
+      :root[data-theme="dark"] {
+        color-scheme: dark;
+        --bg: #0b1016;
+        --bg-panel: #121a24;
+        --text: #d9e2ef;
+        --muted: #91a2bb;
+        --link: #69b0ff;
+        --line: #243246;
+      }
+
+      * {
+        box-sizing: border-box;
+      }
+
+      body {
+        margin: 0;
+        font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono",
+          "Courier New", monospace;
+        background: radial-gradient(circle at top right, #132338 0%, var(--bg) 45%);
+        color: var(--text);
+      }
+
+      main {
+        max-width: 900px;
+        margin: 0 auto;
+        padding: 3rem 1.25rem 4rem;
+      }
+
+      h1 {
+        margin: 0 0 0.75rem 0;
+        font-size: 2rem;
+      }
+
+      p {
+        color: var(--muted);
+        line-height: 1.5;
+      }
+
+      .grid {
+        display: grid;
+        grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+        gap: 0.85rem;
+        margin-top: 1.5rem;
+      }
+
+      .toolbar {
+        display: flex;
+        justify-content: flex-end;
+        margin-bottom: 1rem;
+      }
+
+      button.theme {
+        border: 1px solid var(--line);
+        background: var(--bg-panel);
+        color: var(--text);
+        border-radius: 8px;
+        padding: 0.35rem 0.6rem;
+        cursor: pointer;
+      }
+
+      a.card {
+        display: block;
+        text-decoration: none;
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        padding: 1rem;
+        background: var(--bg-panel);
+      }
+
+      a.card h2 {
+        margin: 0 0 0.45rem 0;
+        font-size: 1rem;
+        color: var(--link);
+      }
+
+      a.card p {
+        margin: 0;
+        font-size: 0.92rem;
+      }
+
+      footer {
+        margin-top: 2rem;
+        color: var(--muted);
+        font-size: 0.85rem;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <div class="toolbar">
+        <button class="theme" id="theme-toggle" type="button">theme: dark</button>
+      </div>
+      <h1>Parley Docs</h1>
+      <p>
+        Parley allows you to review your AI agents changes fast.
+      </p>
+
+      <div class="grid">
+        <a class="card" href="/docs/quickstart">
+          <h2>Quickstart</h2>
+          <p>Create a review, launch the TUI, and navigate core controls.</p>
+        </a>
+        <a class="card" href="/docs/review-workflow">
+          <h2>Review Workflow</h2>
+          <p>Thread lifecycle, review states, and expected author/AI interaction flow.</p>
+        </a>
+        <a class="card" href="/docs/mcp">
+          <h2>MCP Integration</h2>
+          <p>JSON-RPC over stdio transport and available review automation tools.</p>
+        </a>
+      </div>
+
+      <footer>Publish target: <code>parley.cloudflavor.io</code></footer>
+    </main>
+    <script>
+      const KEY = "parley-docs-theme";
+      const root = document.documentElement;
+      const button = document.getElementById("theme-toggle");
+      const saved = localStorage.getItem(KEY);
+      const initial = saved === "light" || saved === "dark" ? saved : "dark";
+      root.dataset.theme = initial;
+      button.textContent = `theme: ${initial === "dark" ? "light" : "dark"}`;
+      button.addEventListener("click", () => {
+        const next = root.dataset.theme === "dark" ? "light" : "dark";
+        root.dataset.theme = next;
+        localStorage.setItem(KEY, next);
+        button.textContent = `theme: ${next === "dark" ? "light" : "dark"}`;
+      });
+    </script>
+  </body>
+</html>

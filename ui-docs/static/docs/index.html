@@ -1,0 +1,208 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Parley Docs</title>
+    <link
+      id="hljs-theme"
+      rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.10.0/styles/github-dark.min.css"
+    />
+    <style>
+      :root {
+        --bg: #f7fafd;
+        --panel: #ffffff;
+        --text: #1b2430;
+        --muted: #4f627c;
+        --link: #0e57c7;
+        --line: #cfdded;
+      }
+      :root[data-theme="dark"] {
+        color-scheme: dark;
+        --bg: #0a0f15;
+        --panel: #111925;
+        --text: #d8e3f2;
+        --muted: #8ea2bd;
+        --link: #6fb3ff;
+        --line: #24364f;
+      }
+      * {
+        box-sizing: border-box;
+      }
+      body {
+        margin: 0;
+        background: var(--bg);
+        color: var(--text);
+        font-family: "IBM Plex Sans", Inter, system-ui, -apple-system, Segoe UI, Roboto, sans-serif;
+      }
+      .layout {
+        display: grid;
+        grid-template-columns: 260px 1fr;
+        min-height: 100vh;
+      }
+      aside {
+        border-right: 1px solid var(--line);
+        padding: 1rem 0.9rem;
+        background: var(--panel);
+      }
+      main {
+        padding: 1.2rem 1.5rem 2.2rem;
+        max-width: 920px;
+      }
+      .brand {
+        font-weight: 700;
+        margin-bottom: 1rem;
+      }
+      .nav a {
+        display: block;
+        padding: 0.45rem 0.5rem;
+        border-radius: 8px;
+        color: var(--muted);
+        text-decoration: none;
+      }
+      .nav a.active {
+        background: color-mix(in srgb, var(--link) 12%, transparent);
+        color: var(--text);
+      }
+      .toolbar {
+        display: flex;
+        justify-content: space-between;
+        align-items: center;
+        margin-bottom: 1rem;
+      }
+      .toolbar a {
+        color: var(--link);
+        text-decoration: none;
+      }
+      button {
+        border: 1px solid var(--line);
+        background: var(--panel);
+        color: var(--text);
+        border-radius: 8px;
+        padding: 0.35rem 0.65rem;
+        cursor: pointer;
+      }
+      article {
+        line-height: 1.6;
+      }
+      article h1,
+      article h2,
+      article h3 {
+        line-height: 1.2;
+      }
+      article a {
+        color: var(--link);
+      }
+      article code {
+        font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+          "Liberation Mono", "Courier New", monospace;
+      }
+      article pre {
+        border-radius: 10px;
+        overflow: auto;
+      }
+      @media (max-width: 840px) {
+        .layout {
+          grid-template-columns: 1fr;
+        }
+        aside {
+          border-right: 0;
+          border-bottom: 1px solid var(--line);
+        }
+      }
+    </style>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.10.0/highlight.min.js"></script>
+  </head>
+  <body>
+    <div class="layout">
+      <aside>
+        <div class="brand">PARLEY DOCS</div>
+        <nav class="nav" id="nav">
+          <a data-slug="overview" href="/docs/overview">Overview</a>
+          <a data-slug="quickstart" href="/docs/quickstart">Quickstart</a>
+          <a data-slug="review-workflow" href="/docs/review-workflow">Review Workflow</a>
+          <a data-slug="mcp" href="/docs/mcp">MCP</a>
+        </nav>
+      </aside>
+      <main>
+        <div class="toolbar">
+          <a href="/">← Docs home</a>
+          <button id="theme-toggle" type="button">theme: light</button>
+        </div>
+        <article id="content">Loading...</article>
+      </main>
+    </div>
+    <script>
+      const THEME_KEY = "parley-docs-theme";
+      const root = document.documentElement;
+      const hljsTheme = document.getElementById("hljs-theme");
+      const button = document.getElementById("theme-toggle");
+      const content = document.getElementById("content");
+      const nav = document.getElementById("nav");
+      let docs = [];
+
+      function currentSlug() {
+        const prefix = "/docs/";
+        if (!location.pathname.startsWith(prefix)) return "overview";
+        const rest = location.pathname.slice(prefix.length).replace(/\/+$/, "");
+        if (!rest || rest === "index") return "overview";
+        return rest;
+      }
+
+      function setTheme(theme) {
+        root.dataset.theme = theme;
+        hljsTheme.href =
+          theme === "dark"
+            ? "https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.10.0/styles/github-dark.min.css"
+            : "https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.10.0/styles/github.min.css";
+        button.textContent = `theme: ${theme === "dark" ? "light" : "dark"}`;
+      }
+
+      function renderNav(slug) {
+        for (const link of nav.querySelectorAll("a[data-slug]")) {
+          link.classList.toggle("active", link.dataset.slug === slug);
+        }
+      }
+
+      async function loadGeneratedDocs() {
+        const response = await fetch("/generated/docs.json", { cache: "no-store" });
+        if (!response.ok) {
+          throw new Error("failed to load /generated/docs.json");
+        }
+        docs = await response.json();
+      }
+
+      function renderDoc(slug) {
+        const doc = docs.find((entry) => entry.slug === slug);
+        if (!doc) {
+          content.innerHTML = `<h1>Not found</h1><p>No document for <code>${slug}</code>.</p>`;
+          return;
+        }
+        content.innerHTML = doc.html;
+        for (const block of content.querySelectorAll("pre code")) {
+          hljs.highlightElement(block);
+        }
+      }
+
+      const saved = localStorage.getItem(THEME_KEY);
+      setTheme(saved === "light" || saved === "dark" ? saved : "dark");
+
+      button.addEventListener("click", () => {
+        const next = root.dataset.theme === "dark" ? "light" : "dark";
+        setTheme(next);
+        localStorage.setItem(THEME_KEY, next);
+      });
+
+      loadGeneratedDocs()
+        .then(() => {
+          const slug = currentSlug();
+          renderNav(slug);
+          renderDoc(slug);
+        })
+        .catch((error) => {
+          content.innerHTML = `<h1>Error</h1><p>${error.message}</p>`;
+        });
+    </script>
+  </body>
+</html>

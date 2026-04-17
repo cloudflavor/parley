@@ -1,0 +1,87 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Parley Docs · Quickstart</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        --bg: #0a0e14;
+        --panel: #101722;
+        --text: #d7e2f0;
+        --muted: #8ea0b8;
+        --line: #223149;
+      }
+      body {
+        margin: 0;
+        background: linear-gradient(180deg, #0a0e14 0%, #0c121b 100%);
+        color: var(--text);
+        font-family: "IBM Plex Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas,
+          "Liberation Mono", "Courier New", monospace;
+      }
+      main {
+        max-width: 900px;
+        margin: 0 auto;
+        padding: 2rem 1.2rem 3rem;
+      }
+      h1,
+      h2 {
+        margin-top: 0;
+      }
+      p,
+      li {
+        color: var(--muted);
+        line-height: 1.55;
+      }
+      code,
+      pre {
+        font-family: inherit;
+      }
+      pre {
+        background: var(--panel);
+        border: 1px solid var(--line);
+        border-radius: 10px;
+        padding: 0.9rem;
+        overflow: auto;
+      }
+      a {
+        color: #7eb8ff;
+      }
+      .top {
+        margin-bottom: 1.5rem;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <p class="top"><a href="/">← Back to docs home</a></p>
+      <h1>Quickstart</h1>
+      <p>Get a review running locally in less than five minutes.</p>
+
+      <h2>1. Build</h2>
+      <pre><code>cargo build --release</code></pre>
+
+      <h2>2. Create a review</h2>
+      <pre><code>./target/release/parley review create my-review
+./target/release/parley review start my-review</code></pre>
+
+      <h2>3. Open the TUI</h2>
+      <pre><code>./target/release/parley tui --review my-review</code></pre>
+
+      <h2>4. Core keys</h2>
+      <ul>
+        <li><code>h/l</code> file prev/next</li>
+        <li><code>j/k</code> line down/up</li>
+        <li><code>m</code> or <code>c</code> create thread</li>
+        <li><code>r</code> reply to thread</li>
+        <li><code>a/o</code> set thread addressed/open</li>
+        <li><code>?</code> open in-app shortcuts reference</li>
+      </ul>
+
+      <h2>5. Refresh after code changes</h2>
+      <pre><code>R</code></pre>
+      <p>Use <code>R</code> inside the TUI to reload review metadata and git diff.</p>
+    </main>
+  </body>
+</html>

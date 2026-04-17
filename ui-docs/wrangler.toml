@@ -1,0 +1,24 @@
+name = "parley-docs"
+main = "src/worker.js"
+compatibility_date = "2026-03-17"
+upload_source_maps = true
+
+[[routes]]
+pattern = "parley.cloudflavor.io"
+custom_domain = true
+
+[assets]
+binding = "ASSETS"
+directory = "static"
+
+[build]
+command = "node scripts-build-docs.mjs"
+watch_dir = [
+  "../docs",
+  "scripts-build-docs.mjs",
+  "static/docs/index.html",
+  "static/index.html",
+]
+
+[observability]
+enabled = true

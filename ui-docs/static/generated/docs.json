@@ -1,0 +1,139 @@
+[
+  {
+    "slug": "overview",
+    "title": "Parley Overview",
+    "summary": "Parley allows you to review your AI agents changes fast.",
+    "headings": [
+      {
+        "depth": 1,
+        "text": "Parley Overview",
+        "id": "parley-overview"
+      },
+      {
+        "depth": 2,
+        "text": "Core ideas",
+        "id": "core-ideas"
+      },
+      {
+        "depth": 2,
+        "text": "Session lifecycle",
+        "id": "session-lifecycle"
+      },
+      {
+        "depth": 2,
+        "text": "Thread states",
+        "id": "thread-states"
+      },
+      {
+        "depth": 2,
+        "text": "Review states",
+        "id": "review-states"
+      }
+    ],
+    "html": "<h1 id=\"parley-overview\">Parley Overview</h1>\n<p>Parley allows you to review your AI agents changes fast.</p>\n<p>Parley is a terminal-first code review tool for local git changes.</p>\n<p>It keeps review discussion structured around threads on diff lines, with explicit thread states and review-level state transitions.</p>\n<h2 id=\"core-ideas\">Core ideas</h2>\n<ul><li>**Threaded review**: comments are anchored to file + line context.</li><li>**Stateful workflow**: each thread and review has a lifecycle.</li><li>**Keyboard-driven TUI**: fast navigation and thread handling without leaving the terminal.</li><li>**Optional AI runs**: generate threaded replies/refactors while keeping human state control.</li></ul>\n<h2 id=\"session-lifecycle\">Session lifecycle</h2>\n<pre><code class=\"language-bash\">parley review create my-review\nparley review start my-review\nparley tui --review my-review</code></pre>\n<h2 id=\"thread-states\">Thread states</h2>\n<ul><li><code>open</code></li><li><code>pending</code></li><li><code>addressed</code></li></ul>\n<h2 id=\"review-states\">Review states</h2>\n<ul><li><code>draft</code></li><li><code>pending</code></li><li><code>waiting_for_response</code></li><li><code>done</code></li></ul>"
+  },
+  {
+    "slug": "quickstart",
+    "title": "Quickstart",
+    "summary": "```bash",
+    "headings": [
+      {
+        "depth": 1,
+        "text": "Quickstart",
+        "id": "quickstart"
+      },
+      {
+        "depth": 2,
+        "text": "Build",
+        "id": "build"
+      },
+      {
+        "depth": 2,
+        "text": "Create and start a review",
+        "id": "create-and-start-a-review"
+      },
+      {
+        "depth": 2,
+        "text": "Open the TUI",
+        "id": "open-the-tui"
+      },
+      {
+        "depth": 2,
+        "text": "Essential keys",
+        "id": "essential-keys"
+      },
+      {
+        "depth": 2,
+        "text": "Refresh after edits",
+        "id": "refresh-after-edits"
+      }
+    ],
+    "html": "<h1 id=\"quickstart\">Quickstart</h1>\n<h2 id=\"build\">Build</h2>\n<pre><code class=\"language-bash\">cargo build --release</code></pre>\n<h2 id=\"create-and-start-a-review\">Create and start a review</h2>\n<pre><code class=\"language-bash\">./target/release/parley review create my-review\n./target/release/parley review start my-review</code></pre>\n<h2 id=\"open-the-tui\">Open the TUI</h2>\n<pre><code class=\"language-bash\">./target/release/parley tui --review my-review</code></pre>\n<h2 id=\"essential-keys\">Essential keys</h2>\n<ul><li><code>h/l</code>: previous/next file</li><li><code>j/k</code>: down/up line</li><li><code>m</code> or <code>c</code>: create comment on selected line</li><li><code>r</code>: reply to selected thread</li><li><code>a/o</code>: mark thread addressed/open</li><li><code>/query</code>: set search query</li><li><code>n/p</code>: next/previous search result</li><li><code>N/P</code>: next/previous thread</li><li><code>?</code>: open shortcuts help</li></ul>\n<h2 id=\"refresh-after-edits\">Refresh after edits</h2>\n<p>Inside TUI:</p>\n<pre><code class=\"language-text\">R</code></pre>\n<p>This reloads review metadata and current git diff.</p>"
+  },
+  {
+    "slug": "review-workflow",
+    "title": "Review Workflow",
+    "summary": "Use line-level comments for actionable feedback. Keep one issue per thread so resolution is obvious.",
+    "headings": [
+      {
+        "depth": 1,
+        "text": "Review Workflow",
+        "id": "review-workflow"
+      },
+      {
+        "depth": 2,
+        "text": "1. Create threads on concrete lines",
+        "id": "1-create-threads-on-concrete-lines"
+      },
+      {
+        "depth": 2,
+        "text": "2. Drive thread state deliberately",
+        "id": "2-drive-thread-state-deliberately"
+      },
+      {
+        "depth": 2,
+        "text": "3. Keep review state aligned with thread state",
+        "id": "3-keep-review-state-aligned-with-thread-state"
+      },
+      {
+        "depth": 2,
+        "text": "4. Add AI output as replies, not as implicit state changes",
+        "id": "4-add-ai-output-as-replies-not-as-implicit-state-changes"
+      },
+      {
+        "depth": 2,
+        "text": "5. Refresh often",
+        "id": "5-refresh-often"
+      }
+    ],
+    "html": "<h1 id=\"review-workflow\">Review Workflow</h1>\n<h2 id=\"1-create-threads-on-concrete-lines\">1. Create threads on concrete lines</h2>\n<p>Use line-level comments for actionable feedback. Keep one issue per thread so resolution is obvious.</p>\n<h2 id=\"2-drive-thread-state-deliberately\">2. Drive thread state deliberately</h2>\n<ul><li>Use <code>open</code> when work is needed.</li><li>Use <code>pending</code> when waiting on response or follow-up.</li><li>Use <code>addressed</code> once the original concern is resolved.</li></ul>\n<h2 id=\"3-keep-review-state-aligned-with-thread-state\">3. Keep review state aligned with thread state</h2>\n<p>Use review state transitions to reflect real project status:</p>\n<ul><li><code>pending</code>: active work</li><li><code>waiting_for_response</code>: blocked on counterpart response</li><li><code>done</code>: all threads resolved</li></ul>\n<h2 id=\"4-add-ai-output-as-replies-not-as-implicit-state-changes\">4. Add AI output as replies, not as implicit state changes</h2>\n<p>AI runs can produce candidate responses/refactors, but thread/review states should still be explicitly managed by the reviewer/author.</p>\n<h2 id=\"5-refresh-often\">5. Refresh often</h2>\n<p>After code edits or automation runs, refresh in TUI so thread anchors and diff context stay current.</p>"
+  },
+  {
+    "slug": "mcp",
+    "title": "MCP Integration",
+    "summary": "Parley exposes an MCP-compatible JSON-RPC interface over stdio.",
+    "headings": [
+      {
+        "depth": 1,
+        "text": "MCP Integration",
+        "id": "mcp-integration"
+      },
+      {
+        "depth": 2,
+        "text": "Transport",
+        "id": "transport"
+      },
+      {
+        "depth": 2,
+        "text": "Typical tools",
+        "id": "typical-tools"
+      },
+      {
+        "depth": 2,
+        "text": "Notes",
+        "id": "notes"
+      }
+    ],
+    "html": "<h1 id=\"mcp-integration\">MCP Integration</h1>\n<p>Parley exposes an MCP-compatible JSON-RPC interface over stdio.</p>\n<h2 id=\"transport\">Transport</h2>\n<ul><li>Uses <code>Content-Length</code> framed JSON-RPC messages.</li><li>Implements <code>initialize</code>, <code>tools/list</code>, and <code>tools/call</code>.</li></ul>\n<h2 id=\"typical-tools\">Typical tools</h2>\n<ul><li><code>list_reviews</code></li><li><code>get_review</code></li><li><code>list_open_comments</code></li><li><code>add_reply</code></li><li><code>mark_comment_addressed</code></li><li><code>mark_comment_open</code></li><li><code>set_review_state</code></li><li><code>run_ai_session</code></li></ul>\n<h2 id=\"notes\">Notes</h2>\n<ul><li>Review names can be resolved from current branch context.</li><li>Thread state updates remain explicit operations.</li><li>AI runs operate within the same review state model and return structured outcomes.</li></ul>"
+  }
+]

@@ -1,0 +1,11 @@
+{
+  "name": "parley-ui-docs",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "build:docs": "node scripts-build-docs.mjs"
+  },
+  "dependencies": {
+    "markdown-it": "^14.1.0"
+  }
+}
