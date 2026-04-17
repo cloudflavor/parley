@@ -3,9 +3,8 @@ use serde::{Deserialize, Serialize};
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum ReviewState {
-    Draft,
-    Pending,
-    WaitingForResponse,
+    Open,
+    UnderReview,
     Done,
 }
 
@@ -81,7 +80,7 @@ impl ReviewSession {
     pub fn new(name: String, now_ms: u64) -> Self {
         Self {
             name,
-            state: ReviewState::Draft,
+            state: ReviewState::Open,
             created_at_ms: now_ms,
             updated_at_ms: now_ms,
             done_at_ms: None,
@@ -92,30 +91,26 @@ impl ReviewSession {
     }
 
     pub fn set_state(&mut self, next: ReviewState, now_ms: u64) -> Result<(), String> {
-        let allowed = match (&self.state, &next) {
-            (ReviewState::Draft, ReviewState::Pending) => true,
-            (ReviewState::Pending, ReviewState::WaitingForResponse) => true,
-            (ReviewState::WaitingForResponse, ReviewState::Pending) => true,
-            (_, ReviewState::Done) => true,
-            (ReviewState::Done, ReviewState::WaitingForResponse) => true,
-            (current, wanted) if current == wanted => true,
-            _ => false,
-        };
+        self.set_state_with_options(next, now_ms, false)
+    }
 
-        if !allowed {
-            return Err(format!(
-                "invalid state transition from {:?} to {:?}",
-                self.state, next
-            ));
-        }
+    pub fn set_state_force(&mut self, next: ReviewState, now_ms: u64) -> Result<(), String> {
+        self.set_state_with_options(next, now_ms, true)
+    }
 
+    fn set_state_with_options(
+        &mut self,
+        next: ReviewState,
+        now_ms: u64,
+        force_done: bool,
+    ) -> Result<(), String> {
         if matches!(next, ReviewState::Done) {
             let unresolved_threads = self
                 .comments
                 .iter()
                 .filter(|comment| !matches!(comment.status, CommentStatus::Addressed))
                 .count();
-            if unresolved_threads > 0 {
+            if unresolved_threads > 0 && !force_done {
                 return Err(format!(
                     "cannot set review to done: {unresolved_threads} unresolved thread(s)"
                 ));
@@ -124,8 +119,7 @@ impl ReviewSession {
 
         if matches!(next, ReviewState::Done) {
             self.done_at_ms = Some(now_ms);
-        }
-        if matches!(self.state, ReviewState::Done) && !matches!(next, ReviewState::Done) {
+        } else if matches!(self.state, ReviewState::Done) {
             self.done_at_ms = None;
         }
         self.state = next;
@@ -153,13 +147,7 @@ impl ReviewSession {
         };
 
         self.comments.push(comment);
-        if matches!(self.state, ReviewState::Done) {
-            self.state = ReviewState::Pending;
-            self.done_at_ms = None;
-        }
-        if matches!(self.state, ReviewState::WaitingForResponse) {
-            self.state = ReviewState::Pending;
-        }
+        self.reconcile_review_state_from_threads();
         self.updated_at_ms = now_ms;
         id
     }
@@ -178,7 +166,7 @@ impl ReviewSession {
             .comments
             .iter_mut()
             .find(|comment| comment.id == comment_id)
-            .ok_or_else(|| format!("comment_id {} not found", comment_id))?;
+            .ok_or_else(|| format!("comment_id {comment_id} not found"))?;
 
         comment.replies.push(CommentReply {
             id,
@@ -187,17 +175,14 @@ impl ReviewSession {
             created_at_ms: now_ms,
         });
         comment.updated_at_ms = now_ms;
-        if author != comment.author {
+        if author == comment.author {
+            comment.status = CommentStatus::Open;
+            comment.addressed_at_ms = None;
+        } else {
             comment.status = CommentStatus::Pending;
             comment.addressed_at_ms = None;
-            if matches!(self.state, ReviewState::Done) {
-                self.state = ReviewState::Pending;
-                self.done_at_ms = None;
-            }
         }
-        if matches!(author, Author::Ai) && matches!(self.state, ReviewState::Pending) {
-            self.state = ReviewState::WaitingForResponse;
-        }
+        self.reconcile_review_state_from_threads();
         self.updated_at_ms = now_ms;
         Ok(id)
     }
@@ -209,23 +194,46 @@ impl ReviewSession {
         actor: Author,
         now_ms: u64,
     ) -> Result<(), String> {
+        self.set_comment_status_with_actor(comment_id, status, now_ms, Some(actor))
+    }
+
+    pub fn set_comment_status_force(
+        &mut self,
+        comment_id: u64,
+        status: CommentStatus,
+        now_ms: u64,
+    ) -> Result<(), String> {
+        self.set_comment_status_with_actor(comment_id, status, now_ms, None)
+    }
+
+    fn set_comment_status_with_actor(
+        &mut self,
+        comment_id: u64,
+        status: CommentStatus,
+        now_ms: u64,
+        actor: Option<Author>,
+    ) -> Result<(), String> {
         let comment = self
             .comments
             .iter_mut()
             .find(|comment| comment.id == comment_id)
-            .ok_or_else(|| format!("comment_id {} not found", comment_id))?;
+            .ok_or_else(|| format!("comment_id {comment_id} not found"))?;
 
-        match status {
-            CommentStatus::Addressed => {
-                if comment.author != actor {
-                    return Err(
-                        "only the original commenter can mark a comment addressed".to_string()
-                    );
+        if let Some(actor) = actor {
+            match status {
+                CommentStatus::Addressed => {
+                    if comment.author != actor {
+                        return Err(
+                            "only the original commenter can mark a comment addressed".to_string()
+                        );
+                    }
                 }
-            }
-            CommentStatus::Open | CommentStatus::Pending => {
-                if comment.author != actor {
-                    return Err("only the original commenter can change thread status".to_string());
+                CommentStatus::Open | CommentStatus::Pending => {
+                    if comment.author != actor {
+                        return Err(
+                            "only the original commenter can change thread status".to_string()
+                        );
+                    }
                 }
             }
         }
@@ -238,25 +246,36 @@ impl ReviewSession {
             None
         };
 
-        if matches!(status, CommentStatus::Open | CommentStatus::Pending)
-            && matches!(self.state, ReviewState::Done)
-        {
-            self.state = ReviewState::Pending;
-            self.done_at_ms = None;
-        }
-
-        if matches!(status, CommentStatus::Addressed) && matches!(self.state, ReviewState::Pending)
-        {
-            self.state = ReviewState::WaitingForResponse;
-        }
-        if matches!(status, CommentStatus::Open)
-            && matches!(self.state, ReviewState::WaitingForResponse)
-        {
-            self.state = ReviewState::Pending;
-        }
-
+        self.reconcile_review_state_from_threads();
         self.updated_at_ms = now_ms;
         Ok(())
+    }
+
+    fn reconcile_review_state_from_threads(&mut self) {
+        let has_open = self
+            .comments
+            .iter()
+            .any(|comment| matches!(comment.status, CommentStatus::Open));
+        let has_pending = self
+            .comments
+            .iter()
+            .any(|comment| matches!(comment.status, CommentStatus::Pending));
+        let has_unresolved = has_open || has_pending;
+
+        if matches!(self.state, ReviewState::Done) && has_unresolved {
+            self.state = ReviewState::Open;
+            self.done_at_ms = None;
+            return;
+        }
+        if matches!(self.state, ReviewState::Done) {
+            return;
+        }
+
+        self.state = if has_open {
+            ReviewState::Open
+        } else {
+            ReviewState::UnderReview
+        };
     }
 }
 
@@ -265,49 +284,23 @@ mod tests {
     use super::{Author, CommentStatus, DiffSide, NewLineComment, ReviewSession, ReviewState};
 
     #[test]
-    fn set_state_should_allow_draft_to_pending() {
-        let mut session = ReviewSession::new("r1".into(), 1);
-        let result = session.set_state(ReviewState::Pending, 2);
-
-        assert!(result.is_ok());
-        assert_eq!(session.state, ReviewState::Pending);
-    }
-
-    #[test]
-    fn set_state_should_reject_pending_to_draft() {
+    fn set_state_should_allow_reopen_after_done() {
         let mut session = ReviewSession::new("r1".into(), 1);
         session
-            .set_state(ReviewState::Pending, 2)
-            .expect("state should move to pending");
-
-        let result = session.set_state(ReviewState::Draft, 3);
-
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn set_state_should_reject_done_to_pending() {
-        let mut session = ReviewSession::new("r1".into(), 1);
-        session
-            .set_state(ReviewState::Pending, 2)
-            .expect("state should move to pending");
-        session
-            .set_state(ReviewState::Done, 3)
+            .set_state(ReviewState::Done, 2)
             .expect("state should move to done");
+        assert_eq!(session.done_at_ms, Some(2));
 
-        let result = session.set_state(ReviewState::Pending, 4);
-
-        assert!(result.is_err());
-        assert_eq!(session.state, ReviewState::Done);
-        assert_eq!(session.done_at_ms, Some(3));
+        session
+            .set_state(ReviewState::UnderReview, 3)
+            .expect("state should reopen");
+        assert_eq!(session.state, ReviewState::UnderReview);
+        assert_eq!(session.done_at_ms, None);
     }
 
     #[test]
-    fn set_state_should_reject_done_with_unresolved_threads() {
+    fn set_state_done_should_require_no_unresolved_threads() {
         let mut session = ReviewSession::new("r1".into(), 1);
-        session
-            .set_state(ReviewState::Pending, 2)
-            .expect("state should move to pending");
         session.add_comment(
             NewLineComment {
                 file_path: "src/lib.rs".into(),
@@ -317,23 +310,17 @@ mod tests {
                 body: "needs refactor".into(),
                 author: Author::User,
             },
-            3,
+            2,
         );
 
-        let result = session.set_state(ReviewState::Done, 4);
-
+        let result = session.set_state(ReviewState::Done, 3);
         assert!(result.is_err());
-        assert_eq!(session.state, ReviewState::Pending);
-        assert_eq!(session.done_at_ms, None);
     }
 
     #[test]
-    fn set_state_should_allow_done_when_all_threads_are_addressed() {
+    fn set_state_force_done_should_allow_unresolved_threads() {
         let mut session = ReviewSession::new("r1".into(), 1);
-        session
-            .set_state(ReviewState::Pending, 2)
-            .expect("state should move to pending");
-        let comment_id = session.add_comment(
+        session.add_comment(
             NewLineComment {
                 file_path: "src/lib.rs".into(),
                 old_line: None,
@@ -342,27 +329,20 @@ mod tests {
                 body: "needs refactor".into(),
                 author: Author::User,
             },
-            3,
+            2,
         );
+
         session
-            .set_comment_status(comment_id, CommentStatus::Addressed, Author::User, 4)
-            .expect("status should update");
-
-        let result = session.set_state(ReviewState::Done, 5);
-
-        assert!(result.is_ok());
+            .set_state_force(ReviewState::Done, 3)
+            .expect("force done should bypass unresolved checks");
         assert_eq!(session.state, ReviewState::Done);
-        assert_eq!(session.done_at_ms, Some(5));
     }
 
     #[test]
     fn add_comment_should_reopen_done_review() {
         let mut session = ReviewSession::new("r1".into(), 1);
         session
-            .set_state(ReviewState::Pending, 2)
-            .expect("state should move to pending");
-        session
-            .set_state(ReviewState::Done, 3)
+            .set_state(ReviewState::Done, 2)
             .expect("state should move to done");
 
         session.add_comment(
@@ -374,20 +354,16 @@ mod tests {
                 body: "new thread".into(),
                 author: Author::User,
             },
-            4,
+            3,
         );
 
-        assert_eq!(session.state, ReviewState::Pending);
+        assert_eq!(session.state, ReviewState::Open);
         assert_eq!(session.done_at_ms, None);
-        assert_eq!(session.comments.len(), 1);
     }
 
     #[test]
-    fn add_reply_should_move_pending_to_waiting_for_response_for_ai_author() {
+    fn add_reply_from_ai_should_set_pending_and_under_review() {
         let mut session = ReviewSession::new("r1".into(), 1);
-        session
-            .set_state(ReviewState::Pending, 2)
-            .expect("state should move to pending");
         let comment_id = session.add_comment(
             NewLineComment {
                 file_path: "src/lib.rs".into(),
@@ -397,18 +373,19 @@ mod tests {
                 body: "needs refactor".into(),
                 author: Author::User,
             },
-            3,
+            2,
         );
 
-        let reply = session.add_reply(comment_id, Author::Ai, "fixed".into(), 4);
+        session
+            .add_reply(comment_id, Author::Ai, "fixed".into(), 3)
+            .expect("ai reply should be added");
 
-        assert!(reply.is_ok());
         assert_eq!(session.comments[0].status, CommentStatus::Pending);
-        assert_eq!(session.state, ReviewState::WaitingForResponse);
+        assert_eq!(session.state, ReviewState::UnderReview);
     }
 
     #[test]
-    fn set_comment_status_should_track_addressed_time() {
+    fn add_reply_from_original_commenter_should_reopen_thread() {
         let mut session = ReviewSession::new("r1".into(), 1);
         let comment_id = session.add_comment(
             NewLineComment {
@@ -419,22 +396,22 @@ mod tests {
                 body: "needs refactor".into(),
                 author: Author::User,
             },
-            3,
+            2,
         );
         session
-            .add_reply(comment_id, Author::Ai, "fixed".into(), 4)
+            .add_reply(comment_id, Author::Ai, "proposal".into(), 3)
             .expect("ai reply should be added");
 
         session
-            .set_comment_status(comment_id, CommentStatus::Addressed, Author::User, 5)
-            .expect("status should update");
+            .add_reply(comment_id, Author::User, "please revise".into(), 4)
+            .expect("user reply should be added");
 
-        assert_eq!(session.comments[0].status, CommentStatus::Addressed);
-        assert_eq!(session.comments[0].addressed_at_ms, Some(5));
+        assert_eq!(session.comments[0].status, CommentStatus::Open);
+        assert_eq!(session.state, ReviewState::Open);
     }
 
     #[test]
-    fn set_comment_status_should_require_op_to_address() {
+    fn set_comment_status_should_require_original_commenter() {
         let mut session = ReviewSession::new("r1".into(), 1);
         let comment_id = session.add_comment(
             NewLineComment {
@@ -450,13 +427,11 @@ mod tests {
 
         let result =
             session.set_comment_status(comment_id, CommentStatus::Addressed, Author::Ai, 3);
-
         assert!(result.is_err());
-        assert_eq!(session.comments[0].status, CommentStatus::Open);
     }
 
     #[test]
-    fn set_comment_status_should_require_op_to_reopen() {
+    fn set_comment_status_force_should_bypass_original_commenter_check() {
         let mut session = ReviewSession::new("r1".into(), 1);
         let comment_id = session.add_comment(
             NewLineComment {
@@ -469,21 +444,15 @@ mod tests {
             },
             2,
         );
-        session
-            .add_reply(comment_id, Author::Ai, "fixed".into(), 3)
-            .expect("reply should be added");
-        session
-            .set_comment_status(comment_id, CommentStatus::Addressed, Author::User, 4)
-            .expect("op can address");
 
-        let result = session.set_comment_status(comment_id, CommentStatus::Open, Author::Ai, 5);
-
-        assert!(result.is_err());
+        session
+            .set_comment_status_force(comment_id, CommentStatus::Addressed, 3)
+            .expect("force close should bypass author ownership");
         assert_eq!(session.comments[0].status, CommentStatus::Addressed);
     }
 
     #[test]
-    fn add_reply_should_not_auto_address_comment() {
+    fn all_addressed_should_reconcile_to_under_review() {
         let mut session = ReviewSession::new("r1".into(), 1);
         let comment_id = session.add_comment(
             NewLineComment {
@@ -496,12 +465,10 @@ mod tests {
             },
             2,
         );
-
         session
-            .add_reply(comment_id, Author::Ai, "done".into(), 3)
-            .expect("reply should be added");
+            .set_comment_status(comment_id, CommentStatus::Addressed, Author::User, 3)
+            .expect("status should update");
 
-        assert_eq!(session.comments[0].status, CommentStatus::Pending);
-        assert_eq!(session.comments[0].addressed_at_ms, None);
+        assert_eq!(session.state, ReviewState::UnderReview);
     }
 }

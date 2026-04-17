@@ -13,9 +13,8 @@ impl FromStr for StateArg {
 
     fn from_str(input: &str) -> Result<Self, Self::Err> {
         match input {
-            "draft" => Ok(Self(ReviewState::Draft)),
-            "pending" => Ok(Self(ReviewState::Pending)),
-            "waiting_for_response" => Ok(Self(ReviewState::WaitingForResponse)),
+            "open" => Ok(Self(ReviewState::Open)),
+            "under_review" => Ok(Self(ReviewState::UnderReview)),
             "done" => Ok(Self(ReviewState::Done)),
             _ => Err(format!("invalid state: {input}")),
         }

@@ -1,24 +1,29 @@
-use std::{process::Stdio, sync::mpsc, time::Duration};
+use std::collections::BTreeSet;
+use std::path::{Path, PathBuf};
+use std::process::Stdio;
+use std::sync::mpsc;
+use std::time::Duration;
 
 use anyhow::{Context, Result, anyhow};
+use include_dir::{Dir, include_dir};
 use serde::Serialize;
-use tokio::{
-    fs,
-    io::{AsyncBufReadExt, AsyncRead, AsyncWriteExt, BufReader},
-    process::Command,
-    task::JoinHandle,
-    time::timeout,
-};
+use serde_json::Value;
+use tokio::fs;
+use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWriteExt, BufReader};
+use tokio::process::Command;
+use tokio::task::JoinHandle;
+use tokio::time::timeout;
 use tracing::{debug, error, info, warn};
 
-use crate::{
-    domain::{
-        ai::{AiProvider, AiSessionMode},
-        config::{AppConfig, PromptTransport},
-        review::{Author, CommentStatus, ReviewState},
-    },
-    services::review_service::{AddReplyInput, ReviewService},
-};
+use crate::domain::ai::{AiProvider, AiSessionMode};
+use crate::domain::config::{AppConfig, PromptTransport};
+use crate::domain::diff::{DiffDocument, DiffFile, DiffHunk};
+use crate::domain::reference::parse_file_references;
+use crate::domain::review::{Author, CommentStatus, LineComment, ReviewState};
+use crate::git::diff::load_git_diff_head;
+use crate::services::review_service::{AddReplyInput, ReviewService};
+
+static AI_SESSION_PROMPTS_DIR: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/prompts/ai_session");
 
 #[derive(Debug, Clone)]
 pub struct RunAiSessionInput {
@@ -60,6 +65,20 @@ pub struct AiProgressEvent {
     pub message: String,
 }
 
+#[derive(Debug, Clone)]
+struct ProviderInvocation {
+    reply: String,
+    model: Option<String>,
+}
+
+pub fn default_ai_session_mode(comment_ids: &[u64]) -> AiSessionMode {
+    if comment_ids.is_empty() {
+        AiSessionMode::Refactor
+    } else {
+        AiSessionMode::Reply
+    }
+}
+
 pub async fn run_ai_session(
     service: &ReviewService,
     input: RunAiSessionInput,
@@ -88,6 +107,13 @@ async fn run_ai_session_inner(
     );
     let config = service.load_config().await?;
     let mut review = service.load_review(&input.review_name).await?;
+    let diff_document = match load_git_diff_head().await {
+        Ok(document) => Some(document),
+        Err(error) => {
+            warn!(error = %error, "ai session prompt context: unable to load git diff");
+            None
+        }
+    };
     let now_ms = now_ms()?;
     let provider_cfg = config.ai.provider_config(input.provider);
     let mut result = AiSessionResult {
@@ -117,44 +143,49 @@ async fn run_ai_session_inner(
         result.skipped = 1;
         return Ok(result);
     }
-    if matches!(review.state, ReviewState::Draft) {
-        warn!(
-            review = %input.review_name,
-            provider = %input.provider.as_str(),
-            "ai session rejected because review is draft"
-        );
-        return Err(anyhow!(
-            "review is in draft; set review state to pending before running ai session"
-        ));
-    }
-    if matches!(review.state, ReviewState::WaitingForResponse) {
-        warn!(
-            review = %input.review_name,
-            provider = %input.provider.as_str(),
-            "ai session skipped because review is waiting_for_response"
-        );
-        result.items.push(AiSessionItemResult {
-            comment_id: 0,
-            status: "skipped".to_string(),
-            message: "review is waiting_for_response; set it to pending before requesting ai again"
-                .to_string(),
-        });
-        result.skipped = 1;
-        return Ok(result);
-    }
 
     let target_ids: Vec<u64> = if input.comment_ids.is_empty() {
         review
             .comments
             .iter()
-            .filter(|comment| !matches!(comment.status, CommentStatus::Addressed))
+            .filter(|comment| comment_is_targetable(comment.status.clone(), input.mode))
             .map(|comment| comment.id)
             .collect()
     } else {
         input.comment_ids.clone()
     };
+    let total_targets = target_ids.len();
+    if total_targets == 0 {
+        result.items.push(AiSessionItemResult {
+            comment_id: 0,
+            status: "skipped".to_string(),
+            message: match input.mode {
+                AiSessionMode::Reply => "no replyable threads to process".to_string(),
+                AiSessionMode::Refactor => "no open threads to process".to_string(),
+            },
+        });
+        result.skipped = 1;
+        emit_progress(
+            progress_sender.as_ref(),
+            input.provider,
+            "system",
+            "no open threads to process",
+        );
+        return Ok(result);
+    }
 
-    for comment_id in target_ids {
+    let explicit_selection = !input.comment_ids.is_empty();
+    for (step_index, comment_id) in target_ids.into_iter().enumerate() {
+        emit_progress(
+            progress_sender.as_ref(),
+            input.provider,
+            "system",
+            format!(
+                "thread #{comment_id}: start ({}/{})",
+                step_index + 1,
+                total_targets
+            ),
+        );
         debug!(
             review = %input.review_name,
             provider = %input.provider.as_str(),
@@ -178,26 +209,53 @@ async fn run_ai_session_inner(
                 status: "failed".to_string(),
                 message: "comment not found in review".to_string(),
             });
+            emit_progress(
+                progress_sender.as_ref(),
+                input.provider,
+                "system",
+                format!("thread #{comment_id}: failed (comment not found)"),
+            );
             continue;
         };
 
-        if matches!(comment.status, CommentStatus::Addressed) {
+        let allow_selected_reply = explicit_selection && matches!(input.mode, AiSessionMode::Reply);
+        if !comment_is_targetable(comment.status.clone(), input.mode) && !allow_selected_reply {
             debug!(
                 review = %input.review_name,
                 provider = %input.provider.as_str(),
                 comment_id,
-                "skipping addressed comment"
+                status = ?comment.status,
+                "skipping non-targetable comment for selected mode"
             );
             result.skipped += 1;
             result.items.push(AiSessionItemResult {
                 comment_id,
                 status: "skipped".to_string(),
-                message: "comment is resolved/addressed".to_string(),
+                message: format!(
+                    "comment status {:?} is not targetable for {} mode",
+                    comment.status,
+                    input.mode.as_str()
+                ),
             });
+            emit_progress(
+                progress_sender.as_ref(),
+                input.provider,
+                "system",
+                format!(
+                    "thread #{comment_id}: skipped (status={:?})",
+                    comment.status
+                ),
+            );
             continue;
         }
 
-        let prompt = build_thread_prompt(&input.review_name, comment_id, &review, input.mode);
+        let prompt = build_thread_prompt(
+            &input.review_name,
+            comment_id,
+            &review,
+            diff_document.as_ref(),
+            input.mode,
+        );
         let provider_reply = match invoke_provider(
             &config,
             input.provider,
@@ -222,9 +280,17 @@ async fn run_ai_session_inner(
                     status: "failed".to_string(),
                     message: format!("provider failed: {error}"),
                 });
+                emit_progress(
+                    progress_sender.as_ref(),
+                    input.provider,
+                    "system",
+                    format!("thread #{comment_id}: failed ({error})"),
+                );
                 continue;
             }
         };
+        let reply_body =
+            format_ai_reply_body(provider_reply.model.as_deref(), &provider_reply.reply);
 
         let updated = match service
             .add_reply(
@@ -232,7 +298,7 @@ async fn run_ai_session_inner(
                 AddReplyInput {
                     comment_id,
                     author: Author::Ai,
-                    body: provider_reply,
+                    body: reply_body,
                 },
             )
             .await
@@ -252,6 +318,12 @@ async fn run_ai_session_inner(
                     status: "failed".to_string(),
                     message: format!("failed to persist ai reply: {error}"),
                 });
+                emit_progress(
+                    progress_sender.as_ref(),
+                    input.provider,
+                    "system",
+                    format!("thread #{comment_id}: failed (persist reply: {error})"),
+                );
                 continue;
             }
         };
@@ -267,9 +339,23 @@ async fn run_ai_session_inner(
         result.items.push(AiSessionItemResult {
             comment_id,
             status: "processed".to_string(),
-            message: "ai reply added; thread is pending and review moved to waiting_for_response"
-                .to_string(),
+            message: match input.mode {
+                AiSessionMode::Reply => "ai reply added".to_string(),
+                AiSessionMode::Refactor => {
+                    "ai reply added; thread status moved to pending_human".to_string()
+                }
+            },
         });
+        emit_progress(
+            progress_sender.as_ref(),
+            input.provider,
+            "system",
+            format!(
+                "thread #{comment_id}: done ({}/{})",
+                step_index + 1,
+                total_targets
+            ),
+        );
     }
 
     info!(
@@ -287,6 +373,7 @@ fn build_thread_prompt(
     review_name: &str,
     comment_id: u64,
     review: &crate::domain::review::ReviewSession,
+    diff_document: Option<&DiffDocument>,
     mode: AiSessionMode,
 ) -> String {
     let Some(comment) = review
@@ -294,9 +381,7 @@ fn build_thread_prompt(
         .iter()
         .find(|comment| comment.id == comment_id)
     else {
-        return format!(
-            "Review: {review_name}\nComment #{comment_id} was not found. Reply with a brief blocker message."
-        );
+        return missing_comment_prompt(review_name, comment_id);
     };
 
     let mut thread = String::new();
@@ -329,34 +414,238 @@ fn build_thread_prompt(
             thread.push_str(&format!("- {}: {}\n", author, reply.body));
         }
     }
+    append_target_file_and_diff_context(&mut thread, comment, diff_document);
+    append_referenced_files_context(&mut thread, comment);
 
     match mode {
-        AiSessionMode::Reply => thread.push_str(
-            "\nTask:\n\
-             - Address the thread as a code author.\n\
-             - Provide a concise markdown reply only (no JSON, no tool output).\n\
-             - Do not run commands or inspect files; reply from this thread context only.\n\
-             - Do not claim status changes; status is set explicitly by the requester.\n\
-             - If blocked, explain exactly what input is missing.\n",
-        ),
-        AiSessionMode::Refactor => thread.push_str(
-            "\nTask:\n\
-             - Address this thread by editing code in this workspace.\n\
-             - Scope: only the files directly needed for this thread. Do not perform repo-wide cleanup or unrelated refactors.\n\
-             - Preserve existing behavior unless the thread explicitly asks for behavior changes.\n\
-             - Do not run destructive recovery/version-control commands (`git reset`, `git checkout`, `git clean`, `git fsck`, history rewriting).\n\
-             - Do not revert unrelated local changes. Work with the current working tree.\n\
-             - Stop after implementing the smallest complete fix for this thread.\n\
-             - Reply in concise markdown with exactly these sections:\n\
-               1) Changed files\n\
-               2) What changed\n\
-               3) Validation run\n\
-               4) Blockers (only if any)\n\
-             - Do not claim status changes; status is set explicitly by the requester.\n\
-             - If blocked, explain exactly what input is missing.\n",
-        ),
+        AiSessionMode::Reply => {
+            thread.push_str(prompt_template("reply_task.md"));
+        }
+        AiSessionMode::Refactor => {
+            thread.push_str(prompt_template("refactor_task.md"));
+        }
     }
     thread
+}
+
+fn append_target_file_and_diff_context(
+    prompt: &mut String,
+    comment: &LineComment,
+    diff_document: Option<&DiffDocument>,
+) {
+    prompt.push_str("\n\nPrimary target context:\n");
+    let target_line = comment.new_line.or(comment.old_line);
+    match target_line {
+        Some(line) => {
+            prompt.push_str(&format!(
+                "- thread anchor: {}:{}\n",
+                comment.file_path, line
+            ));
+            if let Some(resolved) = resolve_workspace_path(&comment.file_path) {
+                if let Some(snippet) = file_line_snippet(&resolved, line) {
+                    prompt.push_str(&format!(
+                        "  file snippet around {}:{}:\n{}",
+                        comment.file_path, line, snippet
+                    ));
+                } else {
+                    prompt.push_str("  file snippet: unavailable for requested line\n");
+                }
+            } else {
+                prompt.push_str("  file snippet: file not found in workspace\n");
+            }
+        }
+        None => {
+            prompt.push_str(&format!(
+                "- thread anchor: {} (line unavailable)\n",
+                comment.file_path
+            ));
+        }
+    }
+
+    if let Some(document) = diff_document {
+        if let Some(file) = find_diff_file(document, &comment.file_path) {
+            if let Some(hunk) = choose_best_hunk(file, comment.old_line, comment.new_line) {
+                let excerpt = format_hunk_excerpt(hunk, comment.old_line, comment.new_line, 28);
+                prompt.push_str("  nearest diff hunk:\n");
+                prompt.push_str(&excerpt);
+            } else {
+                prompt.push_str("  nearest diff hunk: none for this file\n");
+            }
+        } else {
+            prompt.push_str("  nearest diff hunk: file not present in current git diff\n");
+        }
+    } else {
+        prompt.push_str("  nearest diff hunk: unavailable (failed to load git diff)\n");
+    }
+}
+
+fn append_referenced_files_context(
+    prompt: &mut String,
+    comment: &crate::domain::review::LineComment,
+) {
+    let mut ordered = BTreeSet::new();
+    for reference in parse_file_references(&comment.body) {
+        ordered.insert((reference.path, reference.line));
+    }
+    for reply in &comment.replies {
+        for reference in parse_file_references(&reply.body) {
+            ordered.insert((reference.path, reference.line));
+        }
+    }
+    if ordered.is_empty() {
+        return;
+    }
+
+    prompt.push_str("\n\nReferenced files from thread mentions:\n");
+    for (path, line) in ordered.into_iter().take(8) {
+        let marker = if let Some(value) = line {
+            format!("{path}:{value}")
+        } else {
+            path.clone()
+        };
+        prompt.push_str(&format!("- {marker}\n"));
+        if let (Some(value), Some(resolved)) = (line, resolve_workspace_path(&path))
+            && let Some(snippet) = file_line_snippet(&resolved, value)
+        {
+            prompt.push_str(&format!("  context from {}:\n", resolved.display()));
+            prompt.push_str(&snippet);
+        }
+    }
+}
+
+fn find_diff_file<'a>(document: &'a DiffDocument, path: &str) -> Option<&'a DiffFile> {
+    document.files.iter().find(|file| file.path == path)
+}
+
+fn choose_best_hunk(
+    file: &DiffFile,
+    old_line: Option<u32>,
+    new_line: Option<u32>,
+) -> Option<&DiffHunk> {
+    if file.hunks.is_empty() {
+        return None;
+    }
+
+    for hunk in &file.hunks {
+        if hunk_contains_anchor(hunk, old_line, new_line) {
+            return Some(hunk);
+        }
+    }
+
+    let mut scored = file
+        .hunks
+        .iter()
+        .map(|hunk| (hunk_distance_to_anchor(hunk, old_line, new_line), hunk))
+        .collect::<Vec<_>>();
+    scored.sort_by_key(|(distance, _)| *distance);
+    scored.first().map(|(_, hunk)| *hunk)
+}
+
+fn hunk_contains_anchor(hunk: &DiffHunk, old_line: Option<u32>, new_line: Option<u32>) -> bool {
+    hunk.lines.iter().any(|line| {
+        old_line.is_some() && line.old_line == old_line
+            || new_line.is_some() && line.new_line == new_line
+    })
+}
+
+fn hunk_distance_to_anchor(hunk: &DiffHunk, old_line: Option<u32>, new_line: Option<u32>) -> u32 {
+    let mut best = u32::MAX;
+    if let Some(target_old) = old_line {
+        best = best.min(line_distance(hunk.old_start, target_old));
+    }
+    if let Some(target_new) = new_line {
+        best = best.min(line_distance(hunk.new_start, target_new));
+    }
+    if best == u32::MAX { 0 } else { best }
+}
+
+fn line_distance(base: u32, target: u32) -> u32 {
+    base.abs_diff(target)
+}
+
+fn format_hunk_excerpt(
+    hunk: &DiffHunk,
+    old_line: Option<u32>,
+    new_line: Option<u32>,
+    max_lines: usize,
+) -> String {
+    if hunk.lines.is_empty() || max_lines == 0 {
+        return String::new();
+    }
+    let center = hunk
+        .lines
+        .iter()
+        .position(|line| {
+            old_line.is_some() && line.old_line == old_line
+                || new_line.is_some() && line.new_line == new_line
+        })
+        .unwrap_or(0);
+    let half_window = max_lines / 2;
+    let mut start = center.saturating_sub(half_window);
+    let end = (start + max_lines).min(hunk.lines.len());
+    if end - start < max_lines && end == hunk.lines.len() {
+        start = end.saturating_sub(max_lines);
+    }
+
+    let mut out = String::new();
+    for line in &hunk.lines[start..end] {
+        out.push_str("    ");
+        out.push_str(&line.raw);
+        out.push('\n');
+    }
+    out
+}
+
+fn resolve_workspace_path(path: &str) -> Option<PathBuf> {
+    let trimmed = path.trim();
+    if trimmed.is_empty() {
+        return None;
+    }
+
+    let candidate = if Path::new(trimmed).is_absolute() {
+        PathBuf::from(trimmed)
+    } else {
+        std::env::current_dir().ok()?.join(trimmed)
+    };
+    if !candidate.is_file() {
+        return None;
+    }
+    Some(candidate)
+}
+
+fn file_line_snippet(path: &Path, line: u32) -> Option<String> {
+    if line == 0 {
+        return None;
+    }
+    let text = std::fs::read_to_string(path).ok()?;
+    let lines: Vec<&str> = text.lines().collect();
+    let target = usize::try_from(line.saturating_sub(1)).ok()?;
+    if target >= lines.len() {
+        return None;
+    }
+
+    let start = target.saturating_sub(2);
+    let end = (target + 3).min(lines.len());
+    let mut out = String::new();
+    for (idx, content) in lines[start..end].iter().enumerate() {
+        let absolute = start + idx + 1;
+        out.push_str(&format!("    {absolute:>5} | {content}\n"));
+    }
+    Some(out)
+}
+
+fn prompt_template(path: &str) -> &'static str {
+    AI_SESSION_PROMPTS_DIR
+        .get_file(path)
+        .unwrap_or_else(|| panic!("missing ai session prompt template: {path}"))
+        .contents_utf8()
+        .unwrap_or_else(|| panic!("invalid utf-8 in ai session prompt template: {path}"))
+}
+
+fn missing_comment_prompt(review_name: &str, comment_id: u64) -> String {
+    prompt_template("comment_not_found.md")
+        .replace("{review_name}", review_name)
+        .replace("{comment_id}", &comment_id.to_string())
 }
 
 async fn invoke_provider(
@@ -365,7 +654,7 @@ async fn invoke_provider(
     mode: AiSessionMode,
     prompt: &str,
     progress_sender: Option<mpsc::Sender<AiProgressEvent>>,
-) -> Result<String> {
+) -> Result<ProviderInvocation> {
     let provider_cfg = config.ai.provider_config(provider);
     if provider_cfg.client.trim().is_empty() {
         return Err(anyhow!(
@@ -386,16 +675,20 @@ async fn invoke_provider(
         command.arg("--output-last-message");
         command.arg(path);
     }
-    if let Some(model) = provider_cfg.model.as_deref().map(str::trim)
-        && !model.is_empty()
-    {
+    let configured_model = provider_cfg
+        .model
+        .as_deref()
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .map(str::to_string);
+    if let Some(model_value) = configured_model.as_deref() {
         match provider_cfg.model_arg.as_deref().map(str::trim) {
             Some(model_arg) if !model_arg.is_empty() => {
                 command.arg(model_arg);
-                command.arg(model);
+                command.arg(model_value);
             }
             _ => {
-                command.arg(model);
+                command.arg(model_value);
             }
         }
     }
@@ -498,19 +791,20 @@ async fn invoke_provider(
                 progress_sender.as_ref(),
                 provider,
                 "system",
-                format!(
-                    "timeout after {}s, returning partial output",
-                    timeout_seconds
-                ),
+                format!("timeout after {timeout_seconds}s, returning partial output"),
             );
-            return Ok(reply);
+            return Ok(ProviderInvocation {
+                reply,
+                model: detect_runtime_model(provider, &stdout, &stderr)
+                    .or(configured_model.clone()),
+            });
         }
 
         emit_progress(
             progress_sender.as_ref(),
             provider,
             "system",
-            format!("timeout after {}s with no output", timeout_seconds),
+            format!("timeout after {timeout_seconds}s with no output"),
         );
         return Err(anyhow!(
             "provider {} timed out after {}s{}",
@@ -567,7 +861,107 @@ async fn invoke_provider(
         "system",
         "provider completed successfully",
     );
-    Ok(reply)
+    Ok(ProviderInvocation {
+        reply,
+        model: detect_runtime_model(provider, &stdout, &stderr).or(configured_model),
+    })
+}
+
+fn format_ai_reply_body(model: Option<&str>, reply: &str) -> String {
+    let mut out = String::new();
+    if let Some(model) = model.map(str::trim).filter(|value| !value.is_empty()) {
+        out.push_str(&format!("Model: {model}\n\n"));
+    }
+    out.push_str(reply.trim_end());
+    out
+}
+
+fn detect_runtime_model(provider: AiProvider, stdout: &str, stderr: &str) -> Option<String> {
+    match provider {
+        AiProvider::Codex => detect_model_from_json_stream(stdout)
+            .or_else(|| detect_model_from_json_stream(stderr))
+            .or_else(|| detect_model_from_text(stdout))
+            .or_else(|| detect_model_from_text(stderr)),
+        AiProvider::Claude | AiProvider::Opencode => {
+            detect_model_from_text(stdout).or_else(|| detect_model_from_text(stderr))
+        }
+    }
+}
+
+fn detect_model_from_json_stream(stream: &str) -> Option<String> {
+    for line in stream.lines() {
+        let trimmed = line.trim();
+        if trimmed.is_empty() || !trimmed.starts_with('{') {
+            continue;
+        }
+        let Ok(value) = serde_json::from_str::<Value>(trimmed) else {
+            continue;
+        };
+        if let Some(model) = extract_model_from_json(&value) {
+            return Some(model);
+        }
+    }
+    None
+}
+
+fn extract_model_from_json(value: &Value) -> Option<String> {
+    match value {
+        Value::Object(map) => {
+            for key in [
+                "model",
+                "model_id",
+                "model_slug",
+                "resolved_model",
+                "selected_model",
+            ] {
+                if let Some(Value::String(found)) = map.get(key) {
+                    let trimmed = found.trim();
+                    if !trimmed.is_empty() {
+                        return Some(trimmed.to_string());
+                    }
+                }
+            }
+            for nested in map.values() {
+                if let Some(found) = extract_model_from_json(nested) {
+                    return Some(found);
+                }
+            }
+            None
+        }
+        Value::Array(items) => {
+            for item in items {
+                if let Some(found) = extract_model_from_json(item) {
+                    return Some(found);
+                }
+            }
+            None
+        }
+        _ => None,
+    }
+}
+
+fn detect_model_from_text(text: &str) -> Option<String> {
+    for line in text.lines() {
+        if let Some(value) = extract_model_after_marker(line, "model:") {
+            return Some(value);
+        }
+        if let Some(value) = extract_model_after_marker(line, "model=") {
+            return Some(value);
+        }
+    }
+    None
+}
+
+fn extract_model_after_marker(line: &str, marker: &str) -> Option<String> {
+    let (_, right) = line.split_once(marker)?;
+    let candidate = right.split_whitespace().next().map(|value| {
+        value.trim_matches(|ch: char| ch == '"' || ch == '\'' || ch == ',' || ch == ';')
+    })?;
+    if candidate.is_empty() {
+        None
+    } else {
+        Some(candidate.to_string())
+    }
 }
 
 fn normalized_provider_args(
@@ -693,6 +1087,15 @@ fn emit_progress(
     });
 }
 
+fn comment_is_targetable(status: CommentStatus, mode: AiSessionMode) -> bool {
+    match mode {
+        AiSessionMode::Reply => {
+            matches!(status, CommentStatus::Open | CommentStatus::Pending)
+        }
+        AiSessionMode::Refactor => matches!(status, CommentStatus::Open),
+    }
+}
+
 fn effective_timeout_seconds(config: &AppConfig, mode: AiSessionMode) -> u64 {
     let configured = config.ai.timeout_seconds.max(1);
     match mode {
@@ -707,4 +1110,176 @@ fn now_ms() -> Result<u64> {
         .duration_since(std::time::UNIX_EPOCH)
         .context("system clock is before unix epoch")?;
     Ok(elapsed.as_millis() as u64)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{
+        choose_best_hunk, comment_is_targetable, detect_model_from_json_stream,
+        detect_model_from_text, format_ai_reply_body, format_hunk_excerpt, hunk_distance_to_anchor,
+    };
+    use crate::domain::ai::AiSessionMode;
+    use crate::domain::diff::{DiffFile, DiffHunk, DiffLine, DiffLineKind};
+    use crate::domain::review::CommentStatus;
+
+    #[test]
+    fn reply_mode_excludes_addressed_threads() {
+        assert!(comment_is_targetable(
+            CommentStatus::Open,
+            AiSessionMode::Reply
+        ));
+        assert!(comment_is_targetable(
+            CommentStatus::Pending,
+            AiSessionMode::Reply
+        ));
+        assert!(!comment_is_targetable(
+            CommentStatus::Addressed,
+            AiSessionMode::Reply
+        ));
+    }
+
+    #[test]
+    fn refactor_mode_targets_only_open_threads() {
+        assert!(comment_is_targetable(
+            CommentStatus::Open,
+            AiSessionMode::Refactor
+        ));
+        assert!(!comment_is_targetable(
+            CommentStatus::Pending,
+            AiSessionMode::Refactor
+        ));
+        assert!(!comment_is_targetable(
+            CommentStatus::Addressed,
+            AiSessionMode::Refactor
+        ));
+    }
+
+    #[test]
+    fn choose_best_hunk_prefers_exact_anchor_match() {
+        let file = DiffFile {
+            path: "src/lib.rs".to_string(),
+            header_lines: Vec::new(),
+            hunks: vec![
+                make_hunk(
+                    "@@ -1,3 +1,3 @@",
+                    1,
+                    1,
+                    vec![line_ctx(1, 1), line_ctx(2, 2)],
+                ),
+                make_hunk(
+                    "@@ -40,3 +40,3 @@",
+                    40,
+                    40,
+                    vec![line_ctx(40, 40), line_ctx(41, 41)],
+                ),
+            ],
+        };
+
+        let chosen = choose_best_hunk(&file, None, Some(41)).expect("hunk should be selected");
+        assert_eq!(chosen.new_start, 40);
+    }
+
+    #[test]
+    fn choose_best_hunk_falls_back_to_nearest_start() {
+        let file = DiffFile {
+            path: "src/lib.rs".to_string(),
+            header_lines: Vec::new(),
+            hunks: vec![
+                make_hunk("@@ -10,2 +10,2 @@", 10, 10, vec![line_ctx(10, 10)]),
+                make_hunk("@@ -80,2 +80,2 @@", 80, 80, vec![line_ctx(80, 80)]),
+            ],
+        };
+
+        let chosen = choose_best_hunk(&file, None, Some(74)).expect("hunk should be selected");
+        assert_eq!(chosen.new_start, 80);
+        assert!(hunk_distance_to_anchor(chosen, None, Some(74)) < 10);
+    }
+
+    #[test]
+    fn hunk_excerpt_contains_anchor_line() {
+        let hunk = make_hunk(
+            "@@ -20,4 +20,4 @@",
+            20,
+            20,
+            vec![
+                line_ctx(20, 20),
+                line_add(0, 21, "+let value = 1;"),
+                line_ctx(22, 22),
+            ],
+        );
+        let excerpt = format_hunk_excerpt(&hunk, None, Some(21), 8);
+        assert!(excerpt.contains("+let value = 1;"));
+        assert!(excerpt.contains("@@ -20,4 +20,4 @@"));
+    }
+
+    #[test]
+    fn ai_reply_body_includes_model_header() {
+        let body = format_ai_reply_body(Some("gpt-5.4"), "Implemented fix.");
+        assert!(body.starts_with("Model: gpt-5.4"));
+        assert!(body.contains("Implemented fix."));
+    }
+
+    #[test]
+    fn ai_reply_body_omits_header_when_model_unknown() {
+        let body = format_ai_reply_body(None, "Implemented fix.");
+        assert_eq!(body, "Implemented fix.");
+    }
+
+    #[test]
+    fn detect_model_from_json_stream_reads_nested_model_slug() {
+        let stream = r#"{"event":"meta","payload":{"session":{"model_slug":"gpt-5.4"}}}"#;
+        let detected = detect_model_from_json_stream(stream).expect("model should be detected");
+        assert_eq!(detected, "gpt-5.4");
+    }
+
+    #[test]
+    fn detect_model_from_text_reads_model_marker() {
+        let detected =
+            detect_model_from_text("run complete; model=gpt-5.4; tokens=100").expect("model");
+        assert_eq!(detected, "gpt-5.4");
+    }
+
+    fn make_hunk(
+        header: &str,
+        old_start: u32,
+        new_start: u32,
+        mut extra: Vec<DiffLine>,
+    ) -> DiffHunk {
+        let mut lines = vec![DiffLine {
+            kind: DiffLineKind::HunkHeader,
+            old_line: None,
+            new_line: None,
+            raw: header.to_string(),
+            code: header.to_string(),
+        }];
+        lines.append(&mut extra);
+        DiffHunk {
+            old_start,
+            old_count: 1,
+            new_start,
+            new_count: 1,
+            header: header.to_string(),
+            lines,
+        }
+    }
+
+    fn line_ctx(old: u32, new: u32) -> DiffLine {
+        DiffLine {
+            kind: DiffLineKind::Context,
+            old_line: Some(old),
+            new_line: Some(new),
+            raw: format!(" context {old}:{new}"),
+            code: format!("context {old}:{new}"),
+        }
+    }
+
+    fn line_add(old: u32, new: u32, raw: &str) -> DiffLine {
+        DiffLine {
+            kind: DiffLineKind::Added,
+            old_line: if old == 0 { None } else { Some(old) },
+            new_line: Some(new),
+            raw: raw.to_string(),
+            code: raw.trim_start_matches('+').to_string(),
+        }
+    }
 }

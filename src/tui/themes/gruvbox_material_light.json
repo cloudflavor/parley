@@ -1,0 +1,29 @@
+{
+  "name": "gruvbox_material_light",
+  "colors": {
+    "accent": "#458588",
+    "text_primary": "#5a524c",
+    "text_muted": "#7f7468",
+    "sidebar_highlight_bg": "#e4d8c8",
+    "sidebar_highlight_fg": "#3c3836",
+    "selected_line_bg": "#efe3d1",
+    "selection_marker": "#458588",
+    "added_sign": "#7c8f2f",
+    "removed_sign": "#c14a4a",
+    "context_sign": "#7f7468",
+    "hunk_header": "#458588",
+    "meta": "#b47109",
+    "thread_border": "#c9bca7",
+    "thread_background": "#fbf2de",
+    "comment_title": "#7c8f2f",
+    "reply_title": "#945e80",
+    "status_help": "#7f7468",
+    "markdown_heading": "#458588",
+    "markdown_quote_mark": "#a79c8b",
+    "markdown_quote_text": "#665c54",
+    "markdown_bullet": "#b47109",
+    "markdown_fence": "#945e80",
+    "markdown_code_fg": "#7c8f2f",
+    "markdown_code_bg": "#f3e9d7"
+  }
+}

@@ -15,7 +15,7 @@ use crate::{
     git::review_name::resolve_tui_review_name,
     persistence::store::Store,
     services::{
-        ai_session::{RunAiSessionInput, run_ai_session},
+        ai_session::{RunAiSessionInput, default_ai_session_mode, run_ai_session},
         review_service::{AddCommentInput, AddReplyInput, ReviewService},
     },
 };
@@ -73,7 +73,7 @@ async fn handle_review_command(command: ReviewCommand, service: &ReviewService) 
             println!("created review {} in {:?}", review.name, review.state);
         }
         ReviewCommand::Start { name } => {
-            let review = service.set_state(&name, ReviewState::Pending).await?;
+            let review = service.set_state(&name, ReviewState::UnderReview).await?;
             println!("review {} started in {:?}", review.name, review.state);
         }
         ReviewCommand::List => {
@@ -95,7 +95,7 @@ async fn handle_review_command(command: ReviewCommand, service: &ReviewService) 
                         comment.id,
                         match comment.status {
                             crate::domain::review::CommentStatus::Open => "open",
-                            crate::domain::review::CommentStatus::Pending => "pending",
+                            crate::domain::review::CommentStatus::Pending => "pending_human",
                             crate::domain::review::CommentStatus::Addressed => "addressed",
                         },
                         comment
@@ -191,13 +191,16 @@ async fn handle_review_command(command: ReviewCommand, service: &ReviewService) 
             mode,
             comment_ids,
         } => {
+            let mode = mode
+                .map(|value| value.0)
+                .unwrap_or_else(|| default_ai_session_mode(&comment_ids));
             let result = run_ai_session(
                 service,
                 RunAiSessionInput {
                     review_name: name,
                     provider: provider.0,
                     comment_ids,
-                    mode: mode.0,
+                    mode,
                 },
             )
             .await?;

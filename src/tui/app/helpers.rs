@@ -1,4 +1,4 @@
-use std::{io, path::Path, process::Command};
+use std::{io, path::Path, process::Command, sync::OnceLock};
 
 use anyhow::{Context, Result};
 use crossterm::{
@@ -7,7 +7,7 @@ use crossterm::{
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
 use ratatui::{Terminal, backend::CrosstermBackend, layout::Rect};
-use time::OffsetDateTime;
+use time::{OffsetDateTime, UtcOffset};
 
 use crate::domain::{
     diff::DiffLineKind,
@@ -27,9 +27,27 @@ pub(super) fn comment_matches_display_row(comment: &LineComment, row: &DisplayRo
         return false;
     }
 
-    match comment.side {
-        DiffSide::Left => comment.old_line.is_some() && comment.old_line == row.old_line,
-        DiffSide::Right => comment.new_line.is_some() && comment.new_line == row.new_line,
+    match (comment.old_line, comment.new_line) {
+        (Some(old), Some(new)) => {
+            // Prefer exact anchor pairs; if the right-side line drifts after edits,
+            // keep the thread attached by the stable old-side line mapping.
+            (row.old_line == Some(old) && row.new_line == Some(new)) || row.old_line == Some(old)
+        }
+        (Some(old), None) => {
+            if matches!(comment.side, DiffSide::Right) {
+                false
+            } else {
+                row.old_line == Some(old)
+            }
+        }
+        (None, Some(new)) => {
+            if matches!(comment.side, DiffSide::Left) {
+                false
+            } else {
+                row.new_line == Some(new)
+            }
+        }
+        (None, None) => false,
     }
 }
 
@@ -44,19 +62,57 @@ pub(super) fn format_line_reference(old_line: Option<u32>, new_line: Option<u32>
 
 pub(super) fn format_timestamp_utc(timestamp_ms: u64) -> String {
     let nanos_since_epoch = (timestamp_ms as i128).saturating_mul(1_000_000);
-    let dt = OffsetDateTime::from_unix_timestamp_nanos(nanos_since_epoch)
+    let utc_dt = OffsetDateTime::from_unix_timestamp_nanos(nanos_since_epoch)
         .expect("timestamp ms should be representable as UTC date-time");
-    let month: u8 = dt.month().into();
+    let local_dt = local_utc_offset()
+        .map(|offset| utc_dt.to_offset(offset))
+        .unwrap_or(utc_dt);
+    let month: u8 = local_dt.month().into();
+    let offset_seconds = local_dt.offset().whole_seconds();
+    let sign = if offset_seconds < 0 { '-' } else { '+' };
+    let abs_offset_seconds = offset_seconds.abs();
+    let offset_hours = abs_offset_seconds / 3600;
+    let offset_minutes = (abs_offset_seconds % 3600) / 60;
     format!(
-        "{:04}-{:02}-{:02} {:02}:{:02}:{:02}.{:03} UTC",
-        dt.year(),
+        "{:04}-{:02}-{:02} {:02}:{:02}:{:02}.{:03} UTC{}{offset_hours:02}:{offset_minutes:02}",
+        local_dt.year(),
         month,
-        dt.day(),
-        dt.hour(),
-        dt.minute(),
-        dt.second(),
-        dt.millisecond()
+        local_dt.day(),
+        local_dt.hour(),
+        local_dt.minute(),
+        local_dt.second(),
+        local_dt.millisecond(),
+        sign
     )
+}
+
+fn local_utc_offset() -> Option<UtcOffset> {
+    static OFFSET_SECONDS: OnceLock<Option<i32>> = OnceLock::new();
+    let seconds = OFFSET_SECONDS
+        .get_or_init(|| {
+            let output = Command::new("date").arg("+%z").output().ok()?;
+            if !output.status.success() {
+                return None;
+            }
+            let raw = String::from_utf8(output.stdout).ok()?;
+            parse_utc_offset_seconds(raw.trim())
+        })
+        .to_owned()?;
+    UtcOffset::from_whole_seconds(seconds).ok()
+}
+
+fn parse_utc_offset_seconds(raw: &str) -> Option<i32> {
+    if raw.len() != 5 {
+        return None;
+    }
+    let sign = match raw.as_bytes()[0] {
+        b'+' => 1,
+        b'-' => -1,
+        _ => return None,
+    };
+    let hours: i32 = raw[1..3].parse().ok()?;
+    let minutes: i32 = raw[3..5].parse().ok()?;
+    Some(sign * (hours * 3600 + minutes * 60))
 }
 
 pub(super) fn slice_chars(input: &str, start: usize, len: usize) -> String {
@@ -118,7 +174,7 @@ pub(super) fn open_log_in_less(
 
     let status = less_result?;
     if !status.success() {
-        return Err(anyhow::anyhow!("less exited with status {}", status));
+        return Err(anyhow::anyhow!("less exited with status {status}"));
     }
     Ok(())
 }
@@ -135,5 +191,85 @@ pub(super) fn remove_char_at(text: &mut String, char_index: usize) {
     if char_index < chars.len() {
         chars.remove(char_index);
         *text = chars.into_iter().collect();
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{DisplayRow, comment_matches_display_row, parse_utc_offset_seconds};
+    use crate::domain::{
+        diff::DiffLineKind,
+        review::{Author, CommentStatus, DiffSide, LineComment},
+    };
+
+    fn make_row(kind: DiffLineKind, old_line: Option<u32>, new_line: Option<u32>) -> DisplayRow {
+        DisplayRow {
+            kind,
+            old_line,
+            new_line,
+            raw: String::new(),
+            code: String::new(),
+        }
+    }
+
+    fn make_comment(side: DiffSide, old_line: Option<u32>, new_line: Option<u32>) -> LineComment {
+        LineComment {
+            id: 1,
+            file_path: "src/lib.rs".to_string(),
+            old_line,
+            new_line,
+            side,
+            body: "x".to_string(),
+            author: Author::User,
+            status: CommentStatus::Open,
+            replies: Vec::new(),
+            created_at_ms: 0,
+            updated_at_ms: 0,
+            addressed_at_ms: None,
+        }
+    }
+
+    #[test]
+    fn parses_positive_utc_offset() {
+        assert_eq!(parse_utc_offset_seconds("+0200"), Some(2 * 3600));
+        assert_eq!(parse_utc_offset_seconds("+0530"), Some(5 * 3600 + 30 * 60));
+    }
+
+    #[test]
+    fn parses_negative_utc_offset() {
+        assert_eq!(parse_utc_offset_seconds("-0700"), Some(-7 * 3600));
+        assert_eq!(
+            parse_utc_offset_seconds("-0330"),
+            Some(-(3 * 3600 + 30 * 60))
+        );
+    }
+
+    #[test]
+    fn rejects_invalid_utc_offset() {
+        assert_eq!(parse_utc_offset_seconds(""), None);
+        assert_eq!(parse_utc_offset_seconds("0200"), None);
+        assert_eq!(parse_utc_offset_seconds("+2"), None);
+        assert_eq!(parse_utc_offset_seconds("+25AA"), None);
+    }
+
+    #[test]
+    fn anchor_with_both_lines_prefers_exact_pair() {
+        let comment = make_comment(DiffSide::Right, Some(8), Some(7));
+        let exact = make_row(DiffLineKind::Context, Some(8), Some(7));
+        assert!(comment_matches_display_row(&comment, &exact));
+    }
+
+    #[test]
+    fn anchor_with_both_lines_falls_back_to_old_line_on_shift() {
+        let comment = make_comment(DiffSide::Right, Some(8), Some(7));
+        let shifted = make_row(DiffLineKind::Context, Some(8), Some(10));
+        assert!(comment_matches_display_row(&comment, &shifted));
+    }
+
+    #[test]
+    fn anchor_with_both_lines_does_not_match_new_line_only() {
+        let comment = make_comment(DiffSide::Right, Some(8), Some(7));
+        let wrong_context = make_row(DiffLineKind::Context, Some(5), Some(7));
+        assert!(!comment_matches_display_row(&comment, &wrong_context));
     }
 }

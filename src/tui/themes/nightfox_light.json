@@ -1,0 +1,29 @@
+{
+  "name": "nightfox_light",
+  "colors": {
+    "accent": "#286983",
+    "text_primary": "#3d4a5a",
+    "text_muted": "#6e7a8a",
+    "sidebar_highlight_bg": "#e8e4dd",
+    "sidebar_highlight_fg": "#2d3742",
+    "selected_line_bg": "#ece8e1",
+    "selection_marker": "#2f7f9f",
+    "added_sign": "#4f8f63",
+    "removed_sign": "#c94f6d",
+    "context_sign": "#5d6f82",
+    "hunk_header": "#2f7f9f",
+    "meta": "#b58b4f",
+    "thread_border": "#c8c3bc",
+    "thread_background": "#f6f2ea",
+    "comment_title": "#4f8f63",
+    "reply_title": "#8a5fbf",
+    "status_help": "#6e7a8a",
+    "markdown_heading": "#286983",
+    "markdown_quote_mark": "#9aa3ad",
+    "markdown_quote_text": "#4e5b68",
+    "markdown_bullet": "#b58b4f",
+    "markdown_fence": "#8a5fbf",
+    "markdown_code_fg": "#4f8f63",
+    "markdown_code_bg": "#efe9df"
+  }
+}

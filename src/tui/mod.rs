@@ -1,4 +1,5 @@
 mod app;
+mod logging;
 mod syntax;
 mod theme;
 

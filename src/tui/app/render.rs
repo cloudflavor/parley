@@ -1,4 +1,7 @@
-use std::{collections::HashSet, time::Instant};
+use std::{
+    collections::{BTreeMap, HashSet},
+    time::Instant,
+};
 
 use ratatui::{
     Frame,
@@ -10,14 +13,19 @@ use ratatui::{
 
 use crate::domain::{
     diff::DiffLineKind,
-    review::{CommentStatus, ReviewState},
+    reference::parse_file_references,
+    review::{CommentStatus, LineComment, ReviewState},
 };
 
 use super::super::theme::ThemeColors;
 use super::helpers::{
     comment_matches_display_row, format_line_reference, format_timestamp_utc, slice_chars,
 };
-use super::{CommandPromptMode, DiffPane, DisplayRow, InlineDraftMode, SettingsEditorKind, TuiApp};
+use super::{
+    CommandPromptMode, DiffPane, DiffRenderCacheEntry, DiffRenderCacheKey, DisplayRow,
+    INLINE_FILE_MENTION_MAX_VISIBLE_ROWS, InlineDraftMode, InlineFileMentionState,
+    SettingsEditorKind, ThreadDensityMode, TuiApp,
+};
 
 pub(super) fn draw(frame: &mut Frame<'_>, app: &mut TuiApp) {
     let root = frame.area();
@@ -25,9 +33,13 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &mut TuiApp) {
     app.last_thread_nav_area = None;
     app.last_thread_nav_scroll = 0;
     app.last_thread_nav_row_map.clear();
+    app.last_ai_progress_area = None;
+    app.last_file_search_area = None;
     app.last_diff_area_secondary = None;
     app.last_diff_scroll_secondary = 0;
     app.last_diff_row_map_secondary.clear();
+    app.last_diff_link_hits.clear();
+    app.last_diff_link_hits_secondary.clear();
     let status_height = compute_status_height(root.height);
 
     if app.content_fullscreen {
@@ -44,8 +56,14 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &mut TuiApp) {
         if app.settings_editor.is_some() {
             draw_settings_editor(frame, app);
         }
+        if app.theme_picker.is_some() {
+            draw_theme_picker(frame, app);
+        }
         if app.command_prompt.is_some() {
             draw_command_prompt(frame, app);
+        }
+        if app.command_palette.is_some() {
+            draw_command_palette(frame, app);
         }
         if app.ai_progress_visible {
             draw_ai_progress_popup(frame, app);
@@ -85,8 +103,14 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &mut TuiApp) {
     if app.settings_editor.is_some() {
         draw_settings_editor(frame, app);
     }
+    if app.theme_picker.is_some() {
+        draw_theme_picker(frame, app);
+    }
     if app.command_prompt.is_some() {
         draw_command_prompt(frame, app);
+    }
+    if app.command_palette.is_some() {
+        draw_command_palette(frame, app);
     }
     if app.ai_progress_visible {
         draw_ai_progress_popup(frame, app);
@@ -97,15 +121,7 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &mut TuiApp) {
 }
 
 fn compute_status_height(total_height: u16) -> u16 {
-    if total_height >= 24 {
-        8
-    } else if total_height >= 16 {
-        7
-    } else if total_height >= 10 {
-        6
-    } else {
-        4
-    }
+    if total_height >= 12 { 4 } else { 3 }
 }
 
 fn draw_thread_navigator_overlay(frame: &mut Frame<'_>, app: &mut TuiApp) {
@@ -128,6 +144,7 @@ fn draw_thread_navigator_overlay(frame: &mut Frame<'_>, app: &mut TuiApp) {
 
     let comments = app.comments_for_selected_file();
     let inner_height = area.height.saturating_sub(2) as usize;
+    let inner_width = usize::from(area.width.saturating_sub(2)).max(1);
     let mut lines = Vec::new();
     let mut row_map = Vec::new();
 
@@ -146,6 +163,7 @@ fn draw_thread_navigator_overlay(frame: &mut Frame<'_>, app: &mut TuiApp) {
                 format_line_reference(comment.old_line, comment.new_line),
                 preview
             );
+            let clipped_line = fit_to_width(&line, inner_width);
             let style = if index == app.selected_comment {
                 Style::default()
                     .bg(colors.sidebar_highlight_bg)
@@ -154,7 +172,7 @@ fn draw_thread_navigator_overlay(frame: &mut Frame<'_>, app: &mut TuiApp) {
             } else {
                 Style::default().fg(colors.text_primary)
             };
-            lines.push(Line::from(Span::styled(line, style)));
+            lines.push(Line::from(Span::styled(clipped_line, style)));
             row_map.push(index);
         }
     }
@@ -177,20 +195,19 @@ fn draw_thread_navigator_overlay(frame: &mut Frame<'_>, app: &mut TuiApp) {
                             .add_modifier(Modifier::BOLD),
                     ),
             )
-            .wrap(Wrap { trim: true })
             .scroll((scroll as u16, 0)),
         area,
     );
 }
 
-fn draw_ai_progress_popup(frame: &mut Frame<'_>, app: &TuiApp) {
-    let colors = &app.theme().colors;
+fn draw_ai_progress_popup(frame: &mut Frame<'_>, app: &mut TuiApp) {
+    let colors = app.theme().colors.clone();
     let root = frame.area();
     if root.width < 40 || root.height < 10 {
         return;
     }
 
-    let width = root.width.clamp(44, 120);
+    let width = (root.width.saturating_mul(3) / 4).clamp(60, 160);
     let height = root.height.clamp(8, 18);
     let area = Rect {
         x: root.x + root.width.saturating_sub(width) / 2,
@@ -198,6 +215,7 @@ fn draw_ai_progress_popup(frame: &mut Frame<'_>, app: &TuiApp) {
         width,
         height,
     };
+    app.last_ai_progress_area = Some(area);
 
     let title = if let Some(task) = app.ai_task.as_ref() {
         format!(
@@ -227,7 +245,7 @@ fn draw_ai_progress_popup(frame: &mut Frame<'_>, app: &TuiApp) {
         let content_width = usize::from(area.width.saturating_sub(2)).max(1);
         let mut wrapped_entries = Vec::new();
         for entry in &app.ai_progress_lines {
-            let style = if entry.contains(" stderr: ") {
+            let style = if entry.starts_with("stderr: ") || entry.contains(" stderr: ") {
                 Style::default().fg(colors.removed_sign)
             } else if entry.contains(" system: ") {
                 Style::default().fg(colors.accent)
@@ -236,11 +254,13 @@ fn draw_ai_progress_popup(frame: &mut Frame<'_>, app: &TuiApp) {
             };
             wrapped_entries.extend(wrap_plain_styled_lines(entry, content_width, style));
         }
-        let start = wrapped_entries.len().saturating_sub(log_rows);
-        lines.extend(wrapped_entries.into_iter().skip(start));
+        let max_scroll = wrapped_entries.len().saturating_sub(log_rows);
+        let scroll = app.ai_progress_resolved_scroll(max_scroll);
+        let end = (scroll + log_rows).min(wrapped_entries.len());
+        lines.extend(wrapped_entries.into_iter().skip(scroll).take(end - scroll));
     }
     lines.push(Line::from(Span::styled(
-        "H hide/show | K cancel run | L open full logs",
+        "H hide/show | K cancel run | L open full logs | PgUp/PgDn/Home/End scroll",
         Style::default().fg(colors.status_help),
     )));
 
@@ -288,8 +308,8 @@ fn wrap_plain_styled_lines(input: &str, width: usize, style: Style) -> Vec<Line<
 
 fn draw_shortcuts_modal(frame: &mut Frame<'_>, app: &mut TuiApp) {
     let root = frame.area();
-    let width = root.width.saturating_sub(2).min(132).max(64);
-    let height = root.height.saturating_sub(2).min(30).max(16);
+    let width = root.width.saturating_sub(2).clamp(64, 132);
+    let height = root.height.saturating_sub(2).clamp(16, 30);
     let area = Rect {
         x: root.x + root.width.saturating_sub(width) / 2,
         y: root.y + root.height.saturating_sub(height) / 2,
@@ -301,12 +321,13 @@ fn draw_shortcuts_modal(frame: &mut Frame<'_>, app: &mut TuiApp) {
 
     let markdown = "\
 # PARLEY QUICK KEYS\n\
-> `Esc`, `?`, or `F1` closes this pane.\n\
+> `Esc` or `?` closes this pane.\n\
 \n\
 ## Move\n\
 - **Files:** `h/l`\n\
 - **Lines:** `j/k`\n\
-- **Top/Bottom:** `g/G`\n\
+- **Page/half-page:** `PgUp/PgDn`, `Ctrl+u/Ctrl+d`\n\
+- **Top/Bottom:** `g/G` | **Center:** `zz`\n\
 - **Go to line:** `:<line>`\n\
 - **Search:** `/query`, then `n/p`\n\
 \n\
@@ -315,20 +336,28 @@ fn draw_shortcuts_modal(frame: &mut Frame<'_>, app: &mut TuiApp) {
 - **Reply:** `r`\n\
 - **Next/Prev thread:** `N/P`\n\
 - **Thread list select:** `[/]`\n\
-- **Thread state:** `a` addressed, `o` open\n\
+- **Expand selected thread:** `e`\n\
+- **Cycle thread density:** `Shift+E`\n\
+- **Thread state:** `a` addressed, `o` open, `f` force address\n\
 \n\
 ## Review\n\
-- **Set Pending:** `s`\n\
-- **Set Waiting:** `w`\n\
-- **Set Done:** `d`\n\
+- **Set Open / UnderReview / Done:** `s` / `w` / `d`\n\
+- **Force Done:** `D`\n\
 \n\
 ## Layout\n\
-- **Fullscreen:** `z`\n\
+- **Fullscreen:** `z` (single press)\n\
 - **Split view:** `V`\n\
 - **Side-by-side diff:** `S`\n\
 - **Active pane:** `Tab`\n\
 - **Files pane width:** `</>`\n\
+- **Files filter box:** `Ctrl+f`\n\
+- **File filter/sort:** `Shift+F` / `Shift+O`\n\
+- **Toggle active group:** `Enter`\n\
+- **Collapse all groups:** `Shift+C`\n\
 - **Thread navigator:** `b`\n\
+\n\
+## Command\n\
+- **Palette:** `Ctrl+k`\n\
 \n\
 ## AI\n\
 - **Refactor thread/review:** `x` / `A`\n\
@@ -340,8 +369,8 @@ fn draw_shortcuts_modal(frame: &mut Frame<'_>, app: &mut TuiApp) {
 \n\
 ## Settings\n\
 - **User name:** `u`\n\
-- **AI provider:** `v`\n\
-- **Theme cycle/toggle:** `t/T`\n\
+- **AI provider:** `i`\n\
+- **Theme picker/toggle:** `t/T`\n\
 ";
     let mut lines = wrap_markdown_lines(
         markdown,
@@ -398,7 +427,7 @@ fn draw_settings_editor(frame: &mut Frame<'_>, app: &TuiApp) {
     let title = match editor.kind {
         SettingsEditorKind::UserName => "Set User Name",
     };
-    let colors = &app.theme().colors;
+    let colors = app.theme().colors.clone();
     let inner_width = usize::from(area.width.saturating_sub(2)).max(1);
     let horizontal_scroll = editor
         .cursor_col
@@ -440,12 +469,200 @@ fn draw_settings_editor(frame: &mut Frame<'_>, app: &TuiApp) {
     frame.set_cursor_position((cursor_x, cursor_y));
 }
 
+fn draw_theme_picker(frame: &mut Frame<'_>, app: &TuiApp) {
+    let Some(picker) = app.theme_picker.as_ref() else {
+        return;
+    };
+
+    let root = frame.area();
+    let width = root.width.saturating_sub(2).clamp(60, 90);
+    let height = root.height.saturating_sub(2).clamp(12, 22);
+    let area = Rect {
+        x: root.x + root.width.saturating_sub(width) / 2,
+        y: root.y + root.height.saturating_sub(height) / 2,
+        width,
+        height,
+    };
+    let colors = app.theme().colors.clone();
+    let selected = picker
+        .selected_index
+        .min(app.themes.len().saturating_sub(1));
+    let selected_theme = &app.themes[selected];
+    let variant = theme_variant_label(&selected_theme.name);
+    let family = theme_family_label(&selected_theme.name);
+
+    frame.render_widget(Clear, area);
+    let outer_block = Block::default()
+        .title("Theme Picker")
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(colors.thread_border))
+        .title_style(
+            Style::default()
+                .fg(colors.accent)
+                .add_modifier(Modifier::BOLD),
+        );
+    let content = outer_block.inner(area);
+    frame.render_widget(outer_block, area);
+
+    let panels = Layout::default()
+        .direction(Direction::Horizontal)
+        .constraints([Constraint::Percentage(42), Constraint::Percentage(58)])
+        .split(content);
+
+    let visible_rows = usize::from(panels[0].height.saturating_sub(2)).max(1);
+    let max_scroll = app.themes.len().saturating_sub(visible_rows);
+    let scroll = picker.scroll.min(max_scroll);
+
+    let mut items = Vec::new();
+    for (idx, theme) in app
+        .themes
+        .iter()
+        .enumerate()
+        .skip(scroll)
+        .take(visible_rows)
+    {
+        let marker = if idx == app.theme_index { "*" } else { " " };
+        let variant = theme_variant_label(&theme.name);
+        items.push(ListItem::new(format!(
+            "{marker} {} ({variant})",
+            theme.name
+        )));
+    }
+
+    let mut state = ListState::default();
+    state.select(Some(selected.saturating_sub(scroll)));
+
+    frame.render_stateful_widget(
+        List::new(items)
+            .block(Block::default().title("Themes").borders(Borders::ALL))
+            .highlight_style(
+                Style::default()
+                    .bg(colors.sidebar_highlight_bg)
+                    .fg(colors.sidebar_highlight_fg)
+                    .add_modifier(Modifier::BOLD),
+            )
+            .highlight_symbol("> "),
+        panels[0],
+        &mut state,
+    );
+
+    let swatches = Line::from(vec![
+        Span::styled(
+            " accent ",
+            Style::default().bg(selected_theme.colors.accent),
+        ),
+        Span::raw(" "),
+        Span::styled(
+            " text ",
+            Style::default()
+                .bg(selected_theme.colors.text_primary)
+                .fg(selected_theme.colors.thread_background),
+        ),
+        Span::raw(" "),
+        Span::styled(
+            " bg ",
+            Style::default()
+                .bg(selected_theme.colors.thread_background)
+                .fg(selected_theme.colors.text_primary),
+        ),
+        Span::raw(" "),
+        Span::styled(" + ", Style::default().bg(selected_theme.colors.added_sign)),
+        Span::raw(" "),
+        Span::styled(
+            " - ",
+            Style::default().bg(selected_theme.colors.removed_sign),
+        ),
+        Span::raw(" "),
+        Span::styled(
+            " # ",
+            Style::default().bg(selected_theme.colors.comment_title),
+        ),
+    ]);
+
+    let preview_lines = vec![
+        Line::from(vec![
+            Span::styled(
+                "Theme: ",
+                Style::default()
+                    .fg(colors.text_muted)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(
+                selected_theme.name.clone(),
+                Style::default()
+                    .fg(colors.accent)
+                    .add_modifier(Modifier::BOLD),
+            ),
+        ]),
+        Line::from(vec![
+            Span::styled("Family: ", Style::default().fg(colors.text_muted)),
+            Span::styled(family.to_string(), Style::default().fg(colors.text_primary)),
+            Span::raw("  "),
+            Span::styled("Variant: ", Style::default().fg(colors.text_muted)),
+            Span::styled(
+                variant.to_string(),
+                Style::default().fg(colors.text_primary),
+            ),
+        ]),
+        Line::from(""),
+        Line::from(vec![Span::styled(
+            "Swatches",
+            Style::default()
+                .fg(colors.text_muted)
+                .add_modifier(Modifier::BOLD),
+        )]),
+        swatches,
+        Line::from(""),
+        Line::from(vec![
+            Span::styled("Sample: ", Style::default().fg(colors.text_muted)),
+            Span::styled("fn ", Style::default().fg(selected_theme.colors.accent)),
+            Span::styled(
+                "review_pass",
+                Style::default()
+                    .fg(selected_theme.colors.comment_title)
+                    .add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(
+                "() -> ",
+                Style::default().fg(selected_theme.colors.text_primary),
+            ),
+            Span::styled(
+                "bool",
+                Style::default().fg(selected_theme.colors.reply_title),
+            ),
+            Span::styled(
+                " { ",
+                Style::default().fg(selected_theme.colors.text_primary),
+            ),
+            Span::styled(
+                "true",
+                Style::default().fg(selected_theme.colors.added_sign),
+            ),
+            Span::styled(
+                " }",
+                Style::default().fg(selected_theme.colors.text_primary),
+            ),
+        ]),
+        Line::from(""),
+        Line::from(vec![Span::styled(
+            "Enter apply | Esc cancel | j/k move",
+            Style::default().fg(colors.status_help),
+        )]),
+    ];
+
+    frame.render_widget(
+        Paragraph::new(preview_lines)
+            .block(Block::default().title("Preview").borders(Borders::ALL)),
+        panels[1],
+    );
+}
+
 fn draw_command_prompt(frame: &mut Frame<'_>, app: &TuiApp) {
     let Some(prompt) = app.command_prompt.as_ref() else {
         return;
     };
 
-    let colors = &app.theme().colors;
+    let colors = app.theme().colors.clone();
     let root = frame.area();
     let height: u16 = 3;
     if root.height < height {
@@ -496,70 +713,371 @@ fn draw_command_prompt(frame: &mut Frame<'_>, app: &TuiApp) {
     frame.set_cursor_position((cursor_x, cursor_y));
 }
 
+fn draw_command_palette(frame: &mut Frame<'_>, app: &mut TuiApp) {
+    let Some(palette_snapshot) = app.command_palette.as_ref() else {
+        return;
+    };
+    let palette_query = palette_snapshot.query.clone();
+    let palette_cursor_col = palette_snapshot.cursor_col;
+    let palette_selected = palette_snapshot.selected_index;
+    let palette_scroll = palette_snapshot.scroll;
+
+    let root = frame.area();
+    if root.width < 44 || root.height < 10 {
+        return;
+    }
+
+    let width = root.width.saturating_sub(4).clamp(52, 96);
+    let height = root.height.saturating_sub(4).clamp(10, 22);
+    let area = Rect {
+        x: root.x + root.width.saturating_sub(width) / 2,
+        y: root.y + root.height.saturating_sub(height) / 2,
+        width,
+        height,
+    };
+    let colors = app.theme().colors.clone();
+
+    let all_items = TuiApp::command_palette_items();
+    let filtered_items = TuiApp::command_palette_filtered_items(&palette_query, &all_items);
+    let max_visible_rows = usize::from(area.height.saturating_sub(4)).max(1);
+    let (selected_index, scroll) = if filtered_items.is_empty() {
+        (0usize, 0usize)
+    } else {
+        let selected_index = palette_selected.min(filtered_items.len().saturating_sub(1));
+        let mut scroll = palette_scroll;
+        if selected_index < scroll {
+            scroll = selected_index;
+        } else if selected_index >= scroll.saturating_add(max_visible_rows) {
+            scroll = selected_index.saturating_sub(max_visible_rows.saturating_sub(1));
+        }
+        (selected_index, scroll)
+    };
+
+    if let Some(palette) = app.command_palette.as_mut() {
+        palette.selected_index = selected_index;
+        palette.scroll = scroll;
+    }
+
+    let query_prefix = "Search: ";
+    let query_width = usize::from(area.width.saturating_sub(2)).saturating_sub(query_prefix.len());
+    let query_width = query_width.max(1);
+    let query_scroll = palette_cursor_col.saturating_sub(query_width.saturating_sub(1));
+    let visible_query = slice_chars(&palette_query, query_scroll, query_width);
+
+    let mut lines = Vec::new();
+    lines.push(Line::from(vec![
+        Span::styled(
+            query_prefix,
+            Style::default()
+                .fg(colors.accent)
+                .add_modifier(Modifier::BOLD),
+        ),
+        Span::styled(visible_query, Style::default().fg(colors.text_primary)),
+    ]));
+
+    if filtered_items.is_empty() {
+        lines.push(Line::from(Span::styled(
+            "(no matching commands)",
+            Style::default().fg(colors.text_muted),
+        )));
+    } else {
+        for (offset, item) in filtered_items
+            .iter()
+            .enumerate()
+            .skip(scroll)
+            .take(max_visible_rows)
+        {
+            let is_selected = offset == selected_index;
+            let mut style = Style::default().fg(colors.text_primary);
+            let marker = if is_selected { "▶ " } else { "  " };
+            if is_selected {
+                style = style
+                    .bg(colors.sidebar_highlight_bg)
+                    .fg(colors.sidebar_highlight_fg)
+                    .add_modifier(Modifier::BOLD);
+            }
+            lines.push(Line::from(Span::styled(
+                format!("{marker}{}", item.label),
+                style,
+            )));
+        }
+    }
+    lines.push(Line::from(Span::styled(
+        "Enter run | Esc close | j/k move | type to filter",
+        Style::default().fg(colors.status_help),
+    )));
+
+    frame.render_widget(Clear, area);
+    frame.render_widget(
+        Paragraph::new(lines).block(
+            Block::default()
+                .title("Command Palette")
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(colors.thread_border))
+                .title_style(
+                    Style::default()
+                        .fg(colors.accent)
+                        .add_modifier(Modifier::BOLD),
+                ),
+        ),
+        area,
+    );
+
+    let cursor_x = area
+        .x
+        .saturating_add(1)
+        .saturating_add(query_prefix.len() as u16)
+        .saturating_add((palette_cursor_col.saturating_sub(query_scroll)) as u16);
+    let cursor_y = area.y.saturating_add(1);
+    frame.set_cursor_position((cursor_x, cursor_y));
+}
+
 fn draw_file_sidebar(frame: &mut Frame<'_>, app: &mut TuiApp, area: ratatui::layout::Rect) {
-    app.last_file_area = Some(area);
+    app.last_file_row_map.clear();
+    app.last_file_group_map.clear();
     let colors = app.theme().colors.clone();
     let comment_stats = app.file_comment_stats();
-    let search_query = app.search_query.as_deref();
+    let file_name_query = app.file_search_query().map(str::to_owned);
 
-    let items: Vec<ListItem<'_>> = if app.diff.files.is_empty() {
-        vec![ListItem::new("(no files in git diff HEAD)")]
+    let (search_area, list_area) = if area.height > 4 {
+        let parts = Layout::default()
+            .direction(Direction::Vertical)
+            .constraints([Constraint::Length(3), Constraint::Min(0)])
+            .split(area);
+        (Some(parts[0]), parts[1])
     } else {
-        app.diff
-            .files
-            .iter()
-            .map(|file| {
-                let (total_comments, open_comments) =
-                    comment_stats.get(&file.path).copied().unwrap_or((0, 0));
+        (None, area)
+    };
+    app.last_file_area = Some(list_area);
+    app.last_file_search_area = search_area;
 
-                if total_comments == 0 {
-                    return ListItem::new(Line::from(search_highlighted_text_spans(
-                        &file.path,
-                        search_query,
-                        &colors,
-                    )));
+    let visible_files = app.visible_file_indices();
+    let mut items: Vec<ListItem<'_>> = Vec::new();
+
+    if visible_files.is_empty() {
+        let message = if app.diff.files.is_empty() {
+            "(no files in git diff HEAD)"
+        } else {
+            "(no files match current filter)"
+        };
+        items.push(ListItem::new(message));
+        app.last_file_row_map.push(None);
+        app.last_file_group_map.push(None);
+    } else {
+        let mut grouped: BTreeMap<String, Vec<usize>> = BTreeMap::new();
+        for file_index in visible_files {
+            let group = app.file_group_name_for_index(file_index);
+            grouped.entry(group).or_default().push(file_index);
+        }
+
+        let mut grouped_entries: Vec<(String, Vec<usize>, usize, usize, usize)> = grouped
+            .into_iter()
+            .map(|(group, file_indices)| {
+                let mut group_total = 0usize;
+                let mut group_open = 0usize;
+                let mut group_pending = 0usize;
+                for file_index in &file_indices {
+                    let file = &app.diff.files[*file_index];
+                    let (total, open, pending) =
+                        comment_stats.get(&file.path).copied().unwrap_or((0, 0, 0));
+                    group_total += total;
+                    group_open += open;
+                    group_pending += pending;
                 }
+                (group, file_indices, group_total, group_open, group_pending)
+            })
+            .collect();
+
+        grouped_entries.sort_by(|left, right| match app.file_sort_mode {
+            super::FileSortMode::Path => left.0.cmp(&right.0),
+            super::FileSortMode::OpenCountDesc => right
+                .3
+                .cmp(&left.3)
+                .then_with(|| right.2.cmp(&left.2))
+                .then_with(|| left.0.cmp(&right.0)),
+            super::FileSortMode::TotalCountDesc => right
+                .2
+                .cmp(&left.2)
+                .then_with(|| right.3.cmp(&left.3))
+                .then_with(|| left.0.cmp(&right.0)),
+        });
+
+        for (group, file_indices, group_total, group_open, group_pending) in grouped_entries {
+            let mut sorted_indices = file_indices;
+            sorted_indices.sort_by(|left, right| {
+                let left_file = &app.diff.files[*left];
+                let right_file = &app.diff.files[*right];
+                let left_stats = comment_stats
+                    .get(&left_file.path)
+                    .copied()
+                    .unwrap_or((0, 0, 0));
+                let right_stats = comment_stats
+                    .get(&right_file.path)
+                    .copied()
+                    .unwrap_or((0, 0, 0));
+                match app.file_sort_mode {
+                    super::FileSortMode::Path => left_file.path.cmp(&right_file.path),
+                    super::FileSortMode::OpenCountDesc => right_stats
+                        .1
+                        .cmp(&left_stats.1)
+                        .then_with(|| left_file.path.cmp(&right_file.path)),
+                    super::FileSortMode::TotalCountDesc => right_stats
+                        .0
+                        .cmp(&left_stats.0)
+                        .then_with(|| left_file.path.cmp(&right_file.path)),
+                }
+            });
+
+            let collapsed = app.collapsed_file_groups.contains(&group);
+            let twisty = if collapsed { "▸" } else { "▾" };
+            let group_line =
+                format!("{twisty} {group}  o:{group_open} p:{group_pending} t:{group_total}");
+            items.push(ListItem::new(Line::from(Span::styled(
+                group_line,
+                Style::default()
+                    .fg(colors.accent)
+                    .add_modifier(Modifier::BOLD),
+            ))));
+            app.last_file_row_map.push(None);
+            app.last_file_group_map.push(Some(group.clone()));
+
+            if collapsed {
+                continue;
+            }
+
+            for file_index in sorted_indices {
+                let file = &app.diff.files[file_index];
+                let (total_comments, open_comments, pending_comments) =
+                    comment_stats.get(&file.path).copied().unwrap_or((0, 0, 0));
 
                 let marker_style = if open_comments > 0 {
                     Style::default()
                         .fg(colors.comment_title)
                         .add_modifier(Modifier::BOLD)
+                } else if pending_comments > 0 {
+                    Style::default()
+                        .fg(colors.accent)
+                        .add_modifier(Modifier::BOLD)
                 } else {
                     Style::default().fg(colors.text_muted)
                 };
                 let marker_text = if open_comments > 0 {
-                    format!(" ●{} ", open_comments)
+                    format!("  ●{open_comments} ")
+                } else if pending_comments > 0 {
+                    format!("  ◍{pending_comments} ")
+                } else if total_comments > 0 {
+                    format!("  ◌{total_comments} ")
                 } else {
-                    format!(" ◌{} ", total_comments)
+                    "    ".to_string()
+                };
+                let display_name = if group == "." {
+                    file.path.clone()
+                } else {
+                    file.path
+                        .strip_prefix(&format!("{group}/"))
+                        .unwrap_or(&file.path)
+                        .to_string()
                 };
                 let mut spans = vec![Span::styled(marker_text, marker_style)];
                 spans.extend(search_highlighted_text_spans(
-                    &file.path,
-                    search_query,
+                    &display_name,
+                    file_name_query.as_deref(),
                     &colors,
                 ));
-
-                ListItem::new(Line::from(spans))
-            })
-            .collect()
-    };
+                items.push(ListItem::new(Line::from(spans)));
+                app.last_file_row_map.push(Some(file_index));
+                app.last_file_group_map.push(None);
+            }
+        }
+    }
 
     let mut state = ListState::default();
-    if !app.diff.files.is_empty() {
-        state.select(Some(app.active_file_index()));
+    let selected_row = app
+        .last_file_row_map
+        .iter()
+        .position(|entry| *entry == Some(app.active_file_index()))
+        .or_else(|| {
+            app.last_file_row_map
+                .iter()
+                .position(|entry| entry.is_some())
+        });
+    if let Some(selected_row) = selected_row {
+        state.select(Some(selected_row));
         app.last_file_scroll = compute_scroll(
-            app.active_file_index(),
-            area.height.saturating_sub(2) as usize,
+            selected_row,
+            usize::from(list_area.height.saturating_sub(2)),
         );
     } else {
         app.last_file_scroll = 0;
     }
 
+    if let Some(search_area) = search_area {
+        let active = app.file_search.focused;
+        let title_style = if active {
+            Style::default()
+                .fg(colors.accent)
+                .add_modifier(Modifier::BOLD)
+        } else {
+            Style::default().fg(colors.text_muted)
+        };
+        let query_style = if active {
+            Style::default()
+                .bg(colors.sidebar_highlight_bg)
+                .fg(colors.sidebar_highlight_fg)
+        } else {
+            Style::default().fg(colors.text_primary)
+        };
+        let prefix = "search> ";
+        let inner_width = usize::from(search_area.width.saturating_sub(2)).max(1);
+        let content_width = inner_width.saturating_sub(prefix.chars().count());
+        let horizontal_scroll = app
+            .file_search
+            .cursor_col
+            .saturating_sub(content_width.saturating_sub(1));
+        let query_slice = slice_chars(&app.file_search.query, horizontal_scroll, content_width);
+        let line = Line::from(vec![
+            Span::styled(prefix, Style::default().fg(colors.status_help)),
+            Span::styled(query_slice, query_style),
+        ]);
+        frame.render_widget(
+            Paragraph::new(line).block(
+                Block::default()
+                    .title("Files Filter (Ctrl+f)")
+                    .borders(Borders::TOP | Borders::LEFT)
+                    .border_style(Style::default().fg(colors.thread_border))
+                    .title_style(title_style),
+            ),
+            search_area,
+        );
+        if active {
+            let cursor_x = search_area
+                .x
+                .saturating_add(1)
+                .saturating_add(prefix.chars().count() as u16)
+                .saturating_add(
+                    (app.file_search
+                        .cursor_col
+                        .saturating_sub(horizontal_scroll)
+                        .min(content_width)) as u16,
+                );
+            let cursor_y = search_area.y.saturating_add(1);
+            frame.set_cursor_position((cursor_x, cursor_y));
+        }
+    }
+
     let list = List::new(items)
         .block(
             Block::default()
-                .title("Files")
-                .borders(Borders::TOP | Borders::LEFT)
+                .title(
+                    app.file_search_query()
+                        .map(|query| format!("Files [q:{query}]"))
+                        .unwrap_or_else(|| "Files".to_string()),
+                )
+                .borders(if search_area.is_some() {
+                    Borders::LEFT
+                } else {
+                    Borders::TOP | Borders::LEFT
+                })
                 .border_style(Style::default().fg(colors.thread_border))
                 .title_style(
                     Style::default()
@@ -574,7 +1092,7 @@ fn draw_file_sidebar(frame: &mut Frame<'_>, app: &mut TuiApp, area: ratatui::lay
         )
         .highlight_symbol("▶ ");
 
-    frame.render_stateful_widget(list, area, &mut state);
+    frame.render_stateful_widget(list, list_area, &mut state);
 }
 
 fn draw_diff_view_for_pane(frame: &mut Frame<'_>, app: &mut TuiApp, area: Rect, pane: DiffPane) {
@@ -613,198 +1131,242 @@ fn draw_diff_view_for_pane(frame: &mut Frame<'_>, app: &mut TuiApp, area: Rect, 
         );
         if pane == DiffPane::Primary {
             app.last_diff_scroll = 0;
+            app.set_viewport_top_for_pane(DiffPane::Primary, 0);
             app.last_diff_row_map.clear();
+            app.last_diff_link_hits.clear();
+            app.pending_scroll_anchor_row = None;
         } else {
             app.last_diff_scroll_secondary = 0;
+            app.set_viewport_top_for_pane(DiffPane::Secondary, 0);
             app.last_diff_row_map_secondary.clear();
+            app.last_diff_link_hits_secondary.clear();
+            app.pending_scroll_anchor_row_secondary = None;
         }
-        return;
-    };
-
-    app.ensure_row_cache_for_file(file_index);
-    let Some((rows, highlights)) = app.rows_and_highlights_for_file(file_index) else {
         return;
     };
 
     let selected_line = app.line_for_pane(pane);
-    let file_comments = app.comments_for_file(&file_path);
-    let mut lines = Vec::new();
-    let mut row_map = Vec::new();
-    let mut selected_visual_index = 0usize;
-    let mut rendered_comment_ids = HashSet::new();
+    let selected_comment_id = if app.active_file_index() == file_index {
+        app.selected_comment_details().map(|comment| comment.id)
+    } else {
+        None
+    };
+    let review_state = review_state_label(&app.review.state);
+    let pane_inner_width = usize::from(area.width.saturating_sub(2)).max(1);
+    let cache_key = DiffRenderCacheKey {
+        file_index,
+        pane_inner_width,
+        side_by_side_diff: app.side_by_side_diff,
+        search_query: app.search_query.clone(),
+        thread_density_mode: app.thread_density_mode,
+        selected_line,
+        selected_comment_id,
+        expanded_thread_ids: app.expanded_thread_ids_for_file(&file_path),
+        review_state_code: app.review_state_code(),
+        is_active,
+    };
 
-    for (index, row) in rows.iter().enumerate() {
-        if index == selected_line {
-            selected_visual_index = lines.len();
-        }
-        let is_selected = index == selected_line;
-        let pane_inner_width = usize::from(area.width.saturating_sub(2)).max(1);
-        let highlighted_segments =
-            apply_search_highlighting(&highlights[index], app.search_query.as_deref(), &colors);
-        let rendered = if app.side_by_side_diff
-            && matches!(
-                row.kind,
-                DiffLineKind::Added | DiffLineKind::Removed | DiffLineKind::Context
-            ) {
-            build_side_by_side_row_lines(
-                row,
-                &highlighted_segments,
-                is_selected,
-                is_active,
-                pane_inner_width,
-                &colors,
-            )
-        } else {
-            build_unified_row_lines(
-                row,
-                &highlighted_segments,
-                is_selected,
-                is_active,
-                pane_inner_width,
-                &colors,
-            )
+    let (lines, row_map, link_hits) = if let Some(cached) = app.get_diff_render_cache(&cache_key) {
+        (cached.lines, cached.row_map, cached.link_hits)
+    } else {
+        app.ensure_row_cache_for_file(file_index);
+        let Some((rows, highlights)) = app.rows_and_highlights_for_file(file_index) else {
+            return;
         };
-        for line in rendered {
-            lines.push(line);
-            row_map.push(index);
-        }
+        let file_comments = app.comments_for_file(&file_path);
 
-        for comment in file_comments
-            .iter()
-            .copied()
-            .filter(|comment| comment_matches_display_row(comment, row))
-        {
-            rendered_comment_ids.insert(comment.id);
-            let status = comment_status_label(&comment.status);
-            let review_state = review_state_label(&app.review.state);
-            let pane_inner_width = usize::from(area.width.saturating_sub(2));
-            let inner_width = compute_thread_inner_width(pane_inner_width, 12);
-            let comment_title_prefix = format!("comment #{} [", comment.id);
-            let comment_header = format!(
-                "{} | {}",
-                app.author_label(&comment.author),
-                format_timestamp_utc(comment.created_at_ms)
-            );
-            push_thread_box(
-                &mut lines,
-                &mut row_map,
-                ThreadBoxSpec {
-                    source_row_index: index,
-                    indent: 12,
-                    inner_width,
-                    header: &comment_header,
-                    title_prefix: &comment_title_prefix,
-                    title_status: Some(status),
-                    title_suffix: &format!(" | review: {review_state}]"),
-                    title_status_style: Some(comment_status_style(&comment.status, &colors)),
-                    body: &comment.body,
-                    border_color: colors.thread_border,
-                    title_color: colors.comment_title,
-                    colors: &colors,
-                },
-            );
+        let mut lines = Vec::new();
+        let mut row_map = Vec::new();
+        let mut link_hits = Vec::new();
+        let mut rendered_comment_ids = HashSet::new();
 
-            for reply in &comment.replies {
-                let reply_title = format!("reply #{}", reply.id);
-                let reply_header = format!(
-                    "{} | {}",
-                    app.author_label(&reply.author),
-                    format_timestamp_utc(reply.created_at_ms)
-                );
-                push_thread_box(
+        for (index, row) in rows.iter().enumerate() {
+            let is_selected = index == selected_line;
+            let highlighted_segments =
+                apply_search_highlighting(&highlights[index], app.search_query.as_deref(), &colors);
+            let rendered = if app.side_by_side_diff
+                && matches!(
+                    row.kind,
+                    DiffLineKind::Added | DiffLineKind::Removed | DiffLineKind::Context
+                ) {
+                build_side_by_side_row_lines(
+                    row,
+                    &highlighted_segments,
+                    is_selected,
+                    is_active,
+                    pane_inner_width,
+                    &colors,
+                )
+            } else {
+                build_unified_row_lines(
+                    row,
+                    &highlighted_segments,
+                    is_selected,
+                    is_active,
+                    pane_inner_width,
+                    &colors,
+                )
+            };
+            for line in rendered {
+                lines.push(line);
+                row_map.push(index);
+            }
+
+            for comment in file_comments
+                .iter()
+                .copied()
+                .filter(|comment| comment_matches_display_row(comment, row))
+            {
+                rendered_comment_ids.insert(comment.id);
+                render_comment_thread(
                     &mut lines,
                     &mut row_map,
-                    ThreadBoxSpec {
+                    &mut link_hits,
+                    RenderCommentThreadSpec {
+                        app,
+                        comment,
+                        review_state,
                         source_row_index: index,
-                        indent: 14,
-                        inner_width: compute_thread_inner_width(pane_inner_width, 14),
-                        header: &reply_header,
-                        title_prefix: &reply_title,
-                        title_status: None,
-                        title_suffix: "",
-                        title_status_style: None,
-                        body: &reply.body,
-                        border_color: colors.thread_border,
-                        title_color: colors.reply_title,
-                        colors: &colors,
+                        pane_inner_width,
+                        selected_comment_id,
                     },
                 );
             }
         }
-    }
 
-    let fallback_source_row_index = selected_line.min(rows.len().saturating_sub(1));
-    let pane_inner_width = usize::from(area.width.saturating_sub(2));
-    for comment in file_comments
-        .iter()
-        .copied()
-        .filter(|comment| !rendered_comment_ids.contains(&comment.id))
-    {
-        let status = comment_status_label(&comment.status);
-        let review_state = review_state_label(&app.review.state);
-        let inner_width = compute_thread_inner_width(pane_inner_width, 12);
-        let comment_title_prefix = format!("comment #{} [", comment.id);
-        let comment_header = format!(
-            "{} | {} | anchor {} not in current diff",
-            app.author_label(&comment.author),
-            format_timestamp_utc(comment.created_at_ms),
-            format_line_reference(comment.old_line, comment.new_line)
-        );
-        push_thread_box(
-            &mut lines,
-            &mut row_map,
-            ThreadBoxSpec {
-                source_row_index: fallback_source_row_index,
-                indent: 12,
-                inner_width,
-                header: &comment_header,
-                title_prefix: &comment_title_prefix,
-                title_status: Some(status),
-                title_suffix: &format!(" | review: {review_state}]"),
-                title_status_style: Some(comment_status_style(&comment.status, &colors)),
-                body: &comment.body,
-                border_color: colors.thread_border,
-                title_color: colors.comment_title,
-                colors: &colors,
+        let fallback_source_row_index = selected_line.min(rows.len().saturating_sub(1));
+        for comment in file_comments
+            .iter()
+            .copied()
+            .filter(|comment| !rendered_comment_ids.contains(&comment.id))
+        {
+            let inner_width = compute_thread_inner_width(pane_inner_width, 12);
+            let comment_header = format!(
+                "{} | {} | anchor {} not in current diff",
+                app.author_label(&comment.author),
+                format_timestamp_utc(comment.created_at_ms),
+                format_line_reference(comment.old_line, comment.new_line)
+            );
+            if matches!(app.thread_density_mode, ThreadDensityMode::Compact)
+                && !app.is_thread_expanded(comment.id, selected_comment_id)
+            {
+                push_compact_thread_row(
+                    &mut lines,
+                    &mut row_map,
+                    &mut link_hits,
+                    CompactThreadRowSpec {
+                        source_row_index: fallback_source_row_index,
+                        indent: 8,
+                        width: compute_compact_thread_content_width(pane_inner_width, 8),
+                        text: &format!(
+                            "▸ #{} [{}] {} @ {} - {}",
+                            comment.id,
+                            comment_status_label(&comment.status),
+                            app.author_label(&comment.author),
+                            format_line_reference(comment.old_line, comment.new_line),
+                            compact_preview(&comment.body)
+                        ),
+                        style: Style::default()
+                            .fg(colors.comment_title)
+                            .bg(colors.thread_background),
+                        colors: &colors,
+                    },
+                );
+            } else {
+                let comment_title_prefix = format!("comment #{} [", comment.id);
+                push_thread_box(
+                    &mut lines,
+                    &mut row_map,
+                    &mut link_hits,
+                    ThreadBoxSpec {
+                        source_row_index: fallback_source_row_index,
+                        indent: 12,
+                        inner_width,
+                        header: &comment_header,
+                        title_prefix: &comment_title_prefix,
+                        title_status: Some(comment_status_label(&comment.status)),
+                        title_suffix: &format!(" | review: {review_state}]"),
+                        title_status_style: Some(comment_status_style(&comment.status, &colors)),
+                        body: &comment.body,
+                        border_color: colors.thread_border,
+                        title_color: colors.comment_title,
+                        colors: &colors,
+                    },
+                );
+
+                for reply in &comment.replies {
+                    let reply_title = format!("reply #{}", reply.id);
+                    let reply_header = format!(
+                        "{} | {}",
+                        app.author_label(&reply.author),
+                        format_timestamp_utc(reply.created_at_ms)
+                    );
+                    push_thread_box(
+                        &mut lines,
+                        &mut row_map,
+                        &mut link_hits,
+                        ThreadBoxSpec {
+                            source_row_index: fallback_source_row_index,
+                            indent: 14,
+                            inner_width: compute_thread_inner_width(pane_inner_width, 14),
+                            header: &reply_header,
+                            title_prefix: &reply_title,
+                            title_status: None,
+                            title_suffix: "",
+                            title_status_style: None,
+                            body: &reply.body,
+                            border_color: colors.thread_border,
+                            title_color: colors.reply_title,
+                            colors: &colors,
+                        },
+                    );
+                }
+            }
+        }
+
+        app.insert_diff_render_cache(
+            cache_key,
+            DiffRenderCacheEntry {
+                lines: lines.clone(),
+                row_map: row_map.clone(),
+                link_hits: link_hits.clone(),
             },
         );
+        (lines, row_map, link_hits)
+    };
 
-        for reply in &comment.replies {
-            let reply_title = format!("reply #{}", reply.id);
-            let reply_header = format!(
-                "{} | {}",
-                app.author_label(&reply.author),
-                format_timestamp_utc(reply.created_at_ms)
-            );
-            push_thread_box(
-                &mut lines,
-                &mut row_map,
-                ThreadBoxSpec {
-                    source_row_index: fallback_source_row_index,
-                    indent: 14,
-                    inner_width: compute_thread_inner_width(pane_inner_width, 14),
-                    header: &reply_header,
-                    title_prefix: &reply_title,
-                    title_status: None,
-                    title_suffix: "",
-                    title_status_style: None,
-                    body: &reply.body,
-                    border_color: colors.thread_border,
-                    title_color: colors.reply_title,
-                    colors: &colors,
-                },
-            );
-        }
+    let selected_visual_index = row_map
+        .iter()
+        .position(|row_index| *row_index == selected_line)
+        .unwrap_or(0);
+
+    let viewport_height = usize::from(area.height.saturating_sub(2)).max(1);
+    let max_scroll = lines.len().saturating_sub(viewport_height);
+    let mut scroll = app.viewport_top_for_pane(pane).min(max_scroll);
+
+    if let Some(anchor_row) = app.take_pending_scroll_anchor(pane) {
+        let clamped_anchor = anchor_row.min(lines.len().saturating_sub(1));
+        scroll = clamped_anchor.saturating_sub(viewport_height.saturating_sub(1));
     }
 
-    let viewport_height = area.height.saturating_sub(2) as usize;
-    let scroll = compute_scroll(selected_visual_index, viewport_height);
+    if selected_visual_index < scroll {
+        scroll = selected_visual_index;
+    } else if selected_visual_index >= scroll.saturating_add(viewport_height) {
+        scroll = selected_visual_index
+            .saturating_add(1)
+            .saturating_sub(viewport_height);
+    }
+    scroll = scroll.min(max_scroll);
+    app.set_viewport_top_for_pane(pane, scroll);
+
     if pane == DiffPane::Primary {
         app.last_diff_scroll = scroll;
         app.last_diff_row_map = row_map;
+        app.last_diff_link_hits = link_hits;
     } else {
         app.last_diff_scroll_secondary = scroll;
         app.last_diff_row_map_secondary = row_map;
+        app.last_diff_link_hits_secondary = link_hits;
     }
 
     let title = format!(
@@ -882,12 +1444,12 @@ fn draw_inline_comment_editor(frame: &mut Frame<'_>, app: &TuiApp, area: Rect) {
             new_line,
             ..
         } => (
-            format!("Reply Box #{}", comment_id),
+            format!("Reply Box #{comment_id}"),
             format_editor_line_reference(*old_line, *new_line),
         ),
     };
 
-    let help_line = "Ctrl+S save | Ctrl+P preview | Ctrl+A/E/K/B/F | ↑/↓ move lines | Esc collapse";
+    let help_line = "Ctrl+S save | Ctrl+P preview | @path:line ref | ↑/↓ lines | Enter/Tab accept ref | Esc close";
 
     frame.render_widget(Clear, editor_area);
     let block = Block::default()
@@ -958,7 +1520,126 @@ fn draw_inline_comment_editor(frame: &mut Frame<'_>, app: &TuiApp, area: Rect) {
         .y
         .saturating_add(1)
         .saturating_add((cursor_line.saturating_sub(vertical_scroll)) as u16);
+
+    if let Some(mention) = inline.file_mention.as_ref() {
+        draw_inline_file_mention_picker(frame, editor_area, mention, cursor_x, cursor_y, colors);
+    }
+
     frame.set_cursor_position((cursor_x, cursor_y));
+}
+
+fn draw_inline_file_mention_picker(
+    frame: &mut Frame<'_>,
+    editor_area: Rect,
+    mention: &InlineFileMentionState,
+    cursor_x: u16,
+    cursor_y: u16,
+    colors: &ThemeColors,
+) {
+    let inner_left = editor_area.x.saturating_add(1);
+    let inner_top = editor_area.y.saturating_add(1);
+    let inner_right = editor_area
+        .x
+        .saturating_add(editor_area.width.saturating_sub(1));
+    let inner_bottom = editor_area
+        .y
+        .saturating_add(editor_area.height.saturating_sub(1));
+    if inner_right <= inner_left || inner_bottom <= inner_top {
+        return;
+    }
+
+    let inner_width = inner_right.saturating_sub(inner_left);
+    let inner_height = inner_bottom.saturating_sub(inner_top);
+    if inner_width < 20 || inner_height < 4 {
+        return;
+    }
+
+    let total_rows = mention.candidates.len().max(1);
+    let visible_rows = total_rows.min(INLINE_FILE_MENTION_MAX_VISIBLE_ROWS);
+    let max_row_width = mention
+        .candidates
+        .iter()
+        .skip(mention.scroll)
+        .take(visible_rows)
+        .map(|path| path.chars().count())
+        .max()
+        .unwrap_or(18);
+
+    let mut popup_width = (max_row_width + 6) as u16;
+    popup_width = popup_width.clamp(24, inner_width);
+    let mut popup_height = (visible_rows as u16).saturating_add(2);
+    popup_height = popup_height.min(inner_height);
+
+    let mut popup_x = cursor_x.saturating_add(1);
+    let max_x = inner_right.saturating_sub(popup_width);
+    if popup_x > max_x {
+        popup_x = max_x;
+    }
+    popup_x = popup_x.max(inner_left);
+
+    let below_y = cursor_y.saturating_add(1);
+    let mut popup_y = below_y;
+    if below_y.saturating_add(popup_height) > inner_bottom {
+        popup_y = cursor_y.saturating_sub(popup_height.saturating_sub(1));
+    }
+    popup_y = popup_y.max(inner_top);
+    if popup_y.saturating_add(popup_height) > inner_bottom {
+        popup_y = inner_bottom.saturating_sub(popup_height);
+    }
+
+    let area = Rect {
+        x: popup_x,
+        y: popup_y,
+        width: popup_width,
+        height: popup_height,
+    };
+
+    let selected_index = mention
+        .selected_index
+        .min(mention.candidates.len().saturating_sub(1));
+    let mut lines = Vec::new();
+    if mention.candidates.is_empty() {
+        lines.push(Line::from(Span::styled(
+            "(no matching files)",
+            Style::default().fg(colors.text_muted),
+        )));
+    } else {
+        for (idx, path) in mention
+            .candidates
+            .iter()
+            .enumerate()
+            .skip(mention.scroll)
+            .take(visible_rows)
+        {
+            let is_selected = idx == selected_index;
+            let marker = if is_selected { "▶ " } else { "  " };
+            let style = if is_selected {
+                Style::default()
+                    .bg(colors.sidebar_highlight_bg)
+                    .fg(colors.sidebar_highlight_fg)
+                    .add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(colors.text_primary)
+            };
+            lines.push(Line::from(Span::styled(format!("{marker}{path}"), style)));
+        }
+    }
+
+    frame.render_widget(Clear, area);
+    frame.render_widget(
+        Paragraph::new(lines).block(
+            Block::default()
+                .title(format!("@ file  {}", mention.path_query))
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(colors.thread_border))
+                .title_style(
+                    Style::default()
+                        .fg(colors.accent)
+                        .add_modifier(Modifier::BOLD),
+                ),
+        ),
+        area,
+    );
 }
 
 fn format_editor_line_reference(old_line: Option<u32>, new_line: Option<u32>) -> String {
@@ -1040,7 +1721,10 @@ fn render_markdown(buffer: &str, colors: &ThemeColors) -> Vec<Line<'static>> {
         }
 
         if raw_line.starts_with("- ") || raw_line.starts_with("* ") {
-            let mut spans = vec![Span::styled("• ", Style::default().fg(colors.markdown_bullet))];
+            let mut spans = vec![Span::styled(
+                "• ",
+                Style::default().fg(colors.markdown_bullet),
+            )];
             spans.extend(parse_inline_markdown(&raw_line[2..], colors));
             rendered.push(Line::from(spans));
             continue;
@@ -1078,7 +1762,7 @@ fn parse_inline_markdown(input: &str, colors: &ThemeColors) -> Vec<Span<'static>
                 .fg(colors.markdown_code_fg)
                 .bg(colors.markdown_code_bg);
         }
-        spans.push(Span::styled(std::mem::take(text), style));
+        push_text_with_file_references(spans, &std::mem::take(text), style, colors);
     };
 
     while let Some(ch) = chars.next() {
@@ -1105,12 +1789,226 @@ fn parse_inline_markdown(input: &str, colors: &ThemeColors) -> Vec<Span<'static>
     spans
 }
 
-const THREAD_BOX_MIN_CONTENT_WIDTH: usize = 16;
+fn push_text_with_file_references(
+    spans: &mut Vec<Span<'static>>,
+    text: &str,
+    base_style: Style,
+    colors: &ThemeColors,
+) {
+    let references = parse_file_references(text);
+    if references.is_empty() {
+        spans.push(Span::styled(text.to_string(), base_style));
+        return;
+    }
+
+    let mut cursor = 0usize;
+    for reference in references {
+        if reference.start_char > cursor {
+            spans.push(Span::styled(
+                slice_chars(text, cursor, reference.start_char - cursor),
+                base_style,
+            ));
+        }
+        let mut link_style = base_style
+            .fg(colors.accent)
+            .add_modifier(Modifier::UNDERLINED);
+        if base_style.bg.is_some() {
+            link_style = link_style.bg(base_style.bg.unwrap_or(colors.markdown_code_bg));
+        }
+        spans.push(Span::styled(reference.raw, link_style));
+        cursor = reference.end_char;
+    }
+
+    let total_chars = text.chars().count();
+    if cursor < total_chars {
+        spans.push(Span::styled(
+            slice_chars(text, cursor, total_chars - cursor),
+            base_style,
+        ));
+    }
+}
+
 const THREAD_BOX_MAX_CONTENT_WIDTH: usize = 79;
 fn compute_thread_inner_width(pane_inner_width: usize, indent: usize) -> usize {
     // Each thread line uses: indent + "│ " + content + " │"
     let available = pane_inner_width.saturating_sub(indent + 4);
-    available.clamp(THREAD_BOX_MIN_CONTENT_WIDTH, THREAD_BOX_MAX_CONTENT_WIDTH)
+    available.clamp(1, THREAD_BOX_MAX_CONTENT_WIDTH)
+}
+
+fn compute_compact_thread_content_width(pane_inner_width: usize, indent: usize) -> usize {
+    pane_inner_width.saturating_sub(indent).max(1)
+}
+
+fn compact_preview(body: &str) -> String {
+    body.lines()
+        .map(str::trim)
+        .find(|line| !line.is_empty())
+        .unwrap_or("(empty)")
+        .to_string()
+}
+
+struct CompactThreadRowSpec<'a> {
+    source_row_index: usize,
+    indent: usize,
+    width: usize,
+    text: &'a str,
+    style: Style,
+    colors: &'a ThemeColors,
+}
+
+fn push_compact_thread_row(
+    lines: &mut Vec<Line<'static>>,
+    row_map: &mut Vec<usize>,
+    link_hits: &mut Vec<super::FileReferenceHit>,
+    spec: CompactThreadRowSpec<'_>,
+) {
+    let text_style = spec.style.bg(spec.colors.thread_background);
+    let mut text_spans = Vec::new();
+    push_text_with_file_references(&mut text_spans, spec.text, text_style, spec.colors);
+    let wrapped = wrap_styled_line(&Line::from(text_spans), spec.width.max(1));
+
+    for wrapped_line in wrapped {
+        let rendered_row_index = lines.len();
+        let wrapped_text = line_plain_text(&wrapped_line);
+        for reference in parse_file_references(&wrapped_text) {
+            link_hits.push(super::FileReferenceHit {
+                rendered_row_index,
+                col_start: spec.indent + reference.start_char,
+                col_end: spec.indent + reference.end_char,
+                path: reference.path,
+                line: reference.line,
+            });
+        }
+
+        let mut spans = vec![Span::styled(" ".repeat(spec.indent), Style::default())];
+        spans.extend(pad_line_to_width(wrapped_line, spec.width.max(1), text_style).spans);
+        lines.push(Line::from(spans));
+        row_map.push(spec.source_row_index);
+    }
+}
+
+fn render_comment_thread(
+    lines: &mut Vec<Line<'static>>,
+    row_map: &mut Vec<usize>,
+    link_hits: &mut Vec<super::FileReferenceHit>,
+    spec: RenderCommentThreadSpec<'_>,
+) {
+    let app = spec.app;
+    let comment = spec.comment;
+    let colors = &app.theme().colors;
+    let expanded = app.is_thread_expanded(comment.id, spec.selected_comment_id);
+
+    if matches!(app.thread_density_mode, ThreadDensityMode::Compact) && !expanded {
+        let comment_preview = format!(
+            "▸ #{} [{}] {} @ {} - {}",
+            comment.id,
+            comment_status_label(&comment.status),
+            app.author_label(&comment.author),
+            format_line_reference(comment.old_line, comment.new_line),
+            compact_preview(&comment.body)
+        );
+        push_compact_thread_row(
+            lines,
+            row_map,
+            link_hits,
+            CompactThreadRowSpec {
+                source_row_index: spec.source_row_index,
+                indent: 8,
+                width: compute_compact_thread_content_width(spec.pane_inner_width, 8),
+                text: &comment_preview,
+                style: Style::default().fg(colors.comment_title),
+                colors,
+            },
+        );
+
+        for reply in &comment.replies {
+            let reply_preview = format!(
+                "↳ #{} {} - {}",
+                reply.id,
+                app.author_label(&reply.author),
+                compact_preview(&reply.body)
+            );
+            push_compact_thread_row(
+                lines,
+                row_map,
+                link_hits,
+                CompactThreadRowSpec {
+                    source_row_index: spec.source_row_index,
+                    indent: 10,
+                    width: compute_compact_thread_content_width(spec.pane_inner_width, 10),
+                    text: &reply_preview,
+                    style: Style::default().fg(colors.reply_title),
+                    colors,
+                },
+            );
+        }
+        return;
+    }
+
+    let status = comment_status_label(&comment.status);
+    let inner_width = compute_thread_inner_width(spec.pane_inner_width, 12);
+    let comment_title_prefix = format!("comment #{} [", comment.id);
+    let comment_header = format!(
+        "{} | {}",
+        app.author_label(&comment.author),
+        format_timestamp_utc(comment.created_at_ms)
+    );
+    push_thread_box(
+        lines,
+        row_map,
+        link_hits,
+        ThreadBoxSpec {
+            source_row_index: spec.source_row_index,
+            indent: 12,
+            inner_width,
+            header: &comment_header,
+            title_prefix: &comment_title_prefix,
+            title_status: Some(status),
+            title_suffix: &format!(" | review: {}]", spec.review_state),
+            title_status_style: Some(comment_status_style(&comment.status, colors)),
+            body: &comment.body,
+            border_color: colors.thread_border,
+            title_color: colors.comment_title,
+            colors,
+        },
+    );
+
+    for reply in &comment.replies {
+        let reply_title = format!("reply #{}", reply.id);
+        let reply_header = format!(
+            "{} | {}",
+            app.author_label(&reply.author),
+            format_timestamp_utc(reply.created_at_ms)
+        );
+        push_thread_box(
+            lines,
+            row_map,
+            link_hits,
+            ThreadBoxSpec {
+                source_row_index: spec.source_row_index,
+                indent: 14,
+                inner_width: compute_thread_inner_width(spec.pane_inner_width, 14),
+                header: &reply_header,
+                title_prefix: &reply_title,
+                title_status: None,
+                title_suffix: "",
+                title_status_style: None,
+                body: &reply.body,
+                border_color: colors.thread_border,
+                title_color: colors.reply_title,
+                colors,
+            },
+        );
+    }
+}
+
+struct RenderCommentThreadSpec<'a> {
+    app: &'a TuiApp,
+    comment: &'a LineComment,
+    review_state: &'a str,
+    source_row_index: usize,
+    pane_inner_width: usize,
+    selected_comment_id: Option<u64>,
 }
 
 struct ThreadBoxSpec<'a> {
@@ -1131,6 +2029,7 @@ struct ThreadBoxSpec<'a> {
 fn push_thread_box(
     lines: &mut Vec<Line<'static>>,
     row_map: &mut Vec<usize>,
+    link_hits: &mut Vec<super::FileReferenceHit>,
     spec: ThreadBoxSpec<'_>,
 ) {
     let indent_str = " ".repeat(spec.indent);
@@ -1194,6 +2093,18 @@ fn push_thread_box(
     row_map.push(spec.source_row_index);
 
     for wrapped in wrap_markdown_lines(spec.body, spec.inner_width, spec.colors) {
+        let rendered_row_index = lines.len();
+        let wrapped_text = line_plain_text(&wrapped);
+        for reference in parse_file_references(&wrapped_text) {
+            link_hits.push(super::FileReferenceHit {
+                rendered_row_index,
+                col_start: spec.indent + 2 + reference.start_char,
+                col_end: spec.indent + 2 + reference.end_char,
+                path: reference.path,
+                line: reference.line,
+            });
+        }
+
         let mut row_spans = Vec::new();
         row_spans.push(Span::styled(indent_str.clone(), indent));
         row_spans.push(Span::styled("│ ".to_string(), border));
@@ -1228,6 +2139,14 @@ fn push_thread_box(
     row_map.push(spec.source_row_index);
 }
 
+fn line_plain_text(line: &Line<'_>) -> String {
+    let mut text = String::new();
+    for span in &line.spans {
+        text.push_str(span.content.as_ref());
+    }
+    text
+}
+
 fn fit_to_width(input: &str, width: usize) -> String {
     let mut out: String = input.chars().take(width).collect();
     let missing = width.saturating_sub(out.chars().count());
@@ -1237,7 +2156,11 @@ fn fit_to_width(input: &str, width: usize) -> String {
     out
 }
 
-fn fit_spans_to_width(spans: Vec<Span<'static>>, width: usize, pad_style: Style) -> Vec<Span<'static>> {
+fn fit_spans_to_width(
+    spans: Vec<Span<'static>>,
+    width: usize,
+    pad_style: Style,
+) -> Vec<Span<'static>> {
     let mut styled_chars: Vec<(Style, char)> = Vec::new();
     for span in spans {
         for ch in span.content.chars() {
@@ -1250,9 +2173,14 @@ fn fit_spans_to_width(spans: Vec<Span<'static>>, width: usize, pad_style: Style)
     }
 
     let mut line = line_from_styled_chars(&styled_chars);
-    let rendered_width: usize = line.spans.iter().map(|span| span.content.chars().count()).sum();
+    let rendered_width: usize = line
+        .spans
+        .iter()
+        .map(|span| span.content.chars().count())
+        .sum();
     if rendered_width < width {
-        line.spans.push(Span::styled(" ".repeat(width - rendered_width), pad_style));
+        line.spans
+            .push(Span::styled(" ".repeat(width - rendered_width), pad_style));
     }
     line.spans
 }
@@ -1441,7 +2369,7 @@ fn build_unified_row_lines(
         spans.push(Span::raw(" "));
         spans.push(Span::styled(
             if visual_index == 0 {
-                format!("{:>5} {:>5}  ", old, new)
+                format!("{old:>5} {new:>5}  ")
             } else {
                 " ".repeat(12)
             },
@@ -1546,7 +2474,7 @@ fn build_side_by_side_row_lines(
             ),
             Span::styled(
                 if visual_index == 0 {
-                    format!("{:>5} ", old)
+                    format!("{old:>5} ")
                 } else {
                     " ".repeat(6)
                 },
@@ -1577,7 +2505,7 @@ fn build_side_by_side_row_lines(
         ));
         spans.push(Span::styled(
             if visual_index == 0 {
-                format!("{:>5} ", new)
+                format!("{new:>5} ")
             } else {
                 " ".repeat(6)
             },
@@ -1787,59 +2715,78 @@ fn draw_status_panel(frame: &mut Frame<'_>, app: &TuiApp, area: ratatui::layout:
         "NORMAL".to_string()
     };
 
-    let help_line_1 = "keys: q quit | z fullscreen | V split | S side-by-side | Tab pane | </> files width | h/l file | j/k line | m/c comment | r reply";
-    let help_line_2 = ":<line> goto | /<text> search | n/p search next/prev | N/P thread | [/] thread list | u name | t/T theme | a/o comment | s/w/d state | v provider | x/X/A AI | H stream | L logs";
-    let line_1 = Line::from(vec![
-        Span::styled(
-            mode_label,
-            Style::default()
-                .fg(colors.accent)
-                .add_modifier(Modifier::BOLD),
-        ),
-        Span::raw(" | "),
-        Span::raw(format!(
-            "review: {} ({:?}) | user: {} | ai: {}",
-            app.review.name,
-            app.review.state,
-            app.config.user_name,
-            app.ai_provider.as_str()
-        )),
-    ]);
-    let version = format!("v{}", env!("CARGO_PKG_VERSION"));
+    let review_state = review_state_label(&app.review.state);
+    let file_label = app
+        .current_file()
+        .map(|file| file.path.as_str())
+        .unwrap_or("-");
+    let file_position = if app.diff.files.is_empty() {
+        "0/0".to_string()
+    } else {
+        format!("{}/{}", app.active_file_index() + 1, app.diff.files.len())
+    };
+
+    let selected_thread = app
+        .selected_comment_details()
+        .map(|comment| {
+            format!(
+                "#{} {} {}",
+                comment.id,
+                format_line_reference(comment.old_line, comment.new_line),
+                comment_status_label(&comment.status)
+            )
+        })
+        .unwrap_or_else(|| "none".to_string());
+    let open_threads = app
+        .review
+        .comments
+        .iter()
+        .filter(|comment| matches!(comment.status, CommentStatus::Open))
+        .count();
+    let pending_human_count = app
+        .review
+        .comments
+        .iter()
+        .filter(|comment| matches!(comment.status, CommentStatus::Pending))
+        .count();
+
     let inner_width = usize::from(area.width.saturating_sub(2)).max(1);
-    let line_2 = build_right_tag_line(
-        &app.status_line,
+    let line_1_left = format!(
+        "{} | review {}:{} | file {file_position} {} | thread {selected_thread} | open {open_threads} pending {pending_human_count} | density {}",
+        mode_label,
+        app.review.name,
+        review_state,
+        file_label,
+        app.thread_density_mode_label()
+    );
+    let version = format!("v{}", env!("CARGO_PKG_VERSION"));
+    let line_1 = build_right_tag_line(
+        &line_1_left,
         &version,
         inner_width,
         Style::default().fg(colors.status_help),
     );
-    let thread_line = if let Some(comment) = app.selected_comment_details() {
-        Line::from(format!(
-            "thread: #{} line {} | replies {} | {}",
-            comment.id,
-            format_line_reference(comment.old_line, comment.new_line),
-            comment.replies.len(),
-            format_timestamp_utc(comment.created_at_ms)
-        ))
-    } else {
-        Line::from("thread: none")
-    };
 
-    let ai_detail_line = if let Some(detail) = app.last_ai_detail.as_deref() {
-        Line::from(format!("ai detail: {detail}"))
-    } else {
-        Line::from("ai detail: none")
-    };
+    let hint = status_hint(app);
+    let thread_left = format!(
+        "{} | user {} | ai {} | {hint}",
+        truncate_tag_right(&app.status_line, inner_width.saturating_sub(16)),
+        app.config.user_name,
+        app.ai_provider.as_str()
+    );
+    let line_2 = build_right_tag_line(
+        &thread_left,
+        "? help",
+        inner_width,
+        Style::default().fg(colors.status_help),
+    );
 
-    let mut panel_lines = vec![line_1, line_2, thread_line, ai_detail_line];
-    panel_lines.push(Line::from(Span::styled(
-        help_line_1,
-        Style::default().fg(colors.status_help),
-    )));
-    panel_lines.push(Line::from(Span::styled(
-        help_line_2,
-        Style::default().fg(colors.status_help),
-    )));
+    let inner_height = usize::from(area.height.saturating_sub(2));
+    let panel_lines = if inner_height >= 2 {
+        vec![line_1, line_2]
+    } else {
+        vec![line_1]
+    };
 
     let panel = Paragraph::new(panel_lines).block(
         Block::default()
@@ -1855,10 +2802,54 @@ fn draw_status_panel(frame: &mut Frame<'_>, app: &TuiApp, area: ratatui::layout:
     frame.render_widget(panel, area);
 }
 
+fn status_hint(app: &TuiApp) -> &'static str {
+    if app.shortcuts_modal_visible {
+        "Esc close help | j/k scroll"
+    } else if app.command_palette.is_some() {
+        "Enter run command | Esc close"
+    } else if app.theme_picker.is_some() {
+        "j/k move | Enter apply | Esc cancel"
+    } else if app.settings_editor.is_some() {
+        "Enter save | Esc cancel"
+    } else if app.command_prompt.is_some() {
+        "Enter run | Esc cancel | ←/→ edit"
+    } else if app.file_search.focused {
+        "Type to filter files | Enter/Esc close | Backspace/Delete edit"
+    } else if let Some(inline) = app.inline_comment.as_ref() {
+        if inline.preview_mode {
+            "Ctrl+P edit | Ctrl+S save | Esc collapse"
+        } else {
+            "Ctrl+S save | Ctrl+P preview | Esc collapse"
+        }
+    } else if app.ai_task.is_some() {
+        "K cancel AI | H stream | L logs"
+    } else {
+        "Ctrl+k commands | Ctrl+f files | j/k line | PgUp/PgDn page | zz center | e toggle thread | Shift+E density | / search | : goto"
+    }
+}
+
+fn theme_variant_label(name: &str) -> &'static str {
+    let lower = name.to_ascii_lowercase();
+    if lower.contains("light") {
+        "light"
+    } else if lower.contains("dark") {
+        "dark"
+    } else {
+        "mixed"
+    }
+}
+
+fn theme_family_label(name: &str) -> &str {
+    name.split(['_', '-'])
+        .next()
+        .filter(|part| !part.is_empty())
+        .unwrap_or(name)
+}
+
 fn comment_status_label(status: &CommentStatus) -> &'static str {
     match status {
         CommentStatus::Open => "open",
-        CommentStatus::Pending => "pending",
+        CommentStatus::Pending => "pending_human",
         CommentStatus::Addressed => "addressed",
     }
 }
@@ -1874,9 +2865,8 @@ fn comment_status_style(status: &CommentStatus, colors: &ThemeColors) -> Style {
 
 fn review_state_label(state: &ReviewState) -> &'static str {
     match state {
-        ReviewState::Draft => "draft",
-        ReviewState::Pending => "pending",
-        ReviewState::WaitingForResponse => "waiting_for_response",
+        ReviewState::Open => "open",
+        ReviewState::UnderReview => "under_review",
         ReviewState::Done => "done",
     }
 }
@@ -1910,4 +2900,20 @@ fn build_right_tag_line(
         Span::raw(" ".repeat(gap_len)),
         Span::styled(right.to_string(), right_style),
     ])
+}
+
+fn truncate_tag_right(input: &str, max_len: usize) -> String {
+    if max_len == 0 {
+        return String::new();
+    }
+    let input_len = input.chars().count();
+    if input_len <= max_len {
+        return input.to_string();
+    }
+    if max_len <= 1 {
+        return "…".to_string();
+    }
+    let mut out: String = input.chars().take(max_len - 1).collect();
+    out.push('…');
+    out
 }

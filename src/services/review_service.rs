@@ -102,6 +102,18 @@ impl ReviewService {
         Ok(session)
     }
 
+    pub async fn set_state_force(&self, name: &str, next: ReviewState) -> Result<ReviewSession> {
+        let mut session = self.load_review(name).await?;
+        session
+            .set_state_force(next, now_ms()?)
+            .map_err(|error| anyhow!(error))?;
+        self.store
+            .save_review(&session)
+            .await
+            .context("failed to save forced state change")?;
+        Ok(session)
+    }
+
     pub async fn add_comment(&self, name: &str, input: AddCommentInput) -> Result<ReviewSession> {
         let mut session = self.load_review(name).await?;
         session.add_comment(
@@ -152,6 +164,18 @@ impl ReviewService {
     ) -> Result<ReviewSession> {
         self.set_comment_status(name, comment_id, CommentStatus::Open, actor)
             .await
+    }
+
+    pub async fn force_mark_addressed(&self, name: &str, comment_id: u64) -> Result<ReviewSession> {
+        let mut session = self.load_review(name).await?;
+        session
+            .set_comment_status_force(comment_id, CommentStatus::Addressed, now_ms()?)
+            .map_err(|error| anyhow!(error))?;
+        self.store
+            .save_review(&session)
+            .await
+            .context("failed to persist forced comment status")?;
+        Ok(session)
     }
 
     async fn set_comment_status(

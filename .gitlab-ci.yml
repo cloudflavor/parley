@@ -2,7 +2,7 @@ stages:
   - validate
 
 default:
-  image: rust:1.87
+  image: rust:1.88
   before_script:
     - rustup component add rustfmt clippy
 

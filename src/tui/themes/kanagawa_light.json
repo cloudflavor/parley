@@ -1,0 +1,29 @@
+{
+  "name": "kanagawa_light",
+  "colors": {
+    "accent": "#4c6ca6",
+    "text_primary": "#4b4b59",
+    "text_muted": "#7b7b8f",
+    "sidebar_highlight_bg": "#d9d8cd",
+    "sidebar_highlight_fg": "#2d4f67",
+    "selected_line_bg": "#e3e2d8",
+    "selection_marker": "#5e8c9b",
+    "added_sign": "#6f894e",
+    "removed_sign": "#c4746e",
+    "context_sign": "#5f7a8f",
+    "hunk_header": "#5e8c9b",
+    "meta": "#c18d52",
+    "thread_border": "#bbb9ad",
+    "thread_background": "#f2f1e8",
+    "comment_title": "#6f894e",
+    "reply_title": "#8b79b7",
+    "status_help": "#7b7b8f",
+    "markdown_heading": "#4c6ca6",
+    "markdown_quote_mark": "#9b9b90",
+    "markdown_quote_text": "#5d5d68",
+    "markdown_bullet": "#c18d52",
+    "markdown_fence": "#8b79b7",
+    "markdown_code_fg": "#6f894e",
+    "markdown_code_bg": "#e8e6db"
+  }
+}

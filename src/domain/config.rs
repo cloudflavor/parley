@@ -70,7 +70,6 @@ pub struct AiConfig {
 pub fn default_user_name() -> String {
     std::env::var("PARLEY_USER_NAME")
         .ok()
-        .or_else(|| std::env::var("PARLAR_USER_NAME").ok())
         .or_else(|| std::env::var("USER").ok())
         .or_else(|| std::env::var("USERNAME").ok())
         .filter(|value| !value.trim().is_empty())
@@ -106,10 +105,10 @@ impl Default for AiProviderConfig {
 }
 
 impl AiProviderConfig {
-    pub fn with_client(client: &str, model: Option<&str>) -> Self {
+    pub fn with_client(client: &str) -> Self {
         Self {
             client: client.to_string(),
-            model: model.map(ToString::to_string),
+            model: None,
             ..Self::default()
         }
     }
@@ -117,15 +116,15 @@ impl AiProviderConfig {
 
 impl Default for AiConfig {
     fn default() -> Self {
-        let mut codex = AiProviderConfig::with_client("codex", Some("gpt-5"));
+        let mut codex = AiProviderConfig::with_client("codex");
         codex.args = vec!["exec".to_string()];
         codex.prompt_transport = PromptTransport::Argv;
 
-        let mut claude = AiProviderConfig::with_client("claude", Some("claude-sonnet-4"));
+        let mut claude = AiProviderConfig::with_client("claude");
         claude.args = vec!["-p".to_string()];
         claude.prompt_transport = PromptTransport::Argv;
 
-        let mut opencode = AiProviderConfig::with_client("opencode", Some("kimi-k2.5:cloud"));
+        let mut opencode = AiProviderConfig::with_client("opencode");
         opencode.args = vec!["run".to_string()];
         opencode.model_arg = Some("-m".to_string());
         opencode.prompt_transport = PromptTransport::Argv;

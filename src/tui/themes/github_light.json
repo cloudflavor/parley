@@ -1,0 +1,29 @@
+{
+  "name": "github_light",
+  "colors": {
+    "accent": "#0969da",
+    "text_primary": "#24292f",
+    "text_muted": "#57606a",
+    "sidebar_highlight_bg": "#d8dee4",
+    "sidebar_highlight_fg": "#1f2328",
+    "selected_line_bg": "#eaeef2",
+    "selection_marker": "#0969da",
+    "added_sign": "#1a7f37",
+    "removed_sign": "#cf222e",
+    "context_sign": "#57606a",
+    "hunk_header": "#218bff",
+    "meta": "#9a6700",
+    "thread_border": "#c7d0d9",
+    "thread_background": "#f6f8fa",
+    "comment_title": "#1a7f37",
+    "reply_title": "#8250df",
+    "status_help": "#57606a",
+    "markdown_heading": "#0969da",
+    "markdown_quote_mark": "#8c959f",
+    "markdown_quote_text": "#3d444d",
+    "markdown_bullet": "#9a6700",
+    "markdown_fence": "#8250df",
+    "markdown_code_fg": "#1a7f37",
+    "markdown_code_bg": "#eef2f6"
+  }
+}

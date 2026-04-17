@@ -93,8 +93,8 @@ pub enum ReviewCommand {
         name: String,
         #[structopt(long)]
         provider: AiProviderArg,
-        #[structopt(long, default_value = "refactor")]
-        mode: AiSessionModeArg,
+        #[structopt(long)]
+        mode: Option<AiSessionModeArg>,
         #[structopt(long = "comment-id")]
         comment_ids: Vec<u64>,
     },

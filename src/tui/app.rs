@@ -1,5 +1,5 @@
 use std::{
-    collections::{HashMap, VecDeque},
+    collections::{HashMap, HashSet, VecDeque},
     io,
     path::PathBuf,
     sync::mpsc::{self, Receiver},
@@ -12,7 +12,7 @@ use crossterm::{
     execute,
     terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
 };
-use ratatui::{Terminal, backend::CrosstermBackend, layout::Rect, style::Style};
+use ratatui::{Terminal, backend::CrosstermBackend, layout::Rect, style::Style, text::Line};
 use tokio::task::JoinHandle;
 
 use crate::domain::ai::{AiProvider, AiSessionMode};
@@ -57,6 +57,8 @@ pub async fn run_tui(
     config.theme = themes[theme_index].name.clone();
     service.save_config(&config).await?;
     let log_path = service.review_log_path(&review_name)?;
+    super::logging::init_file_tracing(&log_path, &config.log_level)
+        .context("failed to initialize tui log writer")?;
 
     enable_raw_mode().context("failed to enable raw mode")?;
     let mut stdout = io::stdout();
@@ -94,15 +96,38 @@ async fn run_loop(
     service: &ReviewService,
 ) -> Result<()> {
     const MAX_EVENTS_PER_TICK: usize = 128;
+    const ACTIVE_REDRAW_INTERVAL: Duration = Duration::from_millis(120);
+    const ACTIVE_POLL_INTERVAL: Duration = Duration::from_millis(60);
+    const IDLE_POLL_INTERVAL: Duration = Duration::from_millis(400);
+    let mut last_draw_at = Instant::now()
+        .checked_sub(ACTIVE_REDRAW_INTERVAL)
+        .unwrap_or_else(Instant::now);
+    let mut force_draw = true;
     while !app.should_quit {
-        terminal.draw(|frame| draw(frame, app))?;
+        let periodic = app.requires_periodic_redraw();
+        let poll_timeout = if force_draw {
+            Duration::from_millis(0)
+        } else if periodic {
+            ACTIVE_POLL_INTERVAL
+        } else {
+            IDLE_POLL_INTERVAL
+        };
 
-        if event::poll(Duration::from_millis(120)).context("event poll failed")? {
+        if event::poll(poll_timeout).context("event poll failed")? {
             let mut processed = 0usize;
             loop {
                 match event::read().context("event read failed")? {
-                    Event::Key(key) => app.handle_key(key, service).await?,
-                    Event::Mouse(mouse) => app.handle_mouse(mouse)?,
+                    Event::Key(key) => {
+                        app.handle_key(key, service).await?;
+                        app.invalidate_redraw();
+                    }
+                    Event::Mouse(mouse) => {
+                        app.handle_mouse(mouse)?;
+                        app.invalidate_redraw();
+                    }
+                    Event::Resize(_, _) => {
+                        app.invalidate_redraw();
+                    }
                     _ => {}
                 }
                 processed += 1;
@@ -114,6 +139,15 @@ async fn run_loop(
                     break;
                 }
             }
+        }
+
+        let z_sequence_changed = app.flush_pending_key_sequences();
+        if z_sequence_changed {
+            app.invalidate_redraw();
+        }
+        let ai_changed = app.poll_ai_task(service).await?;
+        if ai_changed {
+            app.invalidate_redraw();
         }
 
         if let Some(action) = app.pending_action.take() {
@@ -130,9 +164,20 @@ async fn run_loop(
                     }
                 }
             }
+            app.invalidate_redraw();
         }
 
-        app.poll_ai_task(service).await?;
+        let animation_due =
+            app.requires_periodic_redraw() && last_draw_at.elapsed() >= ACTIVE_REDRAW_INTERVAL;
+        if animation_due {
+            app.invalidate_redraw();
+        }
+
+        if force_draw || app.take_redraw_invalidation() {
+            terminal.draw(|frame| draw(frame, app))?;
+            last_draw_at = Instant::now();
+            force_draw = false;
+        }
     }
 
     Ok(())
@@ -151,6 +196,9 @@ use helpers::{
 use render::draw;
 
 const AI_PROGRESS_MAX_LINES: usize = 300;
+const DIFF_RENDER_CACHE_MAX_ENTRIES: usize = 64;
+const INLINE_FILE_MENTION_MAX_CANDIDATES: usize = 120;
+const INLINE_FILE_MENTION_MAX_VISIBLE_ROWS: usize = 6;
 type HighlightParts = Vec<(Style, String)>;
 
 #[derive(Debug, Clone)]
@@ -166,6 +214,27 @@ struct DisplayRow {
 struct CachedFileRows {
     rows: Vec<DisplayRow>,
     highlights: Vec<HighlightParts>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+struct DiffRenderCacheKey {
+    file_index: usize,
+    pane_inner_width: usize,
+    side_by_side_diff: bool,
+    search_query: Option<String>,
+    thread_density_mode: ThreadDensityMode,
+    selected_line: usize,
+    selected_comment_id: Option<u64>,
+    expanded_thread_ids: Vec<u64>,
+    review_state_code: u8,
+    is_active: bool,
+}
+
+#[derive(Debug, Clone)]
+struct DiffRenderCacheEntry {
+    lines: Vec<Line<'static>>,
+    row_map: Vec<usize>,
+    link_hits: Vec<FileReferenceHit>,
 }
 
 #[derive(Debug, Clone)]
@@ -192,6 +261,18 @@ struct InlineCommentState {
     mode: InlineDraftMode,
     buffer: TextBuffer,
     preview_mode: bool,
+    file_mention: Option<InlineFileMentionState>,
+}
+
+#[derive(Debug, Clone)]
+struct InlineFileMentionState {
+    replace_start_col: usize,
+    replace_end_col: usize,
+    path_query: String,
+    line_suffix: Option<String>,
+    candidates: Vec<String>,
+    selected_index: usize,
+    scroll: usize,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -209,6 +290,15 @@ struct ThreadAnchor {
     comment_id: u64,
     old_line: Option<u32>,
     new_line: Option<u32>,
+}
+
+#[derive(Debug, Clone)]
+struct FileReferenceHit {
+    rendered_row_index: usize,
+    col_start: usize,
+    col_end: usize,
+    path: String,
+    line: Option<u32>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -240,6 +330,83 @@ struct SettingsEditorState {
     kind: SettingsEditorKind,
     value: String,
     cursor_col: usize,
+}
+
+#[derive(Debug, Clone)]
+struct ThemePickerState {
+    selected_index: usize,
+    scroll: usize,
+}
+
+#[derive(Debug, Clone)]
+struct FileSearchState {
+    query: String,
+    cursor_col: usize,
+    focused: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum FileFilterMode {
+    All,
+    Open,
+    Pending,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum FileSortMode {
+    Path,
+    OpenCountDesc,
+    TotalCountDesc,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+enum ThreadDensityMode {
+    Compact,
+    Expanded,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum CommandPaletteAction {
+    ToggleFullscreen,
+    ToggleSplitDiff,
+    ToggleSideBySideDiff,
+    ToggleThreadNavigator,
+    RefreshReviewAndDiff,
+    SetReviewOpen,
+    SetReviewUnderReview,
+    SetReviewDone,
+    OpenUserNameEditor,
+    OpenThemePicker,
+    ToggleLightDarkTheme,
+    CycleAiProvider,
+    RunAiReviewRefactor,
+    RunAiThreadRefactor,
+    RunAiThreadReply,
+    CancelAiRun,
+    JumpNextThread,
+    JumpPrevThread,
+    CycleFileFilter,
+    CycleFileSort,
+    ToggleActiveFileGroup,
+    CollapseAllFileGroups,
+    CycleThreadDensityMode,
+    ToggleSelectedThreadExpansion,
+    OpenShortcuts,
+}
+
+#[derive(Debug, Clone)]
+struct CommandPaletteItem {
+    action: CommandPaletteAction,
+    label: &'static str,
+    keywords: &'static str,
+}
+
+#[derive(Debug, Clone)]
+struct CommandPaletteState {
+    query: String,
+    cursor_col: usize,
+    selected_index: usize,
+    scroll: usize,
 }
 
 #[derive(Debug, Clone)]
@@ -282,31 +449,56 @@ struct TuiApp {
     thread_nav_visible: bool,
     selected_line: usize,
     secondary_selected_line: usize,
+    primary_viewport_top_row: usize,
+    secondary_viewport_top_row: usize,
     selected_comment: usize,
     status_line: String,
     last_ai_detail: Option<String>,
     inline_comment: Option<InlineCommentState>,
+    command_palette: Option<CommandPaletteState>,
+    theme_picker: Option<ThemePickerState>,
+    file_search: FileSearchState,
+    file_filter_mode: FileFilterMode,
+    file_sort_mode: FileSortMode,
+    collapsed_file_groups: HashSet<String>,
+    thread_density_mode: ThreadDensityMode,
+    expanded_threads: HashSet<u64>,
+    collapsed_threads: HashSet<u64>,
     settings_editor: Option<SettingsEditorState>,
     command_prompt: Option<CommandPromptState>,
     pending_action: Option<PendingUiAction>,
     ai_task: Option<AiRunTask>,
     ai_progress_visible: bool,
     ai_progress_lines: VecDeque<String>,
+    ai_progress_scroll: usize,
+    ai_progress_follow_tail: bool,
     shortcuts_modal_visible: bool,
     shortcuts_modal_scroll: usize,
     search_query: Option<String>,
+    last_ai_progress_area: Option<Rect>,
     last_shortcuts_modal_area: Option<Rect>,
     last_file_area: Option<Rect>,
+    last_file_search_area: Option<Rect>,
     last_file_scroll: usize,
+    last_file_row_map: Vec<Option<usize>>,
+    last_file_group_map: Vec<Option<String>>,
     last_diff_area: Option<Rect>,
     last_diff_scroll: usize,
     last_diff_row_map: Vec<usize>,
+    last_diff_link_hits: Vec<FileReferenceHit>,
+    pending_scroll_anchor_row: Option<usize>,
     last_diff_area_secondary: Option<Rect>,
     last_diff_scroll_secondary: usize,
     last_diff_row_map_secondary: Vec<usize>,
+    last_diff_link_hits_secondary: Vec<FileReferenceHit>,
+    pending_scroll_anchor_row_secondary: Option<usize>,
     last_thread_nav_area: Option<Rect>,
     last_thread_nav_scroll: usize,
     last_thread_nav_row_map: Vec<usize>,
     row_cache: HashMap<usize, CachedFileRows>,
+    diff_render_cache: HashMap<DiffRenderCacheKey, DiffRenderCacheEntry>,
+    diff_render_cache_order: VecDeque<DiffRenderCacheKey>,
+    pending_z_prefix_at: Option<Instant>,
+    redraw_invalidated: bool,
     should_quit: bool,
 }
