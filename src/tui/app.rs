@@ -183,6 +183,7 @@ async fn run_loop(
     Ok(())
 }
 
+mod help_docs;
 mod helpers;
 mod input;
 mod render;
@@ -474,6 +475,8 @@ struct TuiApp {
     ai_progress_follow_tail: bool,
     shortcuts_modal_visible: bool,
     shortcuts_modal_scroll: usize,
+    shortcuts_modal_doc_index: usize,
+    shortcuts_modal_zoom_step: i16,
     search_query: Option<String>,
     last_ai_progress_area: Option<Rect>,
     last_shortcuts_modal_area: Option<Rect>,

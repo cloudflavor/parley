@@ -3,6 +3,10 @@ use std::{
     time::Instant,
 };
 
+use pulldown_cmark::{
+    CodeBlockKind, Event as MdEvent, HeadingLevel, Options as MdOptions, Parser as MdParser,
+    Tag as MdTag, TagEnd as MdTagEnd,
+};
 use ratatui::{
     Frame,
     layout::{Constraint, Direction, Layout, Rect},
@@ -18,6 +22,7 @@ use crate::domain::{
 };
 
 use super::super::theme::ThemeColors;
+use super::help_docs::HELP_DOCS;
 use super::helpers::{
     comment_matches_display_row, format_line_reference, format_timestamp_utc, slice_chars,
 };
@@ -308,8 +313,32 @@ fn wrap_plain_styled_lines(input: &str, width: usize, style: Style) -> Vec<Line<
 
 fn draw_shortcuts_modal(frame: &mut Frame<'_>, app: &mut TuiApp) {
     let root = frame.area();
-    let width = root.width.saturating_sub(2).clamp(64, 132);
-    let height = root.height.saturating_sub(2).clamp(16, 30);
+    let base_width = root
+        .width
+        .saturating_sub(2)
+        .clamp(64, 132)
+        .saturating_mul(14)
+        / 10;
+    let base_height = root
+        .height
+        .saturating_sub(2)
+        .clamp(16, 30)
+        .saturating_mul(14)
+        / 10;
+    let width = scaled_modal_axis(
+        base_width,
+        root.width.saturating_sub(2),
+        app.shortcuts_modal_zoom_step,
+        4,
+        56,
+    );
+    let height = scaled_modal_axis(
+        base_height,
+        root.height.saturating_sub(2),
+        app.shortcuts_modal_zoom_step,
+        2,
+        14,
+    );
     let area = Rect {
         x: root.x + root.width.saturating_sub(width) / 2,
         y: root.y + root.height.saturating_sub(height) / 2,
@@ -319,92 +348,99 @@ fn draw_shortcuts_modal(frame: &mut Frame<'_>, app: &mut TuiApp) {
     app.last_shortcuts_modal_area = Some(area);
     let colors = app.theme().colors.clone();
 
-    let markdown = "\
-# PARLEY QUICK KEYS\n\
-> `Esc` or `?` closes this pane.\n\
-\n\
-## Move\n\
-- **Files:** `h/l`\n\
-- **Lines:** `j/k`\n\
-- **Page/half-page:** `PgUp/PgDn`, `Ctrl+u/Ctrl+d`\n\
-- **Top/Bottom:** `g/G` | **Center:** `zz`\n\
-- **Go to line:** `:<line>`\n\
-- **Search:** `/query`, then `n/p`\n\
-\n\
-## Threads\n\
-- **New comment:** `m` or `c`\n\
-- **Reply:** `r`\n\
-- **Next/Prev thread:** `N/P`\n\
-- **Thread list select:** `[/]`\n\
-- **Expand selected thread:** `e`\n\
-- **Cycle thread density:** `Shift+E`\n\
-- **Thread state:** `a` addressed, `o` open, `f` force address\n\
-\n\
-## Review\n\
-- **Set Open / UnderReview / Done:** `s` / `w` / `d`\n\
-- **Force Done:** `D`\n\
-\n\
-## Layout\n\
-- **Fullscreen:** `z` (single press)\n\
-- **Split view:** `V`\n\
-- **Side-by-side diff:** `S`\n\
-- **Active pane:** `Tab`\n\
-- **Files pane width:** `</>`\n\
-- **Files filter box:** `Ctrl+f`\n\
-- **File filter/sort:** `Shift+F` / `Shift+O`\n\
-- **Toggle active group:** `Enter`\n\
-- **Collapse all groups:** `Shift+C`\n\
-- **Thread navigator:** `b`\n\
-\n\
-## Command\n\
-- **Palette:** `Ctrl+k`\n\
-\n\
-## AI\n\
-- **Refactor thread/review:** `x` / `A`\n\
-- **Reply in thread:** `X`\n\
-- **Cancel run:** `K`\n\
-- **AI stream popup:** `H`\n\
-- **Open logs in `less`:** `L`\n\
-- **Refresh review + diff:** `R`\n\
-\n\
-## Settings\n\
-- **User name:** `u`\n\
-- **AI provider:** `i`\n\
-- **Theme picker/toggle:** `t/T`\n\
-";
-    let mut lines = wrap_markdown_lines(
-        markdown,
-        usize::from(area.width.saturating_sub(2)).max(1),
-        &colors,
-    );
-    lines.push(Line::from(""));
-    lines.push(Line::from(Span::styled(
-        "Tip: key bindings are case-sensitive (for example `n` vs `N`).",
-        Style::default().fg(colors.status_help),
-    )));
-    let content_height = usize::from(area.height.saturating_sub(2)).max(1);
+    let docs_count = HELP_DOCS.len();
+    let doc_index = app
+        .shortcuts_modal_doc_index
+        .min(docs_count.saturating_sub(1));
+    app.shortcuts_modal_doc_index = doc_index;
+    let doc = HELP_DOCS[doc_index];
+
+    let inner = Block::default().borders(Borders::ALL).inner(area);
+    let vertical = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(1),
+            Constraint::Min(1),
+            Constraint::Length(1),
+        ])
+        .split(inner);
+    let tabs_area = vertical[0];
+    let content_area = vertical[1];
+    let footer_area = vertical[2];
+
+    let body = doc.body;
+    let mut lines = wrap_markdown_lines(body, usize::from(content_area.width).max(1), &colors);
+    if lines.is_empty() {
+        lines.push(Line::from("(empty)"));
+    }
+    let content_height = usize::from(content_area.height).max(1);
     let max_scroll = lines.len().saturating_sub(content_height);
     let scroll = app.shortcuts_modal_scroll.min(max_scroll);
     app.shortcuts_modal_scroll = scroll;
 
     frame.render_widget(Clear, area);
+    let title = format!("  Help Docs [{}/{}]  ", doc_index + 1, docs_count);
     frame.render_widget(
-        Paragraph::new(lines)
-            .block(
-                Block::default()
-                    .title("  Help  ")
-                    .borders(Borders::ALL)
-                    .border_style(Style::default().fg(colors.thread_border))
-                    .title_style(
-                        Style::default()
-                            .fg(colors.accent)
-                            .add_modifier(Modifier::BOLD),
-                    ),
-            )
-            .wrap(Wrap { trim: false })
-            .scroll((scroll as u16, 0)),
+        Block::default()
+            .title(title)
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(colors.thread_border))
+            .title_style(
+                Style::default()
+                    .fg(colors.accent)
+                    .add_modifier(Modifier::BOLD),
+            ),
         area,
     );
+    frame.render_widget(
+        Paragraph::new(vec![help_docs_tabs_line(doc_index, &colors)]).wrap(Wrap { trim: true }),
+        tabs_area,
+    );
+    frame.render_widget(
+        Paragraph::new(lines)
+            .wrap(Wrap { trim: false })
+            .scroll((scroll as u16, 0)),
+        content_area,
+    );
+    let source = doc.source_path;
+    frame.render_widget(
+        Paragraph::new(vec![Line::from(vec![
+            Span::styled(
+                format!("source: {source}  "),
+                Style::default().fg(colors.status_help),
+            ),
+            Span::styled(
+                "1-9/Tab switch doc | </> zoom | j/k/PgUp/PgDn scroll | Esc/? close",
+                Style::default().fg(colors.status_help),
+            ),
+        ])]),
+        footer_area,
+    );
+}
+
+fn scaled_modal_axis(base: u16, available: u16, zoom_step: i16, unit: i32, min_bound: u16) -> u16 {
+    let max_value = available.max(min_bound);
+    let min_value = min_bound.min(max_value);
+    let proposed = i32::from(base) + i32::from(zoom_step) * unit;
+    proposed.clamp(i32::from(min_value), i32::from(max_value)) as u16
+}
+
+fn help_docs_tabs_line(selected_index: usize, colors: &ThemeColors) -> Line<'static> {
+    let mut spans = Vec::new();
+    for (idx, doc) in HELP_DOCS.iter().enumerate() {
+        if idx > 0 {
+            spans.push(Span::styled(" | ", Style::default().fg(colors.text_muted)));
+        }
+        let style = if idx == selected_index {
+            Style::default()
+                .fg(colors.accent)
+                .add_modifier(Modifier::BOLD | Modifier::UNDERLINED)
+        } else {
+            Style::default().fg(colors.text_primary)
+        };
+        spans.push(Span::styled(format!("{} {}", idx + 1, doc.title), style));
+    }
+    Line::from(spans)
 }
 
 fn draw_settings_editor(frame: &mut Frame<'_>, app: &TuiApp) {
@@ -1651,88 +1687,356 @@ fn format_editor_line_reference(old_line: Option<u32>, new_line: Option<u32>) ->
     }
 }
 
+#[derive(Debug, Clone, Copy)]
+enum MdListKind {
+    Unordered,
+    Ordered { next: u64 },
+}
+
+fn md_flush_line(rendered: &mut Vec<Line<'static>>, current: &mut Vec<Span<'static>>, force: bool) {
+    if !current.is_empty() || force {
+        rendered.push(Line::from(std::mem::take(current)));
+    }
+}
+
+fn md_ensure_quote_prefix(
+    current: &mut Vec<Span<'static>>,
+    line_started: &mut bool,
+    quote_depth: usize,
+    colors: &ThemeColors,
+) {
+    if *line_started {
+        return;
+    }
+    for _ in 0..quote_depth {
+        current.push(Span::styled(
+            "> ",
+            Style::default().fg(colors.markdown_quote_mark),
+        ));
+    }
+    *line_started = true;
+}
+
+#[derive(Debug, Clone, Copy)]
+struct MdTextStyleState {
+    heading: Option<HeadingLevel>,
+    bold_depth: usize,
+    italic_depth: usize,
+    in_code_block: bool,
+}
+
+#[derive(Debug, Clone, Copy)]
+struct MdTextRenderOptions {
+    quote_depth: usize,
+    inline_code: bool,
+    quote_text_style: bool,
+}
+
+fn md_push_text(
+    current: &mut Vec<Span<'static>>,
+    line_started: &mut bool,
+    text: &str,
+    colors: &ThemeColors,
+    state: MdTextStyleState,
+    options: MdTextRenderOptions,
+) {
+    if text.is_empty() {
+        return;
+    }
+    md_ensure_quote_prefix(current, line_started, options.quote_depth, colors);
+    let mut style = if options.quote_text_style {
+        Style::default().fg(colors.markdown_quote_text)
+    } else {
+        Style::default().fg(colors.text_primary)
+    };
+    if state.heading.is_some() || state.bold_depth > 0 {
+        style = style.add_modifier(Modifier::BOLD);
+    }
+    if state.italic_depth > 0 {
+        style = style.add_modifier(Modifier::ITALIC);
+    }
+    if state.in_code_block || options.inline_code {
+        style = style
+            .fg(colors.markdown_code_fg)
+            .bg(colors.markdown_code_bg);
+    }
+    if state.heading.is_some() {
+        style = style.fg(colors.markdown_heading);
+    }
+    push_text_with_file_references(current, text, style, colors);
+}
+
 fn render_markdown(buffer: &str, colors: &ThemeColors) -> Vec<Line<'static>> {
+    let mut options = MdOptions::empty();
+    options.insert(MdOptions::ENABLE_TABLES);
+    options.insert(MdOptions::ENABLE_TASKLISTS);
+    options.insert(MdOptions::ENABLE_STRIKETHROUGH);
+
+    let mut rendered: Vec<Line<'static>> = Vec::new();
+    let mut current: Vec<Span<'static>> = Vec::new();
+    let mut quote_depth = 0usize;
+    let mut list_stack: Vec<MdListKind> = Vec::new();
+    let mut bold_depth = 0usize;
+    let mut italic_depth = 0usize;
+    let mut heading: Option<HeadingLevel> = None;
     let mut in_code_block = false;
-    let mut rendered = Vec::new();
+    let mut table_cell_index = 0usize;
+    let mut line_started = false;
 
-    for raw_line in buffer.lines() {
-        if raw_line.trim_start().starts_with("```") {
-            in_code_block = !in_code_block;
-            rendered.push(Line::from(Span::styled(
-                raw_line.to_string(),
-                Style::default()
-                    .fg(colors.markdown_fence)
-                    .add_modifier(Modifier::BOLD),
-            )));
-            continue;
-        }
-
-        if in_code_block {
-            rendered.push(Line::from(Span::styled(
-                raw_line.to_string(),
-                Style::default().fg(colors.markdown_code_fg),
-            )));
-            continue;
-        }
-
-        if let Some(stripped) = raw_line.strip_prefix("### ") {
-            rendered.push(Line::from(Span::styled(
-                stripped.to_string(),
-                Style::default()
-                    .fg(colors.markdown_heading)
-                    .add_modifier(Modifier::BOLD),
-            )));
-            continue;
-        }
-        if let Some(stripped) = raw_line.strip_prefix("## ") {
-            rendered.push(Line::from(Span::styled(
-                stripped.to_string(),
-                Style::default()
-                    .fg(colors.markdown_heading)
-                    .add_modifier(Modifier::BOLD),
-            )));
-            continue;
-        }
-        if let Some(stripped) = raw_line.strip_prefix("# ") {
-            rendered.push(Line::from(Span::styled(
-                stripped.to_string(),
-                Style::default()
-                    .fg(colors.markdown_heading)
-                    .add_modifier(Modifier::BOLD),
-            )));
-            continue;
-        }
-
-        if let Some(stripped) = raw_line.strip_prefix("> ") {
-            let mut spans = vec![Span::styled(
-                "> ",
-                Style::default().fg(colors.markdown_quote_mark),
-            )];
-            for span in parse_inline_markdown(stripped, colors) {
-                spans.push(Span::styled(
-                    span.content.into_owned(),
-                    span.style
-                        .fg(colors.markdown_quote_text)
-                        .add_modifier(Modifier::ITALIC),
+    for event in MdParser::new_ext(buffer, options) {
+        match event {
+            MdEvent::Start(tag) => match tag {
+                MdTag::Paragraph => {}
+                MdTag::Heading { level, .. } => {
+                    md_flush_line(&mut rendered, &mut current, false);
+                    heading = Some(level);
+                    line_started = false;
+                }
+                MdTag::BlockQuote(_) => {
+                    md_flush_line(&mut rendered, &mut current, false);
+                    quote_depth += 1;
+                    line_started = false;
+                }
+                MdTag::List(Some(start)) => list_stack.push(MdListKind::Ordered { next: start }),
+                MdTag::List(None) => list_stack.push(MdListKind::Unordered),
+                MdTag::Item => {
+                    md_flush_line(&mut rendered, &mut current, false);
+                    md_ensure_quote_prefix(&mut current, &mut line_started, quote_depth, colors);
+                    let prefix = match list_stack.last_mut() {
+                        Some(MdListKind::Ordered { next }) => {
+                            let value = *next;
+                            *next += 1;
+                            format!("{value}. ")
+                        }
+                        _ => "• ".to_string(),
+                    };
+                    current.push(Span::styled(
+                        prefix,
+                        Style::default().fg(colors.markdown_bullet),
+                    ));
+                }
+                MdTag::CodeBlock(kind) => {
+                    md_flush_line(&mut rendered, &mut current, false);
+                    in_code_block = true;
+                    if let CodeBlockKind::Fenced(language) = kind {
+                        let trimmed = language.trim();
+                        if !trimmed.is_empty() {
+                            rendered.push(Line::from(Span::styled(
+                                trimmed.to_string(),
+                                Style::default()
+                                    .fg(colors.markdown_fence)
+                                    .add_modifier(Modifier::BOLD),
+                            )));
+                        }
+                    }
+                    line_started = false;
+                }
+                MdTag::Emphasis => italic_depth += 1,
+                MdTag::Strong => bold_depth += 1,
+                MdTag::Table(_) => {
+                    md_flush_line(&mut rendered, &mut current, false);
+                    line_started = false;
+                }
+                MdTag::TableHead => {
+                    md_flush_line(&mut rendered, &mut current, false);
+                    line_started = false;
+                }
+                MdTag::TableRow => {
+                    md_flush_line(&mut rendered, &mut current, false);
+                    table_cell_index = 0;
+                    line_started = true;
+                }
+                MdTag::TableCell => {
+                    if table_cell_index == 0 {
+                        current.push(Span::styled(
+                            "│ ",
+                            Style::default().fg(colors.markdown_quote_mark),
+                        ));
+                    } else {
+                        current.push(Span::styled(
+                            " │ ",
+                            Style::default().fg(colors.markdown_quote_mark),
+                        ));
+                    }
+                }
+                _ => {}
+            },
+            MdEvent::End(tag_end) => match tag_end {
+                MdTagEnd::Paragraph => {
+                    md_flush_line(&mut rendered, &mut current, false);
+                    rendered.push(Line::from(""));
+                    line_started = false;
+                }
+                MdTagEnd::Heading(_) => {
+                    md_flush_line(&mut rendered, &mut current, false);
+                    heading = None;
+                    rendered.push(Line::from(""));
+                    line_started = false;
+                }
+                MdTagEnd::BlockQuote(_) => {
+                    md_flush_line(&mut rendered, &mut current, false);
+                    quote_depth = quote_depth.saturating_sub(1);
+                    rendered.push(Line::from(""));
+                    line_started = false;
+                }
+                MdTagEnd::List(_) => {
+                    md_flush_line(&mut rendered, &mut current, false);
+                    list_stack.pop();
+                    rendered.push(Line::from(""));
+                    line_started = false;
+                }
+                MdTagEnd::Item => {
+                    md_flush_line(&mut rendered, &mut current, false);
+                    line_started = false;
+                }
+                MdTagEnd::CodeBlock => {
+                    md_flush_line(&mut rendered, &mut current, false);
+                    rendered.push(Line::from(""));
+                    in_code_block = false;
+                    line_started = false;
+                }
+                MdTagEnd::Emphasis => italic_depth = italic_depth.saturating_sub(1),
+                MdTagEnd::Strong => bold_depth = bold_depth.saturating_sub(1),
+                MdTagEnd::TableHead => {
+                    md_flush_line(&mut rendered, &mut current, false);
+                    rendered.push(Line::from(Span::styled(
+                        "├────────────────────────┤",
+                        Style::default().fg(colors.text_muted),
+                    )));
+                    line_started = false;
+                }
+                MdTagEnd::TableRow => {
+                    current.push(Span::styled(
+                        " │",
+                        Style::default().fg(colors.markdown_quote_mark),
+                    ));
+                    md_flush_line(&mut rendered, &mut current, false);
+                    line_started = false;
+                }
+                MdTagEnd::TableCell => {
+                    table_cell_index += 1;
+                }
+                MdTagEnd::Table => {
+                    md_flush_line(&mut rendered, &mut current, false);
+                    rendered.push(Line::from(""));
+                    line_started = false;
+                }
+                _ => {}
+            },
+            MdEvent::Text(text) => {
+                let state = MdTextStyleState {
+                    heading,
+                    bold_depth,
+                    italic_depth,
+                    in_code_block,
+                };
+                let options = MdTextRenderOptions {
+                    quote_depth,
+                    inline_code: false,
+                    quote_text_style: quote_depth > 0,
+                };
+                for chunk in text.split_inclusive('\n') {
+                    let has_newline = chunk.ends_with('\n');
+                    let segment = if has_newline {
+                        &chunk[..chunk.len().saturating_sub(1)]
+                    } else {
+                        chunk
+                    };
+                    if !segment.is_empty() {
+                        md_push_text(
+                            &mut current,
+                            &mut line_started,
+                            segment,
+                            colors,
+                            MdTextStyleState {
+                                heading: state.heading,
+                                bold_depth: state.bold_depth,
+                                italic_depth: state.italic_depth,
+                                in_code_block: state.in_code_block,
+                            },
+                            MdTextRenderOptions {
+                                quote_depth: options.quote_depth,
+                                inline_code: options.inline_code,
+                                quote_text_style: options.quote_text_style,
+                            },
+                        );
+                    }
+                    if has_newline {
+                        md_flush_line(&mut rendered, &mut current, true);
+                        line_started = false;
+                    }
+                }
+            }
+            MdEvent::Code(text) => {
+                md_push_text(
+                    &mut current,
+                    &mut line_started,
+                    &text,
+                    colors,
+                    MdTextStyleState {
+                        heading,
+                        bold_depth,
+                        italic_depth,
+                        in_code_block,
+                    },
+                    MdTextRenderOptions {
+                        quote_depth,
+                        inline_code: true,
+                        quote_text_style: quote_depth > 0,
+                    },
+                );
+            }
+            MdEvent::SoftBreak | MdEvent::HardBreak => {
+                md_flush_line(&mut rendered, &mut current, false);
+                line_started = false;
+            }
+            MdEvent::Rule => {
+                md_flush_line(&mut rendered, &mut current, false);
+                rendered.push(Line::from(Span::styled(
+                    "─".repeat(32),
+                    Style::default().fg(colors.text_muted),
+                )));
+                line_started = false;
+            }
+            MdEvent::TaskListMarker(checked) => {
+                md_ensure_quote_prefix(&mut current, &mut line_started, quote_depth, colors);
+                let marker = if checked { "[x] " } else { "[ ] " };
+                current.push(Span::styled(
+                    marker,
+                    Style::default().fg(colors.markdown_bullet),
                 ));
             }
-            rendered.push(Line::from(spans));
-            continue;
+            MdEvent::Html(text) => {
+                md_push_text(
+                    &mut current,
+                    &mut line_started,
+                    &text,
+                    colors,
+                    MdTextStyleState {
+                        heading,
+                        bold_depth,
+                        italic_depth,
+                        in_code_block,
+                    },
+                    MdTextRenderOptions {
+                        quote_depth,
+                        inline_code: false,
+                        quote_text_style: false,
+                    },
+                );
+            }
+            _ => {}
         }
-
-        if raw_line.starts_with("- ") || raw_line.starts_with("* ") {
-            let mut spans = vec![Span::styled(
-                "• ",
-                Style::default().fg(colors.markdown_bullet),
-            )];
-            spans.extend(parse_inline_markdown(&raw_line[2..], colors));
-            rendered.push(Line::from(spans));
-            continue;
-        }
-
-        rendered.push(Line::from(parse_inline_markdown(raw_line, colors)));
     }
 
+    md_flush_line(&mut rendered, &mut current, false);
+    while rendered
+        .last()
+        .map(|line| line.spans.iter().all(|span| span.content.is_empty()))
+        .unwrap_or(false)
+    {
+        rendered.pop();
+    }
     if rendered.is_empty() {
         rendered.push(Line::from(Span::styled(
             "(empty markdown)",
@@ -1740,53 +2044,6 @@ fn render_markdown(buffer: &str, colors: &ThemeColors) -> Vec<Line<'static>> {
         )));
     }
     rendered
-}
-
-fn parse_inline_markdown(input: &str, colors: &ThemeColors) -> Vec<Span<'static>> {
-    let mut spans = Vec::new();
-    let mut current = String::new();
-    let mut chars = input.chars().peekable();
-    let mut bold = false;
-    let mut code = false;
-
-    let flush = |spans: &mut Vec<Span<'static>>, text: &mut String, bold: bool, code: bool| {
-        if text.is_empty() {
-            return;
-        }
-        let mut style = Style::default().fg(colors.text_primary);
-        if bold {
-            style = style.add_modifier(Modifier::BOLD);
-        }
-        if code {
-            style = style
-                .fg(colors.markdown_code_fg)
-                .bg(colors.markdown_code_bg);
-        }
-        push_text_with_file_references(spans, &std::mem::take(text), style, colors);
-    };
-
-    while let Some(ch) = chars.next() {
-        if ch == '`' {
-            flush(&mut spans, &mut current, bold, code);
-            code = !code;
-            continue;
-        }
-
-        if ch == '*' && chars.peek() == Some(&'*') {
-            chars.next();
-            flush(&mut spans, &mut current, bold, code);
-            bold = !bold;
-            continue;
-        }
-
-        current.push(ch);
-    }
-
-    flush(&mut spans, &mut current, bold, code);
-    if spans.is_empty() {
-        spans.push(Span::raw(String::new()));
-    }
-    spans
 }
 
 fn push_text_with_file_references(
@@ -2804,7 +3061,7 @@ fn draw_status_panel(frame: &mut Frame<'_>, app: &TuiApp, area: ratatui::layout:
 
 fn status_hint(app: &TuiApp) -> &'static str {
     if app.shortcuts_modal_visible {
-        "Esc close help | j/k scroll"
+        "Esc close help | Tab switch doc | </> zoom | j/k scroll"
     } else if app.command_palette.is_some() {
         "Enter run command | Esc close"
     } else if app.theme_picker.is_some() {

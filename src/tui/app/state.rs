@@ -213,6 +213,8 @@ impl TuiApp {
             ai_progress_follow_tail: true,
             shortcuts_modal_visible: false,
             shortcuts_modal_scroll: 0,
+            shortcuts_modal_doc_index: 0,
+            shortcuts_modal_zoom_step: 0,
             search_query: None,
             last_ai_progress_area: None,
             last_shortcuts_modal_area: None,
@@ -663,6 +665,35 @@ impl TuiApp {
         };
         self.clear_diff_render_cache();
         self.status_line = format!("thread density: {}", self.thread_density_mode_label());
+    }
+
+    pub(super) fn help_docs_count(&self) -> usize {
+        super::help_docs::HELP_DOCS.len()
+    }
+
+    pub(super) fn cycle_help_doc(&mut self, forward: bool) {
+        let count = self.help_docs_count();
+        let current = self.shortcuts_modal_doc_index.min(count.saturating_sub(1));
+        let next = if forward {
+            (current + 1) % count
+        } else if current == 0 {
+            count.saturating_sub(1)
+        } else {
+            current - 1
+        };
+        self.shortcuts_modal_doc_index = next;
+        self.shortcuts_modal_scroll = 0;
+    }
+
+    pub(super) fn set_help_doc_index(&mut self, index: usize) {
+        let count = self.help_docs_count();
+        self.shortcuts_modal_doc_index = index.min(count.saturating_sub(1));
+        self.shortcuts_modal_scroll = 0;
+    }
+
+    pub(super) fn resize_help_modal(&mut self, delta: i16) {
+        let next = self.shortcuts_modal_zoom_step.saturating_add(delta);
+        self.shortcuts_modal_zoom_step = next.clamp(-8, 12);
     }
 
     pub(super) fn is_thread_expanded(

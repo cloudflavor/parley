@@ -321,8 +321,8 @@ impl TuiApp {
             },
             CommandPaletteItem {
                 action: CommandPaletteAction::OpenShortcuts,
-                label: "Open Shortcuts Help",
-                keywords: "help keys",
+                label: "Open Help Docs",
+                keywords: "help docs keys",
             },
         ]
     }
@@ -350,7 +350,38 @@ impl TuiApp {
         match key.code {
             KeyCode::Esc | KeyCode::Char('?') => {
                 self.shortcuts_modal_visible = false;
-                self.status_line = "shortcuts help closed".into();
+                self.status_line = "help docs closed".into();
+            }
+            KeyCode::Left | KeyCode::Char('h') | KeyCode::BackTab => {
+                self.cycle_help_doc(false);
+                if let Some(doc) = super::help_docs::HELP_DOCS.get(self.shortcuts_modal_doc_index) {
+                    self.status_line = format!("help doc: {}", doc.title);
+                }
+            }
+            KeyCode::Right | KeyCode::Char('l') | KeyCode::Tab => {
+                self.cycle_help_doc(true);
+                if let Some(doc) = super::help_docs::HELP_DOCS.get(self.shortcuts_modal_doc_index) {
+                    self.status_line = format!("help doc: {}", doc.title);
+                }
+            }
+            KeyCode::Char(ch) if ch.is_ascii_digit() => {
+                let digit = ch as usize - '0' as usize;
+                if digit > 0 {
+                    self.set_help_doc_index(digit - 1);
+                    if let Some(doc) =
+                        super::help_docs::HELP_DOCS.get(self.shortcuts_modal_doc_index)
+                    {
+                        self.status_line = format!("help doc: {}", doc.title);
+                    }
+                }
+            }
+            KeyCode::Char('<') => {
+                self.resize_help_modal(-1);
+                self.status_line = "help zoom out".into();
+            }
+            KeyCode::Char('>') => {
+                self.resize_help_modal(1);
+                self.status_line = "help zoom in".into();
             }
             KeyCode::Up | KeyCode::Char('k') => {
                 self.shortcuts_modal_scroll = self.shortcuts_modal_scroll.saturating_sub(1);
@@ -609,7 +640,8 @@ impl TuiApp {
             CommandPaletteAction::OpenShortcuts => {
                 self.shortcuts_modal_visible = true;
                 self.shortcuts_modal_scroll = 0;
-                self.status_line = "shortcuts help opened".into();
+                self.shortcuts_modal_doc_index = 0;
+                self.status_line = "help docs opened".into();
             }
         }
         self.constrain_selection();
@@ -655,7 +687,8 @@ impl TuiApp {
             KeyCode::Char('?') => {
                 self.shortcuts_modal_visible = true;
                 self.shortcuts_modal_scroll = 0;
-                self.status_line = "shortcuts help opened".into();
+                self.shortcuts_modal_doc_index = 0;
+                self.status_line = "help docs opened".into();
             }
             KeyCode::PageUp => {
                 self.scroll_active_pane_page(false, false);
