@@ -1,0 +1,63 @@
+# Keybindings
+
+## Navigation
+
+- `h/l`: previous/next file
+- `j/k`: down/up line
+- `PgUp/PgDn`: page scroll
+- `Ctrl+u/Ctrl+d`: half-page scroll
+- `g/G`: top/bottom
+- `zz`: center active line
+
+## Search and jump
+
+- `:<line>`: go to line
+- `/query`: set search query
+- `n/p`: next/previous search match
+
+## Threads
+
+- `m` or `c`: create thread on selected line
+- `r`: reply to selected thread
+- `N/P`: next/previous thread
+- `[/]`: previous/next selected thread in file
+- `e`: toggle selected thread expansion
+- `Shift+E`: cycle thread density
+- `a`: mark addressed
+- `o`: mark open
+- `f`: force-address selected thread
+
+## Review state
+
+- `s`: set review state `open`
+- `w`: set review state `under_review`
+- `d`: set review state `done` (guarded)
+- `Shift+D`: force set `done`
+
+## AI
+
+- `x`: AI refactor selected thread
+- `X`: AI reply selected thread
+- `A`: AI refactor review
+- `K`: cancel active AI run
+- `H`: toggle AI stream popup
+- `L`: open logs in `less`
+
+## Layout and tools
+
+- `?`: open help docs
+- `Ctrl+k`: command palette
+- `Ctrl+f`: file filter input
+- `V`: toggle split diff
+- `S`: toggle side-by-side diff
+- `Tab`: switch active diff pane
+- `</>`: resize files pane
+- `b`: toggle thread navigator
+
+## Help pane
+
+- `Tab` / `Shift+Tab` or `h/l`: switch help doc tab
+- `1-9`: direct tab select
+- `j/k`, `PgUp/PgDn`, `g/G`: scroll help content
+- `</>`: zoom help pane
+- `Esc` or `?`: close help pane

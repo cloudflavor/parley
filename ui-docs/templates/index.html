@@ -1,0 +1,91 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Parley Docs</title>
+    <meta
+      name="description"
+      content="Parley docs for terminal-first review workflow, TUI controls, and MCP automation."
+    />
+    <script>
+      (() => {
+        const saved = localStorage.getItem("parley-docs-theme");
+        document.documentElement.dataset.theme =
+          saved === "light" || saved === "dark" ? saved : "dark";
+      })();
+    </script>
+    <link rel="stylesheet" href="/vendor/system.css/system.css" />
+    <link rel="stylesheet" href="/app.css" />
+  </head>
+  <body>
+    <script>
+      window.__PARLEY_DOCS__ = __PARLEY_DOCS_JSON__;
+    </script>
+    <div class="site-shell">
+      <header class="topbar">
+        <a class="brandmark" href="/">
+          <span class="brandmark-badge">P</span>
+          <span class="brandmark-copy">
+            <span class="brandmark-label">Docs</span>
+            <span class="brandmark-name">Parley</span>
+          </span>
+        </a>
+        <div class="topbar-actions">
+          <a class="chip-link btn" href="/docs/overview">Open docs</a>
+          <button class="theme-button btn" data-theme-toggle type="button">Use dark mode</button>
+        </div>
+      </header>
+
+      <section class="hero">
+        <div class="hero-grid">
+          <div>
+            <p class="eyebrow">AI agent code review</p>
+            <h1>AI generated code you can trust</h1>
+            <p>
+              Parley is a terminal-first review tool for local git diffs, optimized for iterative
+              AI-assisted code review. Threads, review state, and AI runs stay explicit so you can
+              inspect and drive agent-generated changes instead of guessing what happened.
+            </p>
+          </div>
+          <div class="hero-stats" id="hero-stats">
+            <article class="stat-card fade-in">
+              <strong>4</strong>
+              <span>core docs</span>
+            </article>
+          </div>
+        </div>
+      </section>
+
+      <section class="section">
+        <div class="section-header">
+          <div>
+            <p class="eyebrow">What matters</p>
+            <h2 class="section-title">The docs track the actual workflow</h2>
+          </div>
+          <p class="section-copy">
+            Review lifecycle, TUI controls, thread state, and MCP behavior. Short names, obvious
+            entry points, minimal chrome.
+          </p>
+        </div>
+        <div class="feature-grid" id="feature-grid"></div>
+      </section>
+
+      <section class="section">
+        <div class="section-header">
+          <div>
+            <p class="eyebrow">Documents</p>
+            <h2 class="section-title">Open the part you need</h2>
+          </div>
+          <p class="section-copy">
+            Each document is generated from the repository source and surfaced here with section
+            count and a short summary so the entry point is obvious.
+          </p>
+        </div>
+        <div class="doc-grid" id="docs-grid"></div>
+      </section>
+    </div>
+    <script src="/site.js"></script>
+    <script src="/home.js"></script>
+  </body>
+</html>

@@ -23,6 +23,7 @@ parley.cloudflavor.io
 
 ```bash
 cd ui-docs
+npm install
 node scripts-build-docs.mjs
 wrangler dev
 ```
@@ -31,5 +32,6 @@ wrangler dev
 
 ```bash
 cd ui-docs
+npm install
 wrangler deploy
 ```

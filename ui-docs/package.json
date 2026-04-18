@@ -6,6 +6,7 @@
     "build:docs": "node scripts-build-docs.mjs"
   },
   "dependencies": {
+    "@sakun/system.css": "^0.1.11",
     "markdown-it": "^14.1.0"
   }
 }

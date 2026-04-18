@@ -1,0 +1,106 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Parley Docs</title>
+    <meta
+      name="description"
+      content="Workflow-focused Parley documentation for terminal review, TUI controls, and MCP integration."
+    />
+    <script>
+      (() => {
+        const saved = localStorage.getItem("parley-docs-theme");
+        document.documentElement.dataset.theme =
+          saved === "light" || saved === "dark" ? saved : "dark";
+      })();
+    </script>
+    <link rel="stylesheet" href="/vendor/system.css/system.css" />
+    <link rel="stylesheet" href="/app.css" />
+    <link
+      id="hljs-theme"
+      rel="stylesheet"
+      href="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.10.0/styles/github-dark.min.css"
+    />
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.10.0/highlight.min.js"></script>
+  </head>
+  <body>
+    <script>
+      window.__PARLEY_DOCS__ = __PARLEY_DOCS_JSON__;
+    </script>
+    <div class="site-shell">
+      <header class="topbar">
+        <a class="brandmark" href="/">
+          <span class="brandmark-badge">P</span>
+          <span class="brandmark-copy">
+            <span class="brandmark-label">System View</span>
+            <span class="brandmark-name">Parley Docs</span>
+          </span>
+        </a>
+        <div class="topbar-actions">
+          <a class="chip-link btn" href="/">Docs home</a>
+          <button class="theme-button btn" data-theme-toggle type="button">Use dark mode</button>
+        </div>
+      </header>
+
+      <div class="shell-grid">
+        <aside class="side-panel" id="side-panel" data-collapsed="false">
+          <div class="search-panel">
+            <label class="visually-hidden" for="search-input">Filter docs</label>
+            <input
+              class="search-input"
+              id="search-input"
+              type="search"
+              placeholder="Filter docs or sections"
+            />
+          </div>
+          <button class="nav-toggle btn" id="nav-toggle" type="button">Hide contents</button>
+          <div class="nav-region">
+            <h2>Documents</h2>
+            <ul class="docs-nav" id="docs-nav"></ul>
+          </div>
+        </aside>
+
+        <main class="content-panel">
+          <p class="eyebrow" id="page-kicker">Document</p>
+          <h1 class="page-title" id="page-title">Loading…</h1>
+          <p class="page-intro" id="page-intro">
+            Parsing document metadata and content.
+          </p>
+          <div class="doc-meta-row" id="doc-meta-row"></div>
+          <article class="doc-article fade-in" id="doc-article"></article>
+          <div class="section" id="doc-nav-section">
+            <div class="section-header">
+              <div>
+                <p class="eyebrow">More docs</p>
+                <h2 class="section-title">Previous and next</h2>
+              </div>
+            </div>
+            <ul class="doc-nav-links" id="doc-nav-links"></ul>
+          </div>
+        </main>
+
+        <aside class="side-panel">
+          <h2>On this page</h2>
+          <p class="muted">Anchors from generated headings.</p>
+          <ul class="toc-list" id="toc-list"></ul>
+        </aside>
+      </div>
+    </div>
+    <script>
+      const themeObserver = new MutationObserver(() => {
+        const theme = document.documentElement.dataset.theme;
+        document.getElementById("hljs-theme").href =
+          theme === "dark"
+            ? "https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.10.0/styles/github-dark.min.css"
+            : "https://cdnjs.cloudflare.com/ajax/libs/highlight.js/11.10.0/styles/github.min.css";
+      });
+      themeObserver.observe(document.documentElement, {
+        attributes: true,
+        attributeFilter: ["data-theme"],
+      });
+    </script>
+    <script src="/site.js"></script>
+    <script src="/docs-app.js"></script>
+  </body>
+</html>

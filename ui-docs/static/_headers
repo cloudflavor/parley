@@ -1,0 +1,8 @@
+/
+  Link: </.well-known/api-catalog>; rel="api-catalog"; type="application/linkset+json"; title="Parley API catalog", </docs/mcp>; rel="service-doc"; type="text/html"; title="Parley MCP integration", </generated/docs.json>; rel="service-meta"; type="application/json"; title="Parley docs index"
+
+/docs
+  Link: </.well-known/api-catalog>; rel="api-catalog"; type="application/linkset+json"; title="Parley API catalog", </docs/mcp>; rel="service-doc"; type="text/html"; title="Parley MCP integration", </generated/docs.json>; rel="service-meta"; type="application/json"; title="Parley docs index"
+
+/docs/*
+  Link: </.well-known/api-catalog>; rel="api-catalog"; type="application/linkset+json"; title="Parley API catalog", </docs/mcp>; rel="service-doc"; type="text/html"; title="Parley MCP integration", </generated/docs.json>; rel="service-meta"; type="application/json"; title="Parley docs index"

@@ -1,26 +1,4 @@
-<!doctype html>
-<html lang="en">
-  <head>
-    <meta charset="utf-8" />
-    <meta name="viewport" content="width=device-width, initial-scale=1" />
-    <title>Parley Docs</title>
-    <meta
-      name="description"
-      content="Parley docs for terminal-first review workflow, TUI controls, and MCP automation."
-    />
-    <script>
-      (() => {
-        const saved = localStorage.getItem("parley-docs-theme");
-        document.documentElement.dataset.theme =
-          saved === "light" || saved === "dark" ? saved : "dark";
-      })();
-    </script>
-    <link rel="stylesheet" href="/vendor/system.css/system.css" />
-    <link rel="stylesheet" href="/app.css" />
-  </head>
-  <body>
-    <script>
-      window.__PARLEY_DOCS__ = [
+window.__PARLEY_DOCS__ = [
   {
     "slug": "overview",
     "title": "Parley Overview",
@@ -67,7 +45,7 @@
         "id": "completion-behavior"
       }
     ],
-    "html": "<h1 id=\"parley-overview\">Parley Overview</h1>\n<p>Parley is a terminal-first review tool for local git diffs, optimized for iterative AI-assisted code review.</p>\n<p>Review discussions are anchored to concrete diff lines, and both thread state and review state are explicit.</p>\n<h2 id=\"core-model\">Core model</h2>\n<ul>\n<li><strong>Threaded line review</strong>: each comment thread is anchored to file path + line reference.</li>\n<li><strong>Thread lifecycle</strong>: <code>open</code>, <code>pending</code>, <code>addressed</code>.</li>\n<li><strong>Review lifecycle</strong>: <code>open</code>, <code>under_review</code>, <code>done</code>.</li>\n<li><strong>Keyboard-first workflow</strong>: full navigation and review operations without leaving the terminal.</li>\n<li><strong>Optional AI automation</strong>: run AI thread replies/refactors while keeping state transitions human-controlled.</li>\n</ul>\n<h2 id=\"thread-model-at-a-glance\">Thread model at a glance</h2>\n<ul>\n<li>A thread starts as <code>open</code> when a comment is created.</li>\n<li>Replies do not carry their own status; they update the parent thread status.</li>\n<li>When the original thread author replies, the thread becomes <code>open</code>.</li>\n<li>When a different author replies (including AI in normal flows), the thread becomes <code>pending</code>.</li>\n<li><code>addressed</code> is explicit: the original thread author marks the thread resolved.</li>\n</ul>\n<h2 id=\"review-model-at-a-glance\">Review model at a glance</h2>\n<ul>\n<li><code>open</code>: at least one thread is <code>open</code>.</li>\n<li><code>under_review</code>: no <code>open</code> threads remain.</li>\n<li><code>done</code>: explicitly set complete state.</li>\n<li><code>done</code> is guarded: unresolved threads block normal transition to <code>done</code>.</li>\n<li>If unresolved threads appear after <code>done</code>, the review auto-reopens to <code>open</code>.</li>\n</ul>\n<h2 id=\"ai-eligibility-summary\">AI eligibility summary</h2>\n<ul>\n<li>AI runs are skipped when review state is <code>done</code>.</li>\n<li><code>reply</code> mode targets <code>open</code> + <code>pending</code> threads by default.</li>\n<li><code>refactor</code> mode targets <code>open</code> threads only.</li>\n<li>Explicitly selected thread IDs can override reply-mode filtering (details in <code>docs/review-workflow.md</code>).</li>\n</ul>\n<h2 id=\"typical-session\">Typical session</h2>\n<pre><code class=\"language-bash\">parley review create my-review\nparley review start my-review\nparley tui --review my-review\n</code></pre>\n<p>If you are running over SSH and your terminal client does not play well with mouse reporting, start the TUI with <code>--no-mouse</code>.</p>\n<h2 id=\"what-pending-means\">What <code>pending</code> means</h2>\n<ul>\n<li><code>pending</code> indicates the thread is waiting on counterpart follow-up after a reply.</li>\n<li>A thread returns to <code>open</code> when the original author replies again or explicitly marks it open.</li>\n</ul>\n<h2 id=\"completion-behavior\">Completion behavior</h2>\n<ul>\n<li><code>done</code> is blocked while unresolved threads remain.</li>\n<li>Use force done (<code>Shift+D</code> in TUI) only when intentionally closing with unresolved threads.</li>\n</ul>\n"
+    "html": "<h1 id=\"parley-overview\">Parley Overview</h1>\n<p>Parley is a terminal-first review tool for local git diffs, optimized for iterative AI-assisted code review.</p>\n<p>Review discussions are anchored to concrete diff lines, and both thread state and review state are explicit.</p>\n<h2 id=\"core-model\">Core model</h2>\n<ul>\n<li><strong>Threaded line review</strong>: each comment thread is anchored to file path + line reference.</li>\n<li><strong>Thread lifecycle</strong>: <code>open</code>, <code>pending</code>, <code>addressed</code>.</li>\n<li><strong>Review lifecycle</strong>: <code>open</code>, <code>under_review</code>, <code>done</code>.</li>\n<li><strong>Keyboard-first workflow</strong>: full navigation and review operations without leaving the terminal.</li>\n<li><strong>Optional AI automation</strong>: run AI thread replies/refactors while keeping state transitions human-controlled.</li>\n</ul>\n<h2 id=\"thread-model-at-a-glance\">Thread model at a glance</h2>\n<ul>\n<li>A thread starts as <code>open</code> when a comment is created.</li>\n<li>Replies do not carry their own status; they update the parent thread status.</li>\n<li>When the original thread author replies, the thread becomes <code>open</code>.</li>\n<li>When a different author replies (including AI in normal flows), the thread becomes <code>pending</code>.</li>\n<li><code>addressed</code> is explicit: the original thread author marks the thread resolved.</li>\n</ul>\n<h2 id=\"review-model-at-a-glance\">Review model at a glance</h2>\n<ul>\n<li><code>open</code>: at least one thread is <code>open</code>.</li>\n<li><code>under_review</code>: no <code>open</code> threads remain.</li>\n<li><code>done</code>: explicitly set complete state.</li>\n<li><code>done</code> is guarded: unresolved threads block normal transition to <code>done</code>.</li>\n<li>If unresolved threads appear after <code>done</code>, the review auto-reopens to <code>open</code>.</li>\n</ul>\n<h2 id=\"ai-eligibility-summary\">AI eligibility summary</h2>\n<ul>\n<li>AI runs are skipped when review state is <code>done</code>.</li>\n<li><code>reply</code> mode targets <code>open</code> + <code>pending</code> threads by default.</li>\n<li><code>refactor</code> mode targets <code>open</code> threads only.</li>\n<li>Explicitly selected thread IDs can override reply-mode filtering (details in <code>docs/review-workflow.md</code>).</li>\n</ul>\n<h2 id=\"typical-session\">Typical session</h2>\n<pre><code class=\"language-bash\">parley review create my-review\nparley review start my-review\nparley tui --review my-review\n</code></pre>\n<h2 id=\"what-pending-means\">What <code>pending</code> means</h2>\n<ul>\n<li><code>pending</code> indicates the thread is waiting on counterpart follow-up after a reply.</li>\n<li>A thread returns to <code>open</code> when the original author replies again or explicitly marks it open.</li>\n</ul>\n<h2 id=\"completion-behavior\">Completion behavior</h2>\n<ul>\n<li><code>done</code> is blocked while unresolved threads remain.</li>\n<li>Use force done (<code>Shift+D</code> in TUI) only when intentionally closing with unresolved threads.</li>\n</ul>\n"
   },
   {
     "slug": "quickstart",
@@ -135,7 +113,7 @@
         "id": "refresh-after-edits"
       }
     ],
-    "html": "<h1 id=\"quickstart\">Quickstart</h1>\n<h2 id=\"build\">Build</h2>\n<pre><code class=\"language-bash\">cargo build --release\n</code></pre>\n<h2 id=\"create-and-start-a-review\">Create and start a review</h2>\n<pre><code class=\"language-bash\">./target/release/parley review create my-review\n./target/release/parley review start my-review\n</code></pre>\n<h2 id=\"open-the-tui\">Open the TUI</h2>\n<pre><code class=\"language-bash\">./target/release/parley tui --review my-review\n</code></pre>\n<p>If your terminal or SSH session mishandles mouse reporting, disable mouse capture:</p>\n<pre><code class=\"language-bash\">./target/release/parley tui --review my-review --no-mouse\n</code></pre>\n<h2 id=\"core-controls\">Core controls</h2>\n<h3 id=\"navigation\">Navigation</h3>\n<ul>\n<li><code>h/l</code>: previous or next file</li>\n<li><code>j/k</code>: move line cursor down or up</li>\n<li><code>PgUp/PgDn</code>: page scroll</li>\n<li><code>Ctrl+u/Ctrl+d</code>: half-page scroll</li>\n<li><code>g/G</code>: jump to first or last line</li>\n<li><code>zz</code>: center active line</li>\n</ul>\n<h3 id=\"search-and-jump\">Search and jump</h3>\n<ul>\n<li><code>:&lt;line&gt;</code>: go to line</li>\n<li><code>/query</code>: set diff search query</li>\n<li><code>n/p</code>: next or previous search hit</li>\n</ul>\n<h3 id=\"threads\">Threads</h3>\n<ul>\n<li><code>m</code> or <code>c</code>: create thread on selected line</li>\n<li><code>r</code>: reply to selected thread</li>\n<li><code>N/P</code>: jump next or previous thread</li>\n<li><code>[/]</code>: select previous or next thread in current file</li>\n<li><code>e</code>: toggle selected thread expansion</li>\n<li><code>Shift+E</code>: cycle thread density (<code>compact</code>/<code>expanded</code>)</li>\n<li><code>a/o/f</code>: addressed/open/force-address selected thread</li>\n</ul>\n<h3 id=\"review-state\">Review state</h3>\n<ul>\n<li><code>s</code>: set review <code>open</code></li>\n<li><code>w</code>: set review <code>under_review</code></li>\n<li><code>d</code>: set review <code>done</code> (blocked if unresolved threads exist)</li>\n<li><code>Shift+D</code>: force set review <code>done</code></li>\n</ul>\n<h3 id=\"ai-and-tools\">AI and tools</h3>\n<ul>\n<li><code>x</code>: AI refactor selected thread</li>\n<li><code>X</code>: AI reply selected thread</li>\n<li><code>A</code>: AI refactor full review</li>\n<li><code>K</code>: cancel current AI run</li>\n<li><code>H</code>: toggle AI stream popup</li>\n<li><code>L</code>: open log file in <code>less</code></li>\n<li><code>Ctrl+k</code>: open command palette</li>\n<li><code>Ctrl+f</code>: focus files filter input</li>\n<li><code>?</code>: open in-app docs/help overlay</li>\n</ul>\n<h3 id=\"which-status-to-set-before-ai\">Which status to set before AI</h3>\n<ul>\n<li>For <code>refactor</code> (<code>x</code> or <code>A</code>): thread must be <code>open</code>.</li>\n<li>For <code>reply</code> (<code>X</code>): thread should be <code>open</code> or <code>pending</code>.</li>\n<li>If review is <code>done</code>, AI runs are skipped.</li>\n<li>Use explicit thread selection from MCP if you need reply mode on an <code>addressed</code> thread.</li>\n</ul>\n<h2 id=\"refresh-after-edits\">Refresh after edits</h2>\n<p>Inside TUI:</p>\n<pre><code class=\"language-text\">R\n</code></pre>\n<p>This reloads review metadata and current git diff.</p>\n"
+    "html": "<h1 id=\"quickstart\">Quickstart</h1>\n<h2 id=\"build\">Build</h2>\n<pre><code class=\"language-bash\">cargo build --release\n</code></pre>\n<h2 id=\"create-and-start-a-review\">Create and start a review</h2>\n<pre><code class=\"language-bash\">./target/release/parley review create my-review\n./target/release/parley review start my-review\n</code></pre>\n<h2 id=\"open-the-tui\">Open the TUI</h2>\n<pre><code class=\"language-bash\">./target/release/parley tui --review my-review\n</code></pre>\n<h2 id=\"core-controls\">Core controls</h2>\n<h3 id=\"navigation\">Navigation</h3>\n<ul>\n<li><code>h/l</code>: previous or next file</li>\n<li><code>j/k</code>: move line cursor down or up</li>\n<li><code>PgUp/PgDn</code>: page scroll</li>\n<li><code>Ctrl+u/Ctrl+d</code>: half-page scroll</li>\n<li><code>g/G</code>: jump to first or last line</li>\n<li><code>zz</code>: center active line</li>\n</ul>\n<h3 id=\"search-and-jump\">Search and jump</h3>\n<ul>\n<li><code>:&lt;line&gt;</code>: go to line</li>\n<li><code>/query</code>: set diff search query</li>\n<li><code>n/p</code>: next or previous search hit</li>\n</ul>\n<h3 id=\"threads\">Threads</h3>\n<ul>\n<li><code>m</code> or <code>c</code>: create thread on selected line</li>\n<li><code>r</code>: reply to selected thread</li>\n<li><code>N/P</code>: jump next or previous thread</li>\n<li><code>[/]</code>: select previous or next thread in current file</li>\n<li><code>e</code>: toggle selected thread expansion</li>\n<li><code>Shift+E</code>: cycle thread density (<code>compact</code>/<code>expanded</code>)</li>\n<li><code>a/o/f</code>: addressed/open/force-address selected thread</li>\n</ul>\n<h3 id=\"review-state\">Review state</h3>\n<ul>\n<li><code>s</code>: set review <code>open</code></li>\n<li><code>w</code>: set review <code>under_review</code></li>\n<li><code>d</code>: set review <code>done</code> (blocked if unresolved threads exist)</li>\n<li><code>Shift+D</code>: force set review <code>done</code></li>\n</ul>\n<h3 id=\"ai-and-tools\">AI and tools</h3>\n<ul>\n<li><code>x</code>: AI refactor selected thread</li>\n<li><code>X</code>: AI reply selected thread</li>\n<li><code>A</code>: AI refactor full review</li>\n<li><code>K</code>: cancel current AI run</li>\n<li><code>H</code>: toggle AI stream popup</li>\n<li><code>L</code>: open log file in <code>less</code></li>\n<li><code>Ctrl+k</code>: open command palette</li>\n<li><code>Ctrl+f</code>: focus files filter input</li>\n<li><code>?</code>: open in-app docs/help overlay</li>\n</ul>\n<h3 id=\"which-status-to-set-before-ai\">Which status to set before AI</h3>\n<ul>\n<li>For <code>refactor</code> (<code>x</code> or <code>A</code>): thread must be <code>open</code>.</li>\n<li>For <code>reply</code> (<code>X</code>): thread should be <code>open</code> or <code>pending</code>.</li>\n<li>If review is <code>done</code>, AI runs are skipped.</li>\n<li>Use explicit thread selection from MCP if you need reply mode on an <code>addressed</code> thread.</li>\n</ul>\n<h2 id=\"refresh-after-edits\">Refresh after edits</h2>\n<p>Inside TUI:</p>\n<pre><code class=\"language-text\">R\n</code></pre>\n<p>This reloads review metadata and current git diff.</p>\n"
   },
   {
     "slug": "keybindings",
@@ -297,71 +275,3 @@
     "html": "<h1 id=\"mcp-integration\">MCP Integration</h1>\n<p>Parley exposes an MCP-compatible JSON-RPC interface over stdio.</p>\n<h2 id=\"transport\">Transport</h2>\n<ul>\n<li>Uses <code>Content-Length</code> framed JSON-RPC messages.</li>\n<li>Implements <code>initialize</code>, <code>tools/list</code>, and <code>tools/call</code>.</li>\n</ul>\n<h2 id=\"typical-tools\">Typical tools</h2>\n<ul>\n<li><code>list_reviews</code></li>\n<li><code>get_review</code></li>\n<li><code>list_open_comments</code></li>\n<li><code>add_reply</code></li>\n<li><code>mark_comment_addressed</code></li>\n<li><code>mark_comment_open</code></li>\n<li><code>set_review_state</code></li>\n<li><code>run_ai_session</code></li>\n</ul>\n<h2 id=\"runaisession-behavior\"><code>run_ai_session</code> behavior</h2>\n<p>Inputs:</p>\n<ul>\n<li><code>provider</code>: <code>codex</code> | <code>claude</code> | <code>opencode</code></li>\n<li><code>mode</code>: <code>reply</code> | <code>refactor</code> (optional; defaults by API call site)</li>\n<li><code>comment_ids</code>: optional explicit thread IDs</li>\n</ul>\n<p>Global gate:</p>\n<ul>\n<li>if review state is <code>done</code>, the AI session is skipped</li>\n</ul>\n<p>Target filtering:</p>\n<ul>\n<li><code>mode=refactor</code>:\n<ul>\n<li>auto-target (<code>comment_ids</code> omitted): only <code>open</code> threads</li>\n<li>explicit <code>comment_ids</code>: still only <code>open</code> threads are processed</li>\n</ul>\n</li>\n<li><code>mode=reply</code>:\n<ul>\n<li>auto-target (<code>comment_ids</code> omitted): <code>open</code> and <code>pending</code></li>\n<li>explicit <code>comment_ids</code>: status filter is bypassed for selection, so <code>addressed</code> can be processed</li>\n</ul>\n</li>\n</ul>\n<p>After processing:</p>\n<ul>\n<li>AI response is added as a thread reply</li>\n<li>thread status typically becomes <code>pending</code> (different-author reply path)</li>\n</ul>\n<h2 id=\"example-calls\">Example calls</h2>\n<p>Reply mode over all eligible threads:</p>\n<pre><code class=\"language-json\">{\n  &quot;name&quot;: &quot;run_ai_session&quot;,\n  &quot;arguments&quot;: {\n    &quot;review_name&quot;: &quot;my-review&quot;,\n    &quot;provider&quot;: &quot;codex&quot;,\n    &quot;mode&quot;: &quot;reply&quot;\n  }\n}\n</code></pre>\n<p>Refactor mode over open threads only:</p>\n<pre><code class=\"language-json\">{\n  &quot;name&quot;: &quot;run_ai_session&quot;,\n  &quot;arguments&quot;: {\n    &quot;review_name&quot;: &quot;my-review&quot;,\n    &quot;provider&quot;: &quot;codex&quot;,\n    &quot;mode&quot;: &quot;refactor&quot;\n  }\n}\n</code></pre>\n<p>Reply mode on explicit thread IDs:</p>\n<pre><code class=\"language-json\">{\n  &quot;name&quot;: &quot;run_ai_session&quot;,\n  &quot;arguments&quot;: {\n    &quot;review_name&quot;: &quot;my-review&quot;,\n    &quot;provider&quot;: &quot;codex&quot;,\n    &quot;mode&quot;: &quot;reply&quot;,\n    &quot;comment_ids&quot;: [12, 18]\n  }\n}\n</code></pre>\n<h2 id=\"notes\">Notes</h2>\n<ul>\n<li>Review names can be resolved from current branch context.</li>\n<li>Thread state updates are explicit tool calls.</li>\n<li><code>set_review_state</code> accepts Parley review states (<code>open</code>, <code>under_review</code>, <code>done</code>).</li>\n<li><code>run_ai_session</code> supports <code>reply</code> and <code>refactor</code> modes.</li>\n</ul>\n"
   }
 ];
-    </script>
-    <div class="site-shell">
-      <header class="topbar">
-        <a class="brandmark" href="/">
-          <span class="brandmark-badge">P</span>
-          <span class="brandmark-copy">
-            <span class="brandmark-label">Docs</span>
-            <span class="brandmark-name">Parley</span>
-          </span>
-        </a>
-        <div class="topbar-actions">
-          <a class="chip-link btn" href="/docs/overview">Open docs</a>
-          <button class="theme-button btn" data-theme-toggle type="button">Use dark mode</button>
-        </div>
-      </header>
-
-      <section class="hero">
-        <div class="hero-grid">
-          <div>
-            <p class="eyebrow">AI agent code review</p>
-            <h1>AI generated code you can trust</h1>
-            <p>
-              Parley is a terminal-first review tool for local git diffs, optimized for iterative
-              AI-assisted code review. Threads, review state, and AI runs stay explicit so you can
-              inspect and drive agent-generated changes instead of guessing what happened.
-            </p>
-          </div>
-          <div class="hero-stats" id="hero-stats">
-            <article class="stat-card fade-in">
-              <strong>4</strong>
-              <span>core docs</span>
-            </article>
-          </div>
-        </div>
-      </section>
-
-      <section class="section">
-        <div class="section-header">
-          <div>
-            <p class="eyebrow">What matters</p>
-            <h2 class="section-title">The docs track the actual workflow</h2>
-          </div>
-          <p class="section-copy">
-            Review lifecycle, TUI controls, thread state, and MCP behavior. Short names, obvious
-            entry points, minimal chrome.
-          </p>
-        </div>
-        <div class="feature-grid" id="feature-grid"></div>
-      </section>
-
-      <section class="section">
-        <div class="section-header">
-          <div>
-            <p class="eyebrow">Documents</p>
-            <h2 class="section-title">Open the part you need</h2>
-          </div>
-          <p class="section-copy">
-            Each document is generated from the repository source and surfaced here with section
-            count and a short summary so the entry point is obvious.
-          </p>
-        </div>
-        <div class="doc-grid" id="docs-grid"></div>
-      </section>
-    </div>
-    <script src="/site.js"></script>
-    <script src="/home.js"></script>
-  </body>
-</html>

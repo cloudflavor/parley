@@ -10,14 +10,19 @@ custom_domain = true
 [assets]
 binding = "ASSETS"
 directory = "static"
+run_worker_first = ["/", "/index.html", "/docs", "/docs/*"]
 
 [build]
 command = "node scripts-build-docs.mjs"
 watch_dir = [
   "../docs",
+  "templates/index.html",
+  "templates/docs-index.html",
   "scripts-build-docs.mjs",
-  "static/docs/index.html",
-  "static/index.html",
+  "static/app.css",
+  "static/site.js",
+  "static/home.js",
+  "static/docs-app.js",
 ]
 
 [observability]
