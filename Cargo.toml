@@ -1,6 +1,6 @@
 [package]
-name = "parley"
-version = "0.1.0-rc2"
+name = "parley-cli"
+version = "0.1.0-rc3"
 edition = "2024"
 authors = ["Victor Palade <victor@cloudflavor.io>"]
 description = "Terminal-first review tool for AI-generated code changes"
@@ -8,6 +8,10 @@ license = "Apache-2.0"
 repository = "https://github.com/cloudflavor/parley"
 homepage = "https://parley.cloudflavor.io"
 documentation = "https://parley.cloudflavor.io"
+
+[[bin]]
+name = "parley"
+path = "src/bin/parley.rs"
 
 [dependencies]
 anyhow = "1.0"
