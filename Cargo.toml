@@ -1,6 +1,6 @@
 [package]
 name = "parley"
-version = "0.1.0-rc1"
+version = "0.1.0-rc2"
 edition = "2024"
 authors = ["Victor Palade <victor@cloudflavor.io>"]
 description = "Terminal-first review tool for AI-generated code changes"
