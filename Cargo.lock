@@ -868,7 +868,7 @@ dependencies = [
 
 [[package]]
 name = "parley-cli"
-version = "0.1.0-rc3"
+version = "0.1.0-rc4"
 dependencies = [
  "anyhow",
  "crossterm 0.29.0",
