@@ -19,6 +19,12 @@ cargo build --release
 ./target/release/parley tui --review my-review
 ```
 
+If your terminal or SSH session mishandles mouse reporting, disable mouse capture:
+
+```bash
+./target/release/parley tui --review my-review --no-mouse
+```
+
 ## Core controls
 
 ### Navigation

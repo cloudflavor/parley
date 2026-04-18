@@ -7,11 +7,7 @@ use std::{
 };
 
 use anyhow::{Context, Result};
-use crossterm::{
-    event::{self, DisableMouseCapture, EnableMouseCapture, Event},
-    execute,
-    terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
-};
+use crossterm::event::{self, Event};
 use ratatui::{Terminal, backend::CrosstermBackend, layout::Rect, style::Style, text::Line};
 use tokio::task::JoinHandle;
 
@@ -28,13 +24,16 @@ use crate::services::ai_session::{
 use crate::services::review_service::ReviewService;
 
 use super::syntax::SyntaxPainter;
+use super::terminal::TerminalSession;
 use super::theme::{UiTheme, default_theme_name, load_themes, resolve_theme_index};
 
 pub async fn run_tui(
     service: ReviewService,
     review_name: String,
     requested_theme: Option<String>,
+    no_mouse: bool,
 ) -> Result<()> {
+    let mut terminal_session = TerminalSession::new(!no_mouse)?;
     let review = service
         .load_or_create_review(&review_name)
         .await
@@ -60,13 +59,6 @@ pub async fn run_tui(
     super::logging::init_file_tracing(&log_path, &config.log_level)
         .context("failed to initialize tui log writer")?;
 
-    enable_raw_mode().context("failed to enable raw mode")?;
-    let mut stdout = io::stdout();
-    execute!(stdout, EnterAlternateScreen, EnableMouseCapture)
-        .context("failed to enter alternate screen")?;
-    let backend = CrosstermBackend::new(stdout);
-    let mut terminal = Terminal::new(backend).context("failed to initialize terminal")?;
-
     let mut app = TuiApp::new(
         review_name,
         review,
@@ -76,22 +68,19 @@ pub async fn run_tui(
         theme_index,
         log_path,
     );
-    let run_result = run_loop(&mut terminal, &mut app, &service).await;
-
-    disable_raw_mode().context("failed to disable raw mode")?;
-    execute!(
-        terminal.backend_mut(),
-        LeaveAlternateScreen,
-        DisableMouseCapture
+    let mouse_capture_enabled = terminal_session.mouse_capture_enabled();
+    run_loop(
+        terminal_session.terminal_mut(),
+        mouse_capture_enabled,
+        &mut app,
+        &service,
     )
-    .context("failed to leave alternate screen")?;
-    terminal.show_cursor().context("failed to show cursor")?;
-
-    run_result
+    .await
 }
 
 async fn run_loop(
     terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
+    mouse_capture_enabled: bool,
     app: &mut TuiApp,
     service: &ReviewService,
 ) -> Result<()> {
@@ -153,7 +142,7 @@ async fn run_loop(
         if let Some(action) = app.pending_action.take() {
             match action {
                 PendingUiAction::OpenLogsInLess => {
-                    match open_log_in_less(terminal, &app.log_path) {
+                    match open_log_in_less(terminal, &app.log_path, mouse_capture_enabled) {
                         Ok(()) => {
                             app.status_line =
                                 format!("opened logs in less: {}", app.log_path.display());

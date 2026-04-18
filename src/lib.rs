@@ -30,9 +30,13 @@ pub async fn run() -> Result<()> {
     let service = ReviewService::new(store);
 
     match cli.command {
-        Command::Tui { review, theme } => {
+        Command::Tui {
+            review,
+            theme,
+            no_mouse,
+        } => {
             let review = resolve_default_review_for_tui(&service, review.as_deref()).await?;
-            tui::run_tui(service, review, theme).await?;
+            tui::run_tui(service, review, theme, no_mouse).await?;
         }
         Command::Review { command } => {
             handle_review_command(command, &service).await?;

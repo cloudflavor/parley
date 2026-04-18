@@ -20,6 +20,8 @@ pub enum Command {
         review: Option<String>,
         #[structopt(long)]
         theme: Option<String>,
+        #[structopt(long)]
+        no_mouse: bool,
     },
     #[structopt(name = "review")]
     Review {
@@ -102,4 +104,30 @@ pub enum ReviewCommand {
     Done { name: String },
     #[structopt(name = "resolve")]
     Resolve { name: String },
+}
+
+#[cfg(test)]
+mod tests {
+    use structopt::StructOpt;
+
+    use super::{Cli, Command};
+
+    #[test]
+    fn tui_command_parses_no_mouse_flag() {
+        let cli = Cli::from_iter_safe(["parley", "tui", "--review", "main", "--no-mouse"])
+            .expect("cli should parse");
+
+        match cli.command {
+            Command::Tui {
+                review,
+                theme,
+                no_mouse,
+            } => {
+                assert_eq!(review.as_deref(), Some("main"));
+                assert_eq!(theme, None);
+                assert!(no_mouse);
+            }
+            other => panic!("unexpected command: {other:?}"),
+        }
+    }
 }

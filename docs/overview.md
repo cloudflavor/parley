@@ -43,6 +43,8 @@ parley review start my-review
 parley tui --review my-review
 ```
 
+If you are running over SSH and your terminal client does not play well with mouse reporting, start the TUI with `--no-mouse`.
+
 ## What `pending` means
 
 - `pending` indicates the thread is waiting on counterpart follow-up after a reply.

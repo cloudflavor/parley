@@ -132,6 +132,7 @@ pub(super) fn point_in_rect(x: u16, y: u16, rect: Rect) -> bool {
 pub(super) fn open_log_in_less(
     terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
     log_path: &Path,
+    mouse_capture_enabled: bool,
 ) -> Result<()> {
     if let Some(parent) = log_path.parent() {
         std::fs::create_dir_all(parent)
@@ -144,12 +145,17 @@ pub(super) fn open_log_in_less(
         .with_context(|| format!("failed to create/open log file {}", log_path.display()))?;
 
     disable_raw_mode().context("failed to disable raw mode before launching less")?;
-    execute!(
-        terminal.backend_mut(),
-        LeaveAlternateScreen,
-        DisableMouseCapture
-    )
-    .context("failed to leave alternate screen before launching less")?;
+    if mouse_capture_enabled {
+        execute!(
+            terminal.backend_mut(),
+            LeaveAlternateScreen,
+            DisableMouseCapture
+        )
+        .context("failed to leave alternate screen before launching less")?;
+    } else {
+        execute!(terminal.backend_mut(), LeaveAlternateScreen)
+            .context("failed to leave alternate screen before launching less")?;
+    }
     terminal.show_cursor().context("failed to show cursor")?;
 
     let less_result = Command::new("less")
@@ -158,12 +164,17 @@ pub(super) fn open_log_in_less(
         .status()
         .with_context(|| format!("failed to launch less for {}", log_path.display()));
 
-    execute!(
-        terminal.backend_mut(),
-        EnterAlternateScreen,
-        EnableMouseCapture
-    )
-    .context("failed to re-enter alternate screen after less")?;
+    if mouse_capture_enabled {
+        execute!(
+            terminal.backend_mut(),
+            EnterAlternateScreen,
+            EnableMouseCapture
+        )
+        .context("failed to re-enter alternate screen after less")?;
+    } else {
+        execute!(terminal.backend_mut(), EnterAlternateScreen)
+            .context("failed to re-enter alternate screen after less")?;
+    }
     enable_raw_mode().context("failed to re-enable raw mode after less")?;
     terminal
         .hide_cursor()
