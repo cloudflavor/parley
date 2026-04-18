@@ -1,3 +1,5 @@
 /target
 /.parley
 node_modules
+/ui-docs/.wrangler/
+/ui-docs/static/vendor/
