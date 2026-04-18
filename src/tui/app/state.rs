@@ -1193,7 +1193,7 @@ impl TuiApp {
 
         let task = self.ai_task.take().expect("checked as some");
         while let Ok(event) = task.progress_rx.try_recv() {
-            changed |= self.record_ai_progress(event);
+            self.record_ai_progress(event);
         }
         match task.handle.await {
             Ok(Ok(result)) => {
