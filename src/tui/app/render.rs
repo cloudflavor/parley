@@ -2533,6 +2533,9 @@ fn build_unified_row_lines(
     pane_inner_width: usize,
     colors: &ThemeColors,
 ) -> Vec<Line<'static>> {
+    const UNIFIED_PREFIX_WIDTH: usize = 16;
+    const UNIFIED_CONTINUATION_GUTTER_WIDTH: usize = 13;
+
     let marker_style = if is_selected {
         Style::default()
             .fg(colors.selection_marker)
@@ -2587,8 +2590,7 @@ fn build_unified_row_lines(
         )),
     };
 
-    let prefix_width = 15usize;
-    let content_width = pane_inner_width.saturating_sub(prefix_width).max(1);
+    let content_width = pane_inner_width.saturating_sub(UNIFIED_PREFIX_WIDTH).max(1);
     let wrapped_content = wrap_styled_line(&content, content_width);
     let wrapped_content = if wrapped_content.is_empty() {
         vec![blank_line(
@@ -2628,7 +2630,7 @@ fn build_unified_row_lines(
             if visual_index == 0 {
                 format!("{old:>5} {new:>5}  ")
             } else {
-                " ".repeat(12)
+                " ".repeat(UNIFIED_CONTINUATION_GUTTER_WIDTH)
             },
             Style::default().fg(colors.text_muted),
         ));
@@ -3173,4 +3175,61 @@ fn truncate_tag_right(input: &str, max_len: usize) -> String {
     let mut out: String = input.chars().take(max_len - 1).collect();
     out.push('…');
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::tui::theme::{default_theme_name, load_themes, resolve_theme_index};
+
+    fn test_colors() -> ThemeColors {
+        let themes = load_themes().expect("embedded themes should load");
+        let index = resolve_theme_index(&themes, default_theme_name()).unwrap_or(0);
+        themes[index].colors.clone()
+    }
+
+    #[test]
+    fn unified_wrapped_rows_preserve_content_and_fit_width() {
+        let colors = test_colors();
+        let pane_inner_width = 80usize;
+        let content = "The default build uses a console renderer so the daemon core can compile and run in environments without GTK system packages.";
+        let row = DisplayRow {
+            kind: DiffLineKind::Context,
+            old_line: Some(5),
+            new_line: Some(5),
+            raw: content.to_string(),
+            code: content.to_string(),
+        };
+        let highlighted_segments = vec![(
+            Style::default().fg(colors.text_primary),
+            content.to_string(),
+        )];
+
+        let rendered = build_unified_row_lines(
+            &row,
+            &highlighted_segments,
+            false,
+            false,
+            pane_inner_width,
+            &colors,
+        );
+
+        assert!(rendered.len() > 1, "expected wrapped output");
+
+        for line in &rendered {
+            let width = line_plain_text(line).chars().count();
+            assert_eq!(
+                width, pane_inner_width,
+                "rendered row overflowed pane width"
+            );
+        }
+
+        let reassembled = rendered
+            .iter()
+            .map(line_plain_text)
+            .map(|line| line.chars().skip(16).collect::<String>())
+            .map(|line| line.trim_end().to_string())
+            .collect::<String>();
+        assert_eq!(reassembled, content);
+    }
 }
