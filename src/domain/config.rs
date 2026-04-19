@@ -9,6 +9,8 @@ pub struct AppConfig {
     pub user_name: String,
     pub theme: String,
     pub diff_view: DiffViewMode,
+    #[serde(default = "default_ignore_parley_dir")]
+    pub ignore_parley_dir: bool,
     #[serde(default = "default_log_level")]
     pub log_level: String,
     pub ai: AiConfig,
@@ -80,12 +82,17 @@ pub fn default_log_level() -> String {
     "info".to_string()
 }
 
+pub fn default_ignore_parley_dir() -> bool {
+    true
+}
+
 impl Default for AppConfig {
     fn default() -> Self {
         Self {
             user_name: default_user_name(),
             theme: "default".to_string(),
             diff_view: DiffViewMode::default(),
+            ignore_parley_dir: default_ignore_parley_dir(),
             log_level: default_log_level(),
             ai: AiConfig::default(),
         }
@@ -145,5 +152,17 @@ impl AiConfig {
             AiProvider::Claude => &self.claude,
             AiProvider::Opencode => &self.opencode,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::AppConfig;
+
+    #[test]
+    fn default_config_ignores_parley_dir() {
+        let config = AppConfig::default();
+
+        assert!(config.ignore_parley_dir);
     }
 }

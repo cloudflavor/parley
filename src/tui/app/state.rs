@@ -1503,7 +1503,7 @@ impl TuiApp {
             .retain(|id| self.review.comments.iter().any(|comment| comment.id == *id));
         self.collapsed_threads
             .retain(|id| self.review.comments.iter().any(|comment| comment.id == *id));
-        self.diff = load_git_diff_head().await?;
+        self.diff = load_git_diff_head(&self.config).await?;
         self.selected_file = previous_primary_path
             .and_then(|path| self.diff.files.iter().position(|f| f.path == path))
             .unwrap_or(0);

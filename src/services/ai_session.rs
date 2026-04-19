@@ -107,7 +107,7 @@ async fn run_ai_session_inner(
     );
     let config = service.load_config().await?;
     let mut review = service.load_review(&input.review_name).await?;
-    let diff_document = match load_git_diff_head().await {
+    let diff_document = match load_git_diff_head(&config).await {
         Ok(document) => Some(document),
         Err(error) => {
             warn!(error = %error, "ai session prompt context: unable to load git diff");

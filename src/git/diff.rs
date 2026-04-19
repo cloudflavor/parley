@@ -2,15 +2,17 @@ use anyhow::{Context, Result, anyhow};
 use git2::{DiffFormat, DiffOptions, Repository};
 use tracing::{debug, info};
 
+use crate::domain::config::AppConfig;
 use crate::domain::diff::{DiffDocument, DiffFile, DiffHunk, DiffLine, DiffLineKind};
 
-pub async fn load_git_diff_head() -> Result<DiffDocument> {
+pub async fn load_git_diff_head(config: &AppConfig) -> Result<DiffDocument> {
     debug!("loading git diff against HEAD/index/worktree");
     let text = tokio::task::spawn_blocking(load_diff_text)
         .await
         .context("failed to join git2 diff worker")??;
 
-    let document = parse_unified_diff(&text)?;
+    let mut document = parse_unified_diff(&text)?;
+    filter_ignored_files(&mut document, config);
     info!(files = document.files.len(), "git diff loaded");
     Ok(document)
 }
@@ -192,6 +194,20 @@ pub fn parse_unified_diff(text: &str) -> Result<DiffDocument> {
     Ok(DiffDocument { files })
 }
 
+fn filter_ignored_files(document: &mut DiffDocument, config: &AppConfig) {
+    if !config.ignore_parley_dir {
+        return;
+    }
+
+    document
+        .files
+        .retain(|file| !is_parley_internal_path(&file.path));
+}
+
+fn is_parley_internal_path(path: &str) -> bool {
+    path == ".parley" || path.starts_with(".parley/")
+}
+
 fn parse_hunk_header(line: &str) -> Result<(u32, u32, u32, u32)> {
     let Some(rest) = line.strip_prefix("@@ -") else {
         return Err(anyhow!("invalid hunk header format: {line}"));
@@ -235,9 +251,9 @@ fn parse_patch_path(line: &str, marker: &str) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
-    use crate::domain::diff::DiffLineKind;
+    use crate::domain::{config::AppConfig, diff::DiffLineKind};
 
-    use super::parse_unified_diff;
+    use super::{filter_ignored_files, parse_unified_diff};
 
     #[test]
     fn parse_unified_diff_should_parse_added_and_removed_lines_with_numbers() {
@@ -282,5 +298,31 @@ mod tests {
 
         assert_eq!(doc.files.len(), 1);
         assert_eq!(doc.files[0].path, "src/with space.rs");
+    }
+
+    #[test]
+    fn filter_ignored_files_removes_parley_entries_by_default() {
+        let input = "diff --git a/.parley/config.toml b/.parley/config.toml\n--- a/.parley/config.toml\n+++ b/.parley/config.toml\n@@ -1 +1 @@\n-old\n+new\ndiff --git a/src/lib.rs b/src/lib.rs\n--- a/src/lib.rs\n+++ b/src/lib.rs\n@@ -1 +1 @@\n-old\n+new\n";
+        let mut doc = parse_unified_diff(input).expect("diff should parse");
+
+        filter_ignored_files(&mut doc, &AppConfig::default());
+
+        assert_eq!(doc.files.len(), 1);
+        assert_eq!(doc.files[0].path, "src/lib.rs");
+    }
+
+    #[test]
+    fn filter_ignored_files_can_keep_parley_entries_when_configured() {
+        let input = "diff --git a/.parley/config.toml b/.parley/config.toml\n--- a/.parley/config.toml\n+++ b/.parley/config.toml\n@@ -1 +1 @@\n-old\n+new\n";
+        let mut doc = parse_unified_diff(input).expect("diff should parse");
+        let config = AppConfig {
+            ignore_parley_dir: false,
+            ..AppConfig::default()
+        };
+
+        filter_ignored_files(&mut doc, &config);
+
+        assert_eq!(doc.files.len(), 1);
+        assert_eq!(doc.files[0].path, ".parley/config.toml");
     }
 }

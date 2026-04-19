@@ -38,9 +38,9 @@ pub async fn run_tui(
         .load_or_create_review(&review_name)
         .await
         .with_context(|| format!("failed to open review {review_name}"))?;
-    let diff = load_git_diff_head().await?;
     let themes = load_themes()?;
     let mut config = service.load_config().await?;
+    let diff = load_git_diff_head(&config).await?;
 
     if config.user_name.trim().is_empty() || config.user_name == "User" {
         config.user_name = default_user_name();

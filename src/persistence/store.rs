@@ -202,6 +202,7 @@ mod tests {
             user_name: "User".to_string(),
             theme: "nord".to_string(),
             diff_view: DiffViewMode::Unified,
+            ignore_parley_dir: true,
             log_level: "debug".to_string(),
             ai: AiConfig::default(),
         };
@@ -242,6 +243,7 @@ mod tests {
         assert_eq!(loaded.user_name, "User");
         assert_eq!(loaded.theme, "nord");
         assert_eq!(loaded.diff_view, DiffViewMode::SideBySide);
+        assert!(loaded.ignore_parley_dir);
         assert_eq!(loaded.log_level, "info");
     }
 }
