@@ -430,19 +430,31 @@ impl TuiApp {
     }
 
     pub(super) fn move_file_selection(&mut self, delta: isize) {
-        let visible = self.visible_file_indices();
-        if visible.is_empty() {
+        let ordered_files = self.ordered_file_selection_indices();
+        if ordered_files.is_empty() {
             self.set_active_file_index(0);
             return;
         }
 
-        let current_pos = visible
+        let current_pos = ordered_files
             .iter()
             .position(|index| *index == self.active_file_index())
             .unwrap_or(0);
-        let max = visible.len().saturating_sub(1) as isize;
+        let max = ordered_files.len().saturating_sub(1) as isize;
         let next_pos = (current_pos as isize + delta).clamp(0, max) as usize;
-        self.select_file(visible[next_pos]);
+        self.select_file(ordered_files[next_pos]);
+    }
+
+    fn ordered_file_selection_indices(&self) -> Vec<usize> {
+        let rendered_rows = self
+            .last_file_row_map
+            .iter()
+            .filter_map(|entry| *entry)
+            .collect::<Vec<_>>();
+        if !rendered_rows.is_empty() {
+            return rendered_rows;
+        }
+        self.visible_file_indices()
     }
 
     pub(super) fn current_file(&self) -> Option<&DiffFile> {
@@ -1647,6 +1659,22 @@ mod tests {
 
         assert!(app.collapsed_file_groups.contains("src"));
         assert!(!app.collapsed_file_groups.contains("tests"));
+    }
+
+    #[test]
+    fn move_file_selection_follows_rendered_sidebar_order() {
+        let mut app = make_test_app(vec!["src/a.rs", "src/b.rs", "tests/c.rs"], Vec::new());
+        app.last_file_row_map = vec![None, Some(2), None, Some(0), Some(1)];
+        app.selected_file = 2;
+
+        app.move_file_selection(1);
+        assert_eq!(app.selected_file, 0);
+
+        app.move_file_selection(1);
+        assert_eq!(app.selected_file, 1);
+
+        app.move_file_selection(-1);
+        assert_eq!(app.selected_file, 0);
     }
 
     #[test]
