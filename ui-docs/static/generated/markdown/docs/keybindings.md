@@ -27,6 +27,23 @@
 - `o`: mark open
 - `f`: force-address selected thread
 
+### File references inside the comment box
+
+- Type `@` in the comment or reply box to open the file reference picker.
+- `↑/↓` or `PgUp/PgDn`: move through file matches
+- `Enter` or `Tab`: accept the selected file and enter line-picker mode
+- While line-picker mode is active, Parley opens that file in the current diff pane and tells you to select a diff line in the editor itself.
+- `↑/↓`, `j/k`, `PgUp/PgDn`, `g/G`: move to the target diff line
+- `Enter` or `Tab`: insert `@path:line` for the currently selected line
+- Mouse: click a diff line while line-picker mode is active to insert that line immediately
+- After inserting the reference, Parley returns to the file and diff line where you started writing the draft.
+- `Esc`: cancel the picker; if the file is already inserted, it leaves the bare `@path` in place
+
+### Comment editor word motions
+
+- `Alt+b`: move backward one whitespace-delimited word in the draft
+- `Alt+d`: delete forward through the next whitespace-delimited word in the draft
+
 ## Review state
 
 - `s`: set review state `open`
