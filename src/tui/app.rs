@@ -252,6 +252,7 @@ struct InlineCommentState {
     buffer: TextBuffer,
     preview_mode: bool,
     file_mention: Option<InlineFileMentionState>,
+    file_reference_picker: Option<InlineFileReferencePickerState>,
 }
 
 #[derive(Debug, Clone)]
@@ -263,6 +264,16 @@ struct InlineFileMentionState {
     candidates: Vec<String>,
     selected_index: usize,
     scroll: usize,
+}
+
+#[derive(Debug, Clone)]
+struct InlineFileReferencePickerState {
+    path: String,
+    replace_start_col: usize,
+    replace_end_col: usize,
+    origin_pane: DiffPane,
+    origin_file_index: usize,
+    origin_row_index: usize,
 }
 
 #[derive(Debug, Clone, Copy)]

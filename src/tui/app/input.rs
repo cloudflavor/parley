@@ -1493,6 +1493,12 @@ impl TuiApp {
             return Ok(());
         }
 
+        if self.inline_file_reference_picker_active() {
+            self.handle_inline_file_reference_picker_mouse(mouse);
+            self.constrain_selection();
+            return Ok(());
+        }
+
         if self.command_palette.is_some()
             || self.theme_picker.is_some()
             || self.settings_editor.is_some()
@@ -1719,12 +1725,94 @@ impl TuiApp {
         Ok(())
     }
 
+    fn handle_inline_file_reference_picker_mouse(&mut self, mouse: MouseEvent) {
+        if let Some(diff_area) = self.last_diff_area
+            && point_in_rect(mouse.column, mouse.row, diff_area)
+        {
+            self.activate_pane(DiffPane::Primary);
+            self.ensure_row_cache();
+            match mouse.kind {
+                MouseEventKind::Down(MouseButton::Left)
+                    if mouse.row > diff_area.y
+                        && mouse.row < diff_area.y + diff_area.height.saturating_sub(1) =>
+                {
+                    let view_row = usize::from(mouse.row.saturating_sub(diff_area.y + 1));
+                    let visible_row_index = self.last_diff_scroll + view_row;
+                    if let Some(row_index) = self.last_diff_row_map.get(visible_row_index).copied()
+                    {
+                        self.set_active_line_index(row_index);
+                        let _ = self.accept_inline_file_reference_line_selection();
+                    }
+                }
+                MouseEventKind::ScrollUp => {
+                    self.set_active_line_index(
+                        self.active_line_index()
+                            .saturating_sub(MOUSE_WHEEL_SCROLL_LINES),
+                    );
+                }
+                MouseEventKind::ScrollDown => {
+                    let max = self.current_rows().len().saturating_sub(1);
+                    self.set_active_line_index(
+                        self.active_line_index()
+                            .saturating_add(MOUSE_WHEEL_SCROLL_LINES)
+                            .min(max),
+                    );
+                }
+                _ => {}
+            }
+            return;
+        }
+
+        if let Some(diff_area) = self.last_diff_area_secondary
+            && point_in_rect(mouse.column, mouse.row, diff_area)
+        {
+            self.activate_pane(DiffPane::Secondary);
+            self.ensure_row_cache();
+            match mouse.kind {
+                MouseEventKind::Down(MouseButton::Left)
+                    if mouse.row > diff_area.y
+                        && mouse.row < diff_area.y + diff_area.height.saturating_sub(1) =>
+                {
+                    let view_row = usize::from(mouse.row.saturating_sub(diff_area.y + 1));
+                    let visible_row_index = self.last_diff_scroll_secondary + view_row;
+                    if let Some(row_index) = self
+                        .last_diff_row_map_secondary
+                        .get(visible_row_index)
+                        .copied()
+                    {
+                        self.set_active_line_index(row_index);
+                        let _ = self.accept_inline_file_reference_line_selection();
+                    }
+                }
+                MouseEventKind::ScrollUp => {
+                    self.set_active_line_index(
+                        self.active_line_index()
+                            .saturating_sub(MOUSE_WHEEL_SCROLL_LINES),
+                    );
+                }
+                MouseEventKind::ScrollDown => {
+                    let max = self.current_rows().len().saturating_sub(1);
+                    self.set_active_line_index(
+                        self.active_line_index()
+                            .saturating_add(MOUSE_WHEEL_SCROLL_LINES)
+                            .min(max),
+                    );
+                }
+                _ => {}
+            }
+        }
+    }
+
     async fn handle_inline_comment_key(
         &mut self,
         key: KeyEvent,
         service: &ReviewService,
     ) -> Result<()> {
         if matches!(key.code, KeyCode::Esc) {
+            if self.clear_inline_file_reference_picker() {
+                self.status_line = "line picker cancelled".into();
+                return Ok(());
+            }
             if self.clear_inline_file_mention_picker() {
                 self.status_line = "file reference picker closed".into();
                 return Ok(());
@@ -1762,6 +1850,58 @@ impl TuiApp {
             return Ok(());
         }
 
+        if self.inline_file_reference_picker_active() {
+            match key.code {
+                KeyCode::Up | KeyCode::Char('k') => {
+                    self.ensure_row_cache();
+                    self.set_active_line_index(self.active_line_index().saturating_sub(1));
+                    self.constrain_selection();
+                    return Ok(());
+                }
+                KeyCode::Down | KeyCode::Char('j') => {
+                    self.ensure_row_cache();
+                    let max = self.current_rows().len().saturating_sub(1);
+                    self.set_active_line_index((self.active_line_index() + 1).min(max));
+                    self.constrain_selection();
+                    return Ok(());
+                }
+                KeyCode::PageUp => {
+                    self.scroll_active_pane_page(false, false);
+                    self.constrain_selection();
+                    return Ok(());
+                }
+                KeyCode::PageDown => {
+                    self.scroll_active_pane_page(true, false);
+                    self.constrain_selection();
+                    return Ok(());
+                }
+                KeyCode::Home | KeyCode::Char('g') => {
+                    self.set_active_line_index(0);
+                    self.constrain_selection();
+                    return Ok(());
+                }
+                KeyCode::End => {
+                    self.ensure_row_cache();
+                    self.set_active_line_index(self.current_rows().len().saturating_sub(1));
+                    self.constrain_selection();
+                    return Ok(());
+                }
+                KeyCode::Char('G') if key.modifiers.contains(KeyModifiers::SHIFT) => {
+                    self.ensure_row_cache();
+                    self.set_active_line_index(self.current_rows().len().saturating_sub(1));
+                    self.constrain_selection();
+                    return Ok(());
+                }
+                KeyCode::Enter | KeyCode::Tab => {
+                    if self.accept_inline_file_reference_line_selection() {
+                        return Ok(());
+                    }
+                }
+                _ => {}
+            }
+            return Ok(());
+        }
+
         if self.inline_file_mention_picker_active() {
             match key.code {
                 KeyCode::Up => {
@@ -1785,9 +1925,8 @@ impl TuiApp {
                     return Ok(());
                 }
                 KeyCode::Enter | KeyCode::Tab => {
-                    if self.accept_inline_file_mention() {
-                        return Ok(());
-                    }
+                    let _ = self.begin_inline_file_reference_line_picker();
+                    return Ok(());
                 }
                 _ => {}
             }
@@ -1834,6 +1973,12 @@ impl TuiApp {
             KeyCode::Char('f') if key.modifiers.contains(KeyModifiers::CONTROL) => {
                 inline.buffer.move_right();
             }
+            KeyCode::Char('b') if key.modifiers.contains(KeyModifiers::ALT) => {
+                inline.buffer.move_word_left();
+            }
+            KeyCode::Char('d') if key.modifiers.contains(KeyModifiers::ALT) => {
+                inline.buffer.delete_word_right();
+            }
             _ => {}
         }
         self.refresh_inline_file_mention_picker();
@@ -1847,11 +1992,25 @@ impl TuiApp {
             .is_some()
     }
 
+    fn inline_file_reference_picker_active(&self) -> bool {
+        self.inline_comment
+            .as_ref()
+            .and_then(|inline| inline.file_reference_picker.as_ref())
+            .is_some()
+    }
+
     fn clear_inline_file_mention_picker(&mut self) -> bool {
         let Some(inline) = self.inline_comment.as_mut() else {
             return false;
         };
         inline.file_mention.take().is_some()
+    }
+
+    fn clear_inline_file_reference_picker(&mut self) -> bool {
+        let Some(inline) = self.inline_comment.as_mut() else {
+            return false;
+        };
+        inline.file_reference_picker.take().is_some()
     }
 
     fn move_inline_file_mention_selection(&mut self, delta: isize) {
@@ -1882,7 +2041,7 @@ impl TuiApp {
         }
     }
 
-    fn accept_inline_file_mention(&mut self) -> bool {
+    fn begin_inline_file_reference_line_picker(&mut self) -> bool {
         let Some((replacement_path, replace_start, replace_end, line_suffix)) = self
             .inline_comment
             .as_ref()
@@ -1901,23 +2060,14 @@ impl TuiApp {
             return false;
         };
 
-        let mut replacement = format!("@{replacement_path}");
-        let inferred_line = self.default_inline_reference_line_for_path(&replacement_path);
-        let resolved_line = line_suffix
-            .and_then(|suffix| {
-                let trimmed = suffix.trim();
-                if trimmed.is_empty() {
-                    None
-                } else {
-                    Some(trimmed.to_string())
-                }
-            })
-            .or_else(|| inferred_line.map(|line| line.to_string()));
-        if let Some(line) = resolved_line {
-            replacement.push(':');
-            replacement.push_str(&line);
-        }
-
+        let replacement = format!("@{replacement_path}");
+        let origin_pane = self.active_diff_pane;
+        let origin_file_index = self.active_file_index();
+        let origin_row_index = self
+            .inline_comment
+            .as_ref()
+            .map(|inline| inline.row_index)
+            .unwrap_or(0);
         let Some(inline) = self.inline_comment.as_mut() else {
             return false;
         };
@@ -1925,8 +2075,17 @@ impl TuiApp {
             .buffer
             .replace_range_on_cursor_line(replace_start, replace_end, &replacement);
         inline.file_mention = None;
-        self.status_line = format!("inserted file reference: {replacement_path}");
-        true
+        inline.file_reference_picker = Some(super::InlineFileReferencePickerState {
+            path: replacement_path.clone(),
+            replace_start_col: replace_start,
+            replace_end_col: replace_start + replacement.chars().count(),
+            origin_pane,
+            origin_file_index,
+            origin_row_index,
+        });
+
+        let explicit_line = line_suffix.and_then(|suffix| suffix.trim().parse::<u32>().ok());
+        self.open_inline_file_reference_target(&replacement_path, explicit_line)
     }
 
     fn default_inline_reference_line_for_path(&self, path: &str) -> Option<u32> {
@@ -1937,6 +2096,124 @@ impl TuiApp {
         self.current_rows()
             .get(self.active_line_index())
             .and_then(|row| row.new_line.or(row.old_line))
+    }
+
+    fn open_inline_file_reference_target(
+        &mut self,
+        path: &str,
+        requested_line: Option<u32>,
+    ) -> bool {
+        let inferred_line = self.default_inline_reference_line_for_path(path);
+        let Some(file_index) = self.resolve_file_reference_index(path) else {
+            self.status_line = format!("referenced file not in current diff: {path}");
+            let _ = self.clear_inline_file_reference_picker();
+            return false;
+        };
+
+        if file_index != self.active_file_index() {
+            self.set_active_file_index(file_index);
+            self.set_active_line_index(0);
+            self.selected_comment = 0;
+        }
+        self.ensure_row_cache_for_file(file_index);
+
+        let target_line = requested_line.or(inferred_line);
+        let line_selected = target_line
+            .map(|line| self.goto_line_number(line))
+            .unwrap_or(false)
+            || self.select_first_inline_reference_line_in_current_file();
+
+        if !line_selected {
+            let _ = self.clear_inline_file_reference_picker();
+        }
+
+        self.status_line = if line_selected {
+            format!(
+                "select a diff line for {} (Enter/Tab confirms, click inserts)",
+                path
+            )
+        } else {
+            format!("opened {} but no diff line is available to reference", path)
+        };
+        line_selected
+    }
+
+    fn select_first_inline_reference_line_in_current_file(&mut self) -> bool {
+        self.ensure_row_cache();
+        let Some((row_index, _)) = self
+            .current_rows()
+            .iter()
+            .enumerate()
+            .find(|(_, row)| row.new_line.or(row.old_line).is_some())
+        else {
+            return false;
+        };
+        self.set_active_line_index(row_index);
+        true
+    }
+
+    fn accept_inline_file_reference_line_selection(&mut self) -> bool {
+        let Some((
+            path,
+            replace_start,
+            replace_end,
+            origin_pane,
+            origin_file_index,
+            origin_row_index,
+        )) = self
+            .inline_comment
+            .as_ref()
+            .and_then(|inline| inline.file_reference_picker.as_ref())
+            .map(|picker| {
+                (
+                    picker.path.clone(),
+                    picker.replace_start_col,
+                    picker.replace_end_col,
+                    picker.origin_pane,
+                    picker.origin_file_index,
+                    picker.origin_row_index,
+                )
+            })
+        else {
+            return false;
+        };
+        let Some(line) = self.current_inline_reference_line_number() else {
+            self.status_line = "select a diff line with a line number".into();
+            return false;
+        };
+
+        let replacement = format!("@{path}:{line}");
+        let Some(inline) = self.inline_comment.as_mut() else {
+            return false;
+        };
+        inline
+            .buffer
+            .replace_range_on_cursor_line(replace_start, replace_end, &replacement);
+        inline.file_reference_picker = None;
+        self.restore_inline_file_reference_origin(origin_pane, origin_file_index, origin_row_index);
+        self.status_line = format!("inserted file reference: {}:{}", path, line);
+        true
+    }
+
+    fn current_inline_reference_line_number(&mut self) -> Option<u32> {
+        self.ensure_row_cache();
+        self.current_rows()
+            .get(self.active_line_index())
+            .and_then(|row| row.new_line.or(row.old_line))
+    }
+
+    fn restore_inline_file_reference_origin(
+        &mut self,
+        pane: DiffPane,
+        file_index: usize,
+        row_index: usize,
+    ) {
+        self.activate_pane(pane);
+        self.set_active_file_index(file_index);
+        self.ensure_row_cache_for_file(file_index);
+        let max_row = self.current_rows().len().saturating_sub(1);
+        self.set_active_line_index(row_index.min(max_row));
+        self.constrain_selection();
     }
 
     fn refresh_inline_file_mention_picker(&mut self) {
@@ -2072,6 +2349,7 @@ impl TuiApp {
             buffer: TextBuffer::new(),
             preview_mode: false,
             file_mention: None,
+            file_reference_picker: None,
         });
         self.status_line = "comment box expanded".into();
     }
@@ -2115,6 +2393,7 @@ impl TuiApp {
             buffer: TextBuffer::new(),
             preview_mode: false,
             file_mention: None,
+            file_reference_picker: None,
         });
         self.status_line = format!("reply box opened for comment #{selected_comment_id}");
     }
@@ -2366,10 +2645,13 @@ mod tests {
 
     use crate::domain::{
         config::AppConfig,
-        diff::{DiffDocument, DiffFile},
+        diff::{DiffDocument, DiffFile, DiffHunk, DiffLine, DiffLineKind},
         review::{ReviewSession, ReviewState},
     };
+    use crate::persistence::store::Store;
+    use crate::tui::app::InlineFileReferencePickerState;
     use crate::tui::theme::load_themes;
+    use tempfile::tempdir;
 
     use super::*;
 
@@ -2384,7 +2666,171 @@ mod tests {
         assert!(!app.ai_progress_visible);
     }
 
+    #[test]
+    fn selecting_file_reference_opens_line_picker_in_diff_viewer() {
+        let mut app = make_test_app_with_files(vec![
+            empty_diff_file("src/a.rs"),
+            diff_file_with_lines(
+                "src/target.rs",
+                &[(10, "fn ten() {}"), (11, "fn eleven() {}")],
+            ),
+        ]);
+        app.inline_comment = Some(InlineCommentState {
+            row_index: 0,
+            mode: InlineDraftMode::Comment(CommentTarget {
+                side: DiffSide::Right,
+                old_line: None,
+                new_line: Some(1),
+                file_path: "src/a.rs".into(),
+            }),
+            buffer: text_buffer_with_line("@src/target.rs"),
+            preview_mode: false,
+            file_mention: Some(InlineFileMentionState {
+                replace_start_col: 0,
+                replace_end_col: "@src/target.rs".chars().count(),
+                path_query: "src/target.rs".into(),
+                line_suffix: None,
+                candidates: vec!["src/target.rs".into()],
+                selected_index: 0,
+                scroll: 0,
+            }),
+            file_reference_picker: None,
+        });
+
+        assert!(app.begin_inline_file_reference_line_picker());
+        assert_eq!(app.active_file_index(), 1);
+        assert_eq!(app.current_inline_reference_line_number(), Some(10));
+        assert_eq!(
+            app.inline_comment
+                .as_ref()
+                .expect("inline comment should exist")
+                .buffer
+                .to_text(),
+            "@src/target.rs"
+        );
+        assert!(
+            app.inline_comment
+                .as_ref()
+                .and_then(|inline| inline.file_reference_picker.as_ref())
+                .is_some()
+        );
+    }
+
+    #[test]
+    fn accepting_file_reference_line_selection_inserts_line_number() {
+        let mut app = make_test_app_with_files(vec![diff_file_with_lines(
+            "src/target.rs",
+            &[(10, "fn ten() {}"), (11, "fn eleven() {}")],
+        )]);
+        app.inline_comment = Some(InlineCommentState {
+            row_index: 0,
+            mode: InlineDraftMode::Comment(CommentTarget {
+                side: DiffSide::Right,
+                old_line: None,
+                new_line: Some(10),
+                file_path: "src/target.rs".into(),
+            }),
+            buffer: text_buffer_with_line("@src/target.rs"),
+            preview_mode: false,
+            file_mention: None,
+            file_reference_picker: Some(InlineFileReferencePickerState {
+                path: "src/target.rs".into(),
+                replace_start_col: 0,
+                replace_end_col: "@src/target.rs".chars().count(),
+                origin_pane: DiffPane::Primary,
+                origin_file_index: 0,
+                origin_row_index: 0,
+            }),
+        });
+        app.ensure_row_cache();
+        assert!(app.goto_line_number(11));
+
+        assert!(app.accept_inline_file_reference_line_selection());
+
+        let inline = app
+            .inline_comment
+            .as_ref()
+            .expect("inline comment should exist");
+        assert_eq!(inline.buffer.to_text(), "@src/target.rs:11");
+        assert!(inline.file_reference_picker.is_none());
+    }
+
+    #[tokio::test]
+    async fn alt_b_moves_backward_by_word_in_inline_comment_editor() {
+        let mut app = make_test_app(vec!["src/a.rs"]);
+        let service = make_test_service();
+        app.inline_comment = Some(InlineCommentState {
+            row_index: 0,
+            mode: InlineDraftMode::Comment(CommentTarget {
+                side: DiffSide::Right,
+                old_line: None,
+                new_line: Some(1),
+                file_path: "src/a.rs".into(),
+            }),
+            buffer: text_buffer_with_line("alpha  beta"),
+            preview_mode: false,
+            file_mention: None,
+            file_reference_picker: None,
+        });
+
+        app.handle_inline_comment_key(
+            KeyEvent::new(KeyCode::Char('b'), KeyModifiers::ALT),
+            &service,
+        )
+        .await
+        .expect("alt+b should be handled");
+
+        let inline = app
+            .inline_comment
+            .as_ref()
+            .expect("inline comment should exist");
+        assert_eq!(inline.buffer.cursor_line, 0);
+        assert_eq!(inline.buffer.cursor_col, "alpha  ".chars().count());
+    }
+
+    #[tokio::test]
+    async fn alt_d_deletes_forward_word_in_inline_comment_editor() {
+        let mut app = make_test_app(vec!["src/a.rs"]);
+        let service = make_test_service();
+        app.inline_comment = Some(InlineCommentState {
+            row_index: 0,
+            mode: InlineDraftMode::Comment(CommentTarget {
+                side: DiffSide::Right,
+                old_line: None,
+                new_line: Some(1),
+                file_path: "src/a.rs".into(),
+            }),
+            buffer: TextBuffer {
+                lines: vec!["alpha".into(), "beta gamma".into()],
+                cursor_line: 0,
+                cursor_col: "alpha".chars().count(),
+            },
+            preview_mode: false,
+            file_mention: None,
+            file_reference_picker: None,
+        });
+
+        app.handle_inline_comment_key(
+            KeyEvent::new(KeyCode::Char('d'), KeyModifiers::ALT),
+            &service,
+        )
+        .await
+        .expect("alt+d should be handled");
+
+        let inline = app
+            .inline_comment
+            .as_ref()
+            .expect("inline comment should exist");
+        assert_eq!(inline.buffer.lines, vec!["alpha gamma"]);
+        assert_eq!(inline.buffer.cursor_line, 0);
+        assert_eq!(inline.buffer.cursor_col, "alpha".chars().count());
+    }
+
     fn make_test_app(paths: Vec<&str>) -> TuiApp {
+        make_test_app_with_files(paths.into_iter().map(empty_diff_file).collect())
+    }
+
+    fn make_test_app_with_files(files: Vec<DiffFile>) -> TuiApp {
         let review = ReviewSession {
             name: "test-review".to_string(),
             state: ReviewState::Open,
@@ -2395,16 +2841,7 @@ mod tests {
             next_comment_id: 1,
             next_reply_id: 1,
         };
-        let diff = DiffDocument {
-            files: paths
-                .into_iter()
-                .map(|path| DiffFile {
-                    path: path.to_string(),
-                    header_lines: Vec::new(),
-                    hunks: Vec::new(),
-                })
-                .collect(),
-        };
+        let diff = DiffDocument { files };
         let themes = load_themes().expect("embedded themes should load");
         TuiApp::new(
             review.name.clone(),
@@ -2415,5 +2852,55 @@ mod tests {
             0,
             PathBuf::from("test.log"),
         )
+    }
+
+    fn empty_diff_file(path: &str) -> DiffFile {
+        DiffFile {
+            path: path.to_string(),
+            header_lines: Vec::new(),
+            hunks: Vec::new(),
+        }
+    }
+
+    fn diff_file_with_lines(path: &str, lines: &[(u32, &str)]) -> DiffFile {
+        let mut hunk_lines = vec![DiffLine {
+            kind: DiffLineKind::HunkHeader,
+            old_line: None,
+            new_line: None,
+            raw: "@@ -1,1 +1,1 @@".into(),
+            code: "@@ -1,1 +1,1 @@".into(),
+        }];
+        hunk_lines.extend(lines.iter().map(|(line, code)| DiffLine {
+            kind: DiffLineKind::Context,
+            old_line: Some(*line),
+            new_line: Some(*line),
+            raw: format!(" {code}"),
+            code: (*code).to_string(),
+        }));
+        DiffFile {
+            path: path.to_string(),
+            header_lines: Vec::new(),
+            hunks: vec![DiffHunk {
+                old_start: lines.first().map(|(line, _)| *line).unwrap_or(1),
+                old_count: lines.len() as u32,
+                new_start: lines.first().map(|(line, _)| *line).unwrap_or(1),
+                new_count: lines.len() as u32,
+                header: "@@ -1,1 +1,1 @@".into(),
+                lines: hunk_lines,
+            }],
+        }
+    }
+
+    fn text_buffer_with_line(line: &str) -> TextBuffer {
+        TextBuffer {
+            lines: vec![line.to_string()],
+            cursor_line: 0,
+            cursor_col: line.chars().count(),
+        }
+    }
+
+    fn make_test_service() -> ReviewService {
+        let tempdir = tempdir().expect("tempdir should exist");
+        ReviewService::new(Store::from_project_root(tempdir.path()))
     }
 }

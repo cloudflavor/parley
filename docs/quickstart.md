@@ -52,6 +52,21 @@ If your terminal or SSH session mishandles mouse reporting, disable mouse captur
 - `Shift+E`: cycle thread density (`compact`/`expanded`)
 - `a/o/f`: addressed/open/force-address selected thread
 
+### File references in comments
+
+- Type `@` inside the comment or reply box to open file matching.
+- Use `Enter` or `Tab` on a file match to open that file in the active diff pane and switch into line-picker mode.
+- The comment editor explicitly tells you to select a diff line before the reference is confirmed.
+- In line-picker mode, use `↑/↓`, `j/k`, `PgUp/PgDn`, or `g/G` to move the diff cursor, then `Enter` or `Tab` to insert `@path:line`.
+- If mouse support is enabled, clicking a diff line during line-picker mode inserts that line immediately.
+- After inserting the reference, Parley restores the file, pane, and diff line where the draft started.
+- `Esc` cancels the line picker and leaves the bare `@path` reference in the comment buffer.
+
+### Comment editor word motions
+
+- `Alt+b`: move backward one whitespace-delimited word in the draft
+- `Alt+d`: delete forward through the next whitespace-delimited word in the draft
+
 ### Review state
 
 - `s`: set review `open`
@@ -70,6 +85,18 @@ If your terminal or SSH session mishandles mouse reporting, disable mouse captur
 - `Ctrl+k`: open command palette
 - `Ctrl+f`: focus files filter input
 - `?`: open in-app docs/help overlay
+
+## Config
+
+Parley stores its local state in `.parley/` and reads configuration from `.parley/config.toml`.
+
+By default, Parley ignores its own `.parley/` files when building the review diff so that review metadata and logs do not show up in the file list.
+
+To include `.parley/` in the diff again, set:
+
+```toml
+ignore_parley_dir = false
+```
 
 ### Which status to set before AI
 

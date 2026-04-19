@@ -41,6 +41,11 @@ impl TextBuffer {
         }
     }
 
+    pub(super) fn move_word_left(&mut self) {
+        let target = self.previous_word_boundary();
+        self.set_cursor_absolute_index(target);
+    }
+
     pub(super) fn move_up(&mut self) {
         if self.cursor_line > 0 {
             self.cursor_line -= 1;
@@ -148,8 +153,84 @@ impl TextBuffer {
         self.lines[self.cursor_line] = chars.into_iter().collect();
     }
 
+    pub(super) fn delete_word_right(&mut self) {
+        let start = self.cursor_absolute_index();
+        let end = self.next_word_boundary();
+        if end <= start {
+            return;
+        }
+
+        let mut chars: Vec<char> = self.to_text().chars().collect();
+        chars.drain(start..end);
+        let text: String = chars.into_iter().collect();
+        self.replace_text_and_cursor(text, start);
+    }
+
     pub(super) fn line_len(&self, idx: usize) -> usize {
         self.lines[idx].chars().count()
+    }
+
+    fn cursor_absolute_index(&self) -> usize {
+        let prior_lines_len: usize = self.lines[..self.cursor_line]
+            .iter()
+            .map(|line| line.chars().count() + 1)
+            .sum();
+        prior_lines_len + self.cursor_col
+    }
+
+    fn set_cursor_absolute_index(&mut self, target: usize) {
+        let mut remaining = target.min(self.char_len());
+        for (line_idx, line) in self.lines.iter().enumerate() {
+            let line_len = line.chars().count();
+            if remaining <= line_len {
+                self.cursor_line = line_idx;
+                self.cursor_col = remaining;
+                return;
+            }
+
+            if line_idx + 1 == self.lines.len() {
+                self.cursor_line = line_idx;
+                self.cursor_col = line_len;
+                return;
+            }
+
+            remaining = remaining.saturating_sub(line_len + 1);
+        }
+
+        self.cursor_line = 0;
+        self.cursor_col = 0;
+    }
+
+    fn replace_text_and_cursor(&mut self, text: String, cursor_abs: usize) {
+        self.lines = text.split('\n').map(ToString::to_string).collect();
+        if self.lines.is_empty() {
+            self.lines.push(String::new());
+        }
+        self.set_cursor_absolute_index(cursor_abs);
+    }
+
+    fn previous_word_boundary(&self) -> usize {
+        let chars: Vec<char> = self.to_text().chars().collect();
+        let mut index = self.cursor_absolute_index().min(chars.len());
+        while index > 0 && chars[index - 1].is_whitespace() {
+            index -= 1;
+        }
+        while index > 0 && !chars[index - 1].is_whitespace() {
+            index -= 1;
+        }
+        index
+    }
+
+    fn next_word_boundary(&self) -> usize {
+        let chars: Vec<char> = self.to_text().chars().collect();
+        let mut index = self.cursor_absolute_index().min(chars.len());
+        while index < chars.len() && chars[index].is_whitespace() {
+            index += 1;
+        }
+        while index < chars.len() && !chars[index].is_whitespace() {
+            index += 1;
+        }
+        index
     }
 }
 
@@ -1675,6 +1756,38 @@ mod tests {
 
         app.move_file_selection(-1);
         assert_eq!(app.selected_file, 0);
+    }
+
+    #[test]
+    fn text_buffer_move_word_left_skips_whitespace_and_previous_word() {
+        let mut buffer = TextBuffer {
+            lines: vec!["alpha  beta".into()],
+            cursor_line: 0,
+            cursor_col: "alpha  beta".chars().count(),
+        };
+
+        buffer.move_word_left();
+        assert_eq!(buffer.cursor_line, 0);
+        assert_eq!(buffer.cursor_col, "alpha  ".chars().count());
+
+        buffer.move_word_left();
+        assert_eq!(buffer.cursor_line, 0);
+        assert_eq!(buffer.cursor_col, 0);
+    }
+
+    #[test]
+    fn text_buffer_delete_word_right_removes_next_word_across_newline() {
+        let mut buffer = TextBuffer {
+            lines: vec!["alpha".into(), "beta gamma".into()],
+            cursor_line: 0,
+            cursor_col: "alpha".chars().count(),
+        };
+
+        buffer.delete_word_right();
+
+        assert_eq!(buffer.lines, vec!["alpha gamma"]);
+        assert_eq!(buffer.cursor_line, 0);
+        assert_eq!(buffer.cursor_col, "alpha".chars().count());
     }
 
     #[test]

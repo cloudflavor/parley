@@ -29,7 +29,7 @@ use super::helpers::{
 use super::{
     CommandPromptMode, DiffPane, DiffRenderCacheEntry, DiffRenderCacheKey, DisplayRow,
     INLINE_FILE_MENTION_MAX_VISIBLE_ROWS, InlineDraftMode, InlineFileMentionState,
-    SettingsEditorKind, ThreadDensityMode, TuiApp,
+    InlineFileReferencePickerState, SettingsEditorKind, ThreadDensityMode, TuiApp,
 };
 
 pub(super) fn draw(frame: &mut Frame<'_>, app: &mut TuiApp) {
@@ -1474,6 +1474,7 @@ fn draw_inline_comment_editor(frame: &mut Frame<'_>, app: &TuiApp, area: Rect) {
     } else {
         "EDIT"
     };
+    let line_picker = inline.file_reference_picker.as_ref();
     let (title_kind, line_ref) = match &inline.mode {
         InlineDraftMode::Comment(target) => (
             "Comment Box".to_string(),
@@ -1489,12 +1490,26 @@ fn draw_inline_comment_editor(frame: &mut Frame<'_>, app: &TuiApp, area: Rect) {
             format_editor_line_reference(*old_line, *new_line),
         ),
     };
-
-    let help_line = "Ctrl+S save | Ctrl+P preview | @path:line ref | ↑/↓ lines | Enter/Tab accept ref | Esc close";
+    let title_suffix = match line_picker {
+        Some(InlineFileReferencePickerState { path, .. }) => {
+            format!(" | Select Line for {}", path)
+        }
+        None => String::new(),
+    };
+    let help_line = match line_picker {
+        Some(InlineFileReferencePickerState { path, .. }) => format!(
+            "Select a diff line for {} | ↑/↓/PgUp/PgDn move | Enter/Tab confirm | click line insert | Esc cancel",
+            path
+        ),
+        None => "Ctrl+S save | Ctrl+P preview | @path:line ref | ↑/↓ lines | Enter/Tab accept ref | Esc close"
+            .to_string(),
+    };
 
     frame.render_widget(Clear, editor_area);
     let block = Block::default()
-        .title(format!("{title_kind} [{mode}] line {line_ref}"))
+        .title(format!(
+            "{title_kind} [{mode}] line {line_ref}{title_suffix}"
+        ))
         .borders(Borders::ALL)
         .border_style(Style::default().fg(colors.thread_border))
         .title_style(
@@ -1508,8 +1523,20 @@ fn draw_inline_comment_editor(frame: &mut Frame<'_>, app: &TuiApp, area: Rect) {
         if content.is_empty() {
             content.push(Line::from(""));
         }
+        if let Some(InlineFileReferencePickerState { path, .. }) = line_picker {
+            content.push(Line::from(Span::styled(
+                format!(
+                    "Select a diff line for {} before confirming the file reference.",
+                    path
+                ),
+                Style::default()
+                    .fg(colors.accent)
+                    .add_modifier(Modifier::BOLD),
+            )));
+            content.push(Line::from(""));
+        }
         content.push(Line::from(""));
-        content.push(Line::from(help_line));
+        content.push(Line::from(help_line.clone()));
         frame.render_widget(
             Paragraph::new(content)
                 .block(block)
@@ -1545,6 +1572,17 @@ fn draw_inline_comment_editor(frame: &mut Frame<'_>, app: &TuiApp, area: Rect) {
         } else {
             content.push(Line::from(""));
         }
+    }
+    if let Some(InlineFileReferencePickerState { path, .. }) = line_picker {
+        content.push(Line::from(Span::styled(
+            format!(
+                "Select a diff line for {} before confirming the file reference.",
+                path
+            ),
+            Style::default()
+                .fg(colors.accent)
+                .add_modifier(Modifier::BOLD),
+        )));
     }
     content.push(Line::from(Span::styled(
         help_line,
