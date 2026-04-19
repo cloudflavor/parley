@@ -34,6 +34,11 @@ use super::{
 
 pub(super) fn draw(frame: &mut Frame<'_>, app: &mut TuiApp) {
     let root = frame.area();
+    let blocking_overlay_visible = app.command_prompt.is_some()
+        || app.command_palette.is_some()
+        || app.theme_picker.is_some()
+        || app.settings_editor.is_some()
+        || app.shortcuts_modal_visible;
     app.last_shortcuts_modal_area = None;
     app.last_thread_nav_area = None;
     app.last_thread_nav_scroll = 0;
@@ -70,7 +75,7 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &mut TuiApp) {
         if app.command_palette.is_some() {
             draw_command_palette(frame, app);
         }
-        if app.ai_progress_visible {
+        if app.ai_progress_visible && !blocking_overlay_visible {
             draw_ai_progress_popup(frame, app);
         }
         if app.shortcuts_modal_visible {
@@ -117,7 +122,7 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &mut TuiApp) {
     if app.command_palette.is_some() {
         draw_command_palette(frame, app);
     }
-    if app.ai_progress_visible {
+    if app.ai_progress_visible && !blocking_overlay_visible {
         draw_ai_progress_popup(frame, app);
     }
     if app.shortcuts_modal_visible {

@@ -14,7 +14,7 @@ use crate::{
 
 use super::{
     CommandPaletteAction, CommandPaletteItem, CommandPaletteState, CommandPromptMode,
-    CommandPromptState, CommentTarget, DiffPane, INLINE_FILE_MENTION_MAX_CANDIDATES,
+    CommentTarget, DiffPane, INLINE_FILE_MENTION_MAX_CANDIDATES,
     INLINE_FILE_MENTION_MAX_VISIBLE_ROWS, InlineCommentState, InlineDraftMode,
     InlineFileMentionState, MOUSE_WHEEL_FILE_SCROLL_FILES, MOUSE_WHEEL_SCROLL_LINES,
     PendingUiAction, ReplyTarget, TextBuffer, ThreadAnchor, TuiApp, comment_matches_display_row,
@@ -188,6 +188,7 @@ impl TuiApp {
     }
 
     fn open_command_palette(&mut self) {
+        self.dismiss_ai_progress_popup();
         self.command_palette = Some(CommandPaletteState {
             query: String::new(),
             cursor_col: 0,
@@ -638,10 +639,7 @@ impl TuiApp {
                 self.toggle_selected_thread_expansion();
             }
             CommandPaletteAction::OpenShortcuts => {
-                self.shortcuts_modal_visible = true;
-                self.shortcuts_modal_scroll = 0;
-                self.shortcuts_modal_doc_index = 0;
-                self.status_line = "help docs opened".into();
+                self.open_help_docs();
             }
         }
         self.constrain_selection();
@@ -684,12 +682,7 @@ impl TuiApp {
 
         match key.code {
             KeyCode::Char('q') => self.should_quit = true,
-            KeyCode::Char('?') => {
-                self.shortcuts_modal_visible = true;
-                self.shortcuts_modal_scroll = 0;
-                self.shortcuts_modal_doc_index = 0;
-                self.status_line = "help docs opened".into();
-            }
+            KeyCode::Char('?') => self.open_help_docs(),
             KeyCode::PageUp => {
                 self.scroll_active_pane_page(false, false);
                 self.status_line = "paged up".into();
@@ -800,26 +793,8 @@ impl TuiApp {
                 self.ensure_row_cache();
                 self.start_inline_reply_for_selected_comment();
             }
-            KeyCode::Char(':') => {
-                self.command_prompt = Some(CommandPromptState {
-                    mode: CommandPromptMode::GotoLine,
-                    value: String::new(),
-                    cursor_col: 0,
-                });
-                self.status_line = "goto line prompt".into();
-            }
-            KeyCode::Char('/') => {
-                self.command_prompt = Some(CommandPromptState {
-                    mode: CommandPromptMode::Search,
-                    value: self.search_query.clone().unwrap_or_default(),
-                    cursor_col: self
-                        .search_query
-                        .as_ref()
-                        .map(|value| value.chars().count())
-                        .unwrap_or(0),
-                });
-                self.status_line = "search prompt".into();
-            }
+            KeyCode::Char(':') => self.open_command_prompt(CommandPromptMode::GotoLine),
+            KeyCode::Char('/') => self.open_command_prompt(CommandPromptMode::Search),
             KeyCode::Char('n') => {
                 self.ensure_row_cache();
                 self.jump_search(true);
@@ -888,17 +863,7 @@ impl TuiApp {
             KeyCode::Char('K') => {
                 self.cancel_ai_task();
             }
-            KeyCode::Char('H') => {
-                self.ai_progress_visible = !self.ai_progress_visible;
-                if self.ai_progress_visible {
-                    self.ai_progress_scroll_end();
-                }
-                self.status_line = if self.ai_progress_visible {
-                    "ai progress popup visible".into()
-                } else {
-                    "ai progress popup hidden".into()
-                };
-            }
+            KeyCode::Char('H') => self.toggle_ai_progress_popup(),
             KeyCode::Char('L') => {
                 self.pending_action = Some(PendingUiAction::OpenLogsInLess);
                 self.status_line = format!("opening logs in less: {}", self.log_path.display());
@@ -2393,4 +2358,62 @@ fn format_unresolved_ids(ids: &[u64]) -> String {
         visible.push(format!("+{}", ids.len() - LIMIT));
     }
     visible.join(",")
+}
+
+#[cfg(test)]
+mod tests {
+    use std::path::PathBuf;
+
+    use crate::domain::{
+        config::AppConfig,
+        diff::{DiffDocument, DiffFile},
+        review::{ReviewSession, ReviewState},
+    };
+    use crate::tui::theme::load_themes;
+
+    use super::*;
+
+    #[test]
+    fn opening_command_palette_hides_ai_progress_popup() {
+        let mut app = make_test_app(vec!["src/a.rs"]);
+        app.ai_progress_visible = true;
+
+        app.open_command_palette();
+
+        assert!(app.command_palette.is_some());
+        assert!(!app.ai_progress_visible);
+    }
+
+    fn make_test_app(paths: Vec<&str>) -> TuiApp {
+        let review = ReviewSession {
+            name: "test-review".to_string(),
+            state: ReviewState::Open,
+            created_at_ms: 0,
+            updated_at_ms: 0,
+            done_at_ms: None,
+            comments: Vec::new(),
+            next_comment_id: 1,
+            next_reply_id: 1,
+        };
+        let diff = DiffDocument {
+            files: paths
+                .into_iter()
+                .map(|path| DiffFile {
+                    path: path.to_string(),
+                    header_lines: Vec::new(),
+                    hunks: Vec::new(),
+                })
+                .collect(),
+        };
+        let themes = load_themes().expect("embedded themes should load");
+        TuiApp::new(
+            review.name.clone(),
+            review,
+            diff,
+            AppConfig::default(),
+            themes,
+            0,
+            PathBuf::from("test.log"),
+        )
+    }
 }

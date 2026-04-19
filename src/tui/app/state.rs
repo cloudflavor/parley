@@ -945,7 +945,59 @@ impl TuiApp {
         Ok(())
     }
 
+    pub(super) fn dismiss_ai_progress_popup(&mut self) {
+        self.ai_progress_visible = false;
+    }
+
+    pub(super) fn dismiss_blocking_overlays(&mut self) {
+        self.command_palette = None;
+        self.theme_picker = None;
+        self.settings_editor = None;
+        self.command_prompt = None;
+        self.shortcuts_modal_visible = false;
+    }
+
+    pub(super) fn open_command_prompt(&mut self, mode: CommandPromptMode) {
+        self.dismiss_ai_progress_popup();
+        let (value, cursor_col, status_line) = match mode {
+            CommandPromptMode::GotoLine => (String::new(), 0, "goto line prompt"),
+            CommandPromptMode::Search => {
+                let value = self.search_query.clone().unwrap_or_default();
+                let cursor_col = value.chars().count();
+                (value, cursor_col, "search prompt")
+            }
+        };
+        self.command_prompt = Some(CommandPromptState {
+            mode,
+            value,
+            cursor_col,
+        });
+        self.status_line = status_line.into();
+    }
+
+    pub(super) fn open_help_docs(&mut self) {
+        self.dismiss_ai_progress_popup();
+        self.shortcuts_modal_visible = true;
+        self.shortcuts_modal_scroll = 0;
+        self.shortcuts_modal_doc_index = 0;
+        self.status_line = "help docs opened".into();
+    }
+
+    pub(super) fn toggle_ai_progress_popup(&mut self) {
+        if self.ai_progress_visible {
+            self.ai_progress_visible = false;
+            self.status_line = "ai progress popup hidden".into();
+            return;
+        }
+
+        self.dismiss_blocking_overlays();
+        self.ai_progress_visible = true;
+        self.ai_progress_scroll_end();
+        self.status_line = "ai progress popup visible".into();
+    }
+
     pub(super) fn open_user_name_editor(&mut self) {
+        self.dismiss_ai_progress_popup();
         let value = self.config.user_name.clone();
         let cursor_col = value.chars().count();
         self.settings_editor = Some(SettingsEditorState {
@@ -986,6 +1038,7 @@ impl TuiApp {
             self.status_line = "no themes loaded".into();
             return;
         }
+        self.dismiss_ai_progress_popup();
         self.theme_picker = Some(super::ThemePickerState {
             selected_index: self.theme_index,
             scroll: self.theme_index.saturating_sub(3),
@@ -1618,6 +1671,66 @@ mod tests {
 
         assert!(app.get_diff_render_cache(&cache_key(0)).is_none());
         assert!(app.get_diff_render_cache(&cache_key(1)).is_some());
+    }
+
+    #[test]
+    fn opening_modal_overlays_hides_ai_progress_popup() {
+        let mut app = make_test_app(vec!["src/a.rs"], Vec::new());
+        app.ai_progress_visible = true;
+
+        app.open_command_prompt(CommandPromptMode::GotoLine);
+        assert!(!app.ai_progress_visible);
+        assert!(app.command_prompt.is_some());
+
+        app.ai_progress_visible = true;
+        app.open_help_docs();
+        assert!(!app.ai_progress_visible);
+        assert!(app.shortcuts_modal_visible);
+
+        app.ai_progress_visible = true;
+        app.open_user_name_editor();
+        assert!(!app.ai_progress_visible);
+        assert!(app.settings_editor.is_some());
+
+        app.ai_progress_visible = true;
+        app.open_theme_picker();
+        assert!(!app.ai_progress_visible);
+        assert!(app.theme_picker.is_some());
+    }
+
+    #[test]
+    fn showing_ai_progress_popup_closes_other_blocking_overlays() {
+        let mut app = make_test_app(vec!["src/a.rs"], Vec::new());
+        app.command_palette = Some(CommandPaletteState {
+            query: "theme".into(),
+            cursor_col: 5,
+            selected_index: 0,
+            scroll: 0,
+        });
+        app.command_prompt = Some(CommandPromptState {
+            mode: CommandPromptMode::Search,
+            value: "needle".into(),
+            cursor_col: 6,
+        });
+        app.settings_editor = Some(SettingsEditorState {
+            kind: SettingsEditorKind::UserName,
+            value: "Vic".into(),
+            cursor_col: 3,
+        });
+        app.theme_picker = Some(ThemePickerState {
+            selected_index: 0,
+            scroll: 0,
+        });
+        app.shortcuts_modal_visible = true;
+
+        app.toggle_ai_progress_popup();
+
+        assert!(app.ai_progress_visible);
+        assert!(app.command_palette.is_none());
+        assert!(app.command_prompt.is_none());
+        assert!(app.settings_editor.is_none());
+        assert!(app.theme_picker.is_none());
+        assert!(!app.shortcuts_modal_visible);
     }
 
     fn make_test_app(paths: Vec<&str>, comments: Vec<LineComment>) -> TuiApp {
