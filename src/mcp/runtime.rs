@@ -1,6 +1,6 @@
 use crate::domain::ai::{AiProvider, AiSessionMode};
 use crate::domain::review::{Author, CommentStatus, ReviewState};
-use crate::git::review_name::resolve_tui_review_name;
+use crate::git::{diff::DiffSource, review_name::resolve_tui_review_name};
 use crate::services::ai_session::{RunAiSessionInput, default_ai_session_mode, run_ai_session};
 use crate::services::review_service::{AddReplyInput, ReviewService};
 use anyhow::{Context, Result, anyhow};
@@ -238,6 +238,7 @@ async fn handle_tools_call(service: &ReviewService, params: Value) -> Result<Val
                     provider,
                     comment_ids,
                     mode,
+                    diff_source: DiffSource::WorkingTree,
                 },
             )
             .await?;

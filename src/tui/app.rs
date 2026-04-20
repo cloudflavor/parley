@@ -17,7 +17,7 @@ use crate::domain::diff::{DiffDocument, DiffFile, DiffLineKind};
 use crate::domain::review::{
     Author, CommentStatus, DiffSide, LineComment, ReviewSession, ReviewState,
 };
-use crate::git::diff::load_git_diff_head;
+use crate::git::diff::{DiffSource, load_git_diff};
 use crate::services::ai_session::{
     AiProgressEvent, RunAiSessionInput, run_ai_session_with_progress,
 };
@@ -32,6 +32,7 @@ pub async fn run_tui(
     review_name: String,
     requested_theme: Option<String>,
     no_mouse: bool,
+    diff_source: DiffSource,
 ) -> Result<()> {
     let mut terminal_session = TerminalSession::new(!no_mouse)?;
     let review = service
@@ -40,7 +41,7 @@ pub async fn run_tui(
         .with_context(|| format!("failed to open review {review_name}"))?;
     let themes = load_themes()?;
     let mut config = service.load_config().await?;
-    let diff = load_git_diff_head(&config).await?;
+    let diff = load_git_diff(&config, &diff_source).await?;
 
     if config.user_name.trim().is_empty() || config.user_name == "User" {
         config.user_name = default_user_name();
@@ -59,15 +60,16 @@ pub async fn run_tui(
     super::logging::init_file_tracing(&log_path, &config.log_level)
         .context("failed to initialize tui log writer")?;
 
-    let mut app = TuiApp::new(
+    let mut app = TuiApp::new(TuiAppInit {
         review_name,
         review,
         diff,
+        diff_source,
         config,
         themes,
         theme_index,
         log_path,
-    );
+    });
     let mouse_capture_enabled = terminal_session.mouse_capture_enabled();
     run_loop(
         terminal_session.terminal_mut(),
@@ -430,10 +432,24 @@ struct TextBuffer {
     cursor_line: usize,
     cursor_col: usize,
 }
+
+#[derive(Debug)]
+struct TuiAppInit {
+    review_name: String,
+    review: ReviewSession,
+    diff: DiffDocument,
+    diff_source: DiffSource,
+    config: AppConfig,
+    themes: Vec<UiTheme>,
+    theme_index: usize,
+    log_path: PathBuf,
+}
+
 #[derive(Debug)]
 struct TuiApp {
     review_name: String,
     review: ReviewSession,
+    diff_source: DiffSource,
     config: AppConfig,
     themes: Vec<UiTheme>,
     theme_index: usize,
@@ -454,6 +470,9 @@ struct TuiApp {
     secondary_viewport_top_row: usize,
     selected_comment: usize,
     status_line: String,
+    last_status_line_snapshot: String,
+    status_toast_message: Option<String>,
+    status_toast_until: Option<Instant>,
     last_ai_detail: Option<String>,
     inline_comment: Option<InlineCommentState>,
     command_palette: Option<CommandPaletteState>,

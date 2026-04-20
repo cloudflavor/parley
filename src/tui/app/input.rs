@@ -2649,7 +2649,7 @@ mod tests {
         review::{ReviewSession, ReviewState},
     };
     use crate::persistence::store::Store;
-    use crate::tui::app::InlineFileReferencePickerState;
+    use crate::tui::app::{InlineFileReferencePickerState, TuiAppInit};
     use crate::tui::theme::load_themes;
     use tempfile::tempdir;
 
@@ -2843,15 +2843,16 @@ mod tests {
         };
         let diff = DiffDocument { files };
         let themes = load_themes().expect("embedded themes should load");
-        TuiApp::new(
-            review.name.clone(),
+        TuiApp::new(TuiAppInit {
+            review_name: review.name.clone(),
             review,
             diff,
-            AppConfig::default(),
+            diff_source: crate::git::diff::DiffSource::WorkingTree,
+            config: AppConfig::default(),
             themes,
-            0,
-            PathBuf::from("test.log"),
-        )
+            theme_index: 0,
+            log_path: PathBuf::from("test.log"),
+        })
     }
 
     fn empty_diff_file(path: &str) -> DiffFile {

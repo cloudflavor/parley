@@ -20,7 +20,7 @@ use crate::domain::config::{AppConfig, PromptTransport};
 use crate::domain::diff::{DiffDocument, DiffFile, DiffHunk};
 use crate::domain::reference::parse_file_references;
 use crate::domain::review::{Author, CommentStatus, LineComment, ReviewState};
-use crate::git::diff::load_git_diff_head;
+use crate::git::diff::{DiffSource, load_git_diff};
 use crate::services::review_service::{AddReplyInput, ReviewService};
 
 static AI_SESSION_PROMPTS_DIR: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/prompts/ai_session");
@@ -31,6 +31,7 @@ pub struct RunAiSessionInput {
     pub provider: AiProvider,
     pub comment_ids: Vec<u64>,
     pub mode: AiSessionMode,
+    pub diff_source: DiffSource,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -107,7 +108,7 @@ async fn run_ai_session_inner(
     );
     let config = service.load_config().await?;
     let mut review = service.load_review(&input.review_name).await?;
-    let diff_document = match load_git_diff_head(&config).await {
+    let diff_document = match load_git_diff(&config, &input.diff_source).await {
         Ok(document) => Some(document),
         Err(error) => {
             warn!(error = %error, "ai session prompt context: unable to load git diff");

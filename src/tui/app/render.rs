@@ -33,6 +33,7 @@ use super::{
 };
 
 pub(super) fn draw(frame: &mut Frame<'_>, app: &mut TuiApp) {
+    app.refresh_status_toast();
     let root = frame.area();
     let blocking_overlay_visible = app.command_prompt.is_some()
         || app.command_palette.is_some()
@@ -60,6 +61,9 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &mut TuiApp) {
             .split(root);
         draw_diff_view_for_pane(frame, app, sections[0], app.active_diff_pane);
         draw_status_panel(frame, app, sections[1]);
+        if !blocking_overlay_visible && !app.ai_progress_visible {
+            draw_status_toast(frame, app, sections[1]);
+        }
         if app.thread_nav_visible {
             draw_thread_navigator_overlay(frame, app);
         }
@@ -107,6 +111,9 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &mut TuiApp) {
         draw_diff_view_for_pane(frame, app, columns[1], app.active_diff_pane);
     }
     draw_status_panel(frame, app, sections[1]);
+    if !blocking_overlay_visible && !app.ai_progress_visible {
+        draw_status_toast(frame, app, sections[1]);
+    }
     if app.thread_nav_visible {
         draw_thread_navigator_overlay(frame, app);
     }
@@ -1457,16 +1464,8 @@ fn draw_inline_comment_editor(frame: &mut Frame<'_>, app: &TuiApp, area: Rect) {
         return;
     };
     let colors = &app.theme().colors;
-    if area.height < 8 || area.width < 32 {
+    let Some(editor_area) = inline_comment_editor_area(area) else {
         return;
-    }
-
-    let box_height = area.height.min(12);
-    let editor_area = Rect {
-        x: area.x + 1,
-        y: area.y + area.height - box_height,
-        width: area.width.saturating_sub(2),
-        height: box_height.saturating_sub(1),
     };
 
     let mode = if inline.preview_mode {
@@ -1605,6 +1604,28 @@ fn draw_inline_comment_editor(frame: &mut Frame<'_>, app: &TuiApp, area: Rect) {
     }
 
     frame.set_cursor_position((cursor_x, cursor_y));
+}
+
+fn inline_comment_editor_area(area: Rect) -> Option<Rect> {
+    if area.height < 8 || area.width < 32 {
+        return None;
+    }
+
+    let available_width = area.width.saturating_sub(2);
+    let available_height = area.height.saturating_sub(1);
+    if available_width < 30 || available_height < 6 {
+        return None;
+    }
+
+    let editor_width = available_width.min(68);
+    let editor_height = available_height.min(10);
+
+    Some(Rect {
+        x: area.x.saturating_add(1),
+        y: area.y + area.height.saturating_sub(editor_height),
+        width: editor_width,
+        height: editor_height,
+    })
 }
 
 fn draw_inline_file_mention_picker(
@@ -2991,32 +3012,6 @@ fn spinner_frame(started_at: Instant) -> &'static str {
 
 fn draw_status_panel(frame: &mut Frame<'_>, app: &TuiApp, area: ratatui::layout::Rect) {
     let colors = &app.theme().colors;
-    let mode_label = if let Some(ai_task) = app.ai_task.as_ref() {
-        format!(
-            "AI_RUNNING {} {}:{}",
-            spinner_frame(ai_task.started_at),
-            ai_task.provider.as_str(),
-            ai_task.mode.as_str()
-        )
-    } else if let Some(inline) = app.inline_comment.as_ref() {
-        let draft_kind = match inline.mode {
-            InlineDraftMode::Comment(_) => "COMMENT",
-            InlineDraftMode::Reply { .. } => "REPLY",
-        };
-        if inline.preview_mode {
-            format!(
-                "{draft_kind}_BOX_PREVIEW > {} chars",
-                inline.buffer.char_len()
-            )
-        } else {
-            format!("{draft_kind}_BOX_EDIT > {} chars", inline.buffer.char_len())
-        }
-    } else if app.settings_editor.is_some() {
-        "SETTINGS_EDIT".to_string()
-    } else {
-        "NORMAL".to_string()
-    };
-
     let review_state = review_state_label(&app.review.state);
     let file_label = app
         .current_file()
@@ -3031,14 +3026,17 @@ fn draw_status_panel(frame: &mut Frame<'_>, app: &TuiApp, area: ratatui::layout:
     let selected_thread = app
         .selected_comment_details()
         .map(|comment| {
-            format!(
-                "#{} {} {}",
-                comment.id,
-                format_line_reference(comment.old_line, comment.new_line),
-                comment_status_label(&comment.status)
+            (
+                format!(
+                    "#{} {} {}",
+                    comment.id,
+                    format_line_reference(comment.old_line, comment.new_line),
+                    comment_status_label(&comment.status)
+                ),
+                comment_status_style(&comment.status, colors),
             )
         })
-        .unwrap_or_else(|| "none".to_string());
+        .unwrap_or_else(|| ("none".to_string(), Style::default().fg(colors.text_muted)));
     let open_threads = app
         .review
         .comments
@@ -3053,32 +3051,38 @@ fn draw_status_panel(frame: &mut Frame<'_>, app: &TuiApp, area: ratatui::layout:
         .count();
 
     let inner_width = usize::from(area.width.saturating_sub(2)).max(1);
-    let line_1_left = format!(
-        "{} | review {}:{} | file {file_position} {} | thread {selected_thread} | open {open_threads} pending {pending_human_count} | density {}",
-        mode_label,
-        app.review.name,
-        review_state,
-        file_label,
-        app.thread_density_mode_label()
+    let line_1 = build_status_field_line(
+        &[
+            (
+                "review",
+                format!("{}:{review_state}", app.review.name),
+                review_state_style(&app.review.state, colors),
+            ),
+            (
+                "file",
+                format!("{file_position} {file_label}"),
+                Style::default().fg(colors.text_primary),
+            ),
+            ("thread", selected_thread.0, selected_thread.1),
+            (
+                "counts",
+                format!("open {open_threads} pending {pending_human_count}"),
+                Style::default().fg(colors.text_primary),
+            ),
+        ],
+        inner_width,
+        colors,
     );
     let version = format!("v{}", env!("CARGO_PKG_VERSION"));
-    let line_1 = build_right_tag_line(
-        &line_1_left,
-        &version,
-        inner_width,
-        Style::default().fg(colors.status_help),
-    );
-
-    let hint = status_hint(app);
-    let thread_left = format!(
-        "{} | user {} | ai {} | {hint}",
-        truncate_tag_right(&app.status_line, inner_width.saturating_sub(16)),
+    let secondary_left = status_footer_context(app);
+    let line_2_right = format!(
+        "user {} · ai {} · ? help · {version}",
         app.config.user_name,
         app.ai_provider.as_str()
     );
     let line_2 = build_right_tag_line(
-        &thread_left,
-        "? help",
+        &secondary_left,
+        &line_2_right,
         inner_width,
         Style::default().fg(colors.status_help),
     );
@@ -3092,7 +3096,7 @@ fn draw_status_panel(frame: &mut Frame<'_>, app: &TuiApp, area: ratatui::layout:
 
     let panel = Paragraph::new(panel_lines).block(
         Block::default()
-            .title("Status")
+            .title("Review")
             .borders(Borders::TOP | Borders::LEFT | Borders::RIGHT | Borders::BOTTOM)
             .border_style(Style::default().fg(colors.thread_border))
             .title_style(
@@ -3104,29 +3108,113 @@ fn draw_status_panel(frame: &mut Frame<'_>, app: &TuiApp, area: ratatui::layout:
     frame.render_widget(panel, area);
 }
 
-fn status_hint(app: &TuiApp) -> &'static str {
+fn draw_status_toast(frame: &mut Frame<'_>, app: &TuiApp, status_area: Rect) {
+    let Some(message) = app.status_toast_message.as_ref() else {
+        return;
+    };
+    if app
+        .status_toast_until
+        .is_some_and(|deadline| Instant::now() >= deadline)
+    {
+        return;
+    }
+
+    let root = frame.area();
+    let colors = app.theme().colors.clone();
+    let max_text_width = usize::from(root.width.saturating_sub(10)).clamp(12, 46);
+    let trimmed = message.trim();
+    if trimmed.is_empty() {
+        return;
+    }
+    let text = truncate_with_ellipsis(trimmed, max_text_width);
+    let popup_width = (text.chars().count() as u16)
+        .saturating_add(2)
+        .min(root.width.saturating_sub(4));
+    let x = root
+        .x
+        .saturating_add(root.width.saturating_sub(popup_width).saturating_sub(2));
+    let y = status_area.y.saturating_sub(1).max(root.y);
+    let area = Rect {
+        x,
+        y,
+        width: popup_width,
+        height: 1,
+    };
+    frame.render_widget(
+        Paragraph::new(Line::from(vec![Span::styled(
+            format!(" {text} "),
+            Style::default()
+                .bg(colors.selected_line_bg)
+                .fg(colors.status_help),
+        )])),
+        area,
+    );
+}
+
+fn build_status_field_line(
+    fields: &[(&str, String, Style)],
+    width: usize,
+    colors: &ThemeColors,
+) -> Line<'static> {
+    let mut spans = Vec::new();
+    let label_style = Style::default()
+        .fg(colors.status_help)
+        .add_modifier(Modifier::BOLD);
+    let separator_style = Style::default().fg(colors.thread_border);
+    for (index, (label, value, value_style)) in fields.iter().enumerate() {
+        if index > 0 {
+            spans.push(Span::styled("  |  ", separator_style));
+        }
+        spans.push(Span::styled(format!("{label} "), label_style));
+        spans.push(Span::styled(value.clone(), *value_style));
+    }
+
+    Line::from(fit_spans_to_width(
+        spans,
+        width,
+        Style::default().fg(colors.status_help),
+    ))
+}
+
+fn truncate_with_ellipsis(input: &str, max_len: usize) -> String {
+    if max_len == 0 {
+        return String::new();
+    }
+    let input_len = input.chars().count();
+    if input_len <= max_len {
+        return input.to_string();
+    }
+    if max_len == 1 {
+        return "…".to_string();
+    }
+    let mut out: String = input.chars().take(max_len - 1).collect();
+    out.push('…');
+    out
+}
+
+fn status_footer_context(app: &TuiApp) -> String {
     if app.shortcuts_modal_visible {
-        "Esc close help | Tab switch doc | </> zoom | j/k scroll"
+        "Help open · tab switch docs · esc close".to_string()
     } else if app.command_palette.is_some() {
-        "Enter run command | Esc close"
+        "Command palette · enter run · esc close".to_string()
     } else if app.theme_picker.is_some() {
-        "j/k move | Enter apply | Esc cancel"
+        "Theme picker · enter apply · esc close".to_string()
     } else if app.settings_editor.is_some() {
-        "Enter save | Esc cancel"
+        "Settings · enter save · esc cancel".to_string()
     } else if app.command_prompt.is_some() {
-        "Enter run | Esc cancel | ←/→ edit"
+        "Command prompt · enter run · esc cancel".to_string()
     } else if app.file_search.focused {
-        "Type to filter files | Enter/Esc close | Backspace/Delete edit"
+        "File filter · type to narrow · esc close".to_string()
     } else if let Some(inline) = app.inline_comment.as_ref() {
         if inline.preview_mode {
-            "Ctrl+P edit | Ctrl+S save | Esc collapse"
+            "Comment preview · ctrl+p edit · ctrl+s save".to_string()
         } else {
-            "Ctrl+S save | Ctrl+P preview | Esc collapse"
+            "Comment draft · ctrl+s save · ctrl+p preview".to_string()
         }
     } else if app.ai_task.is_some() {
-        "K cancel AI | H stream | L logs"
+        "AI running · k cancel · h stream · l logs".to_string()
     } else {
-        "Ctrl+k commands | Ctrl+f files | j/k line | PgUp/PgDn page | zz center | e toggle thread | Shift+E density | / search | : goto"
+        String::new()
     }
 }
 
@@ -3151,7 +3239,7 @@ fn theme_family_label(name: &str) -> &str {
 fn comment_status_label(status: &CommentStatus) -> &'static str {
     match status {
         CommentStatus::Open => "open",
-        CommentStatus::Pending => "pending_human",
+        CommentStatus::Pending => "pending human",
         CommentStatus::Addressed => "addressed",
     }
 }
@@ -3170,6 +3258,20 @@ fn review_state_label(state: &ReviewState) -> &'static str {
         ReviewState::Open => "open",
         ReviewState::UnderReview => "under_review",
         ReviewState::Done => "done",
+    }
+}
+
+fn review_state_style(state: &ReviewState, colors: &ThemeColors) -> Style {
+    match state {
+        ReviewState::Open => Style::default()
+            .fg(colors.accent)
+            .add_modifier(Modifier::BOLD),
+        ReviewState::UnderReview => Style::default()
+            .fg(colors.hunk_header)
+            .add_modifier(Modifier::BOLD),
+        ReviewState::Done => Style::default()
+            .fg(colors.added_sign)
+            .add_modifier(Modifier::BOLD),
     }
 }
 
@@ -3202,22 +3304,6 @@ fn build_right_tag_line(
         Span::raw(" ".repeat(gap_len)),
         Span::styled(right.to_string(), right_style),
     ])
-}
-
-fn truncate_tag_right(input: &str, max_len: usize) -> String {
-    if max_len == 0 {
-        return String::new();
-    }
-    let input_len = input.chars().count();
-    if input_len <= max_len {
-        return input.to_string();
-    }
-    if max_len <= 1 {
-        return "…".to_string();
-    }
-    let mut out: String = input.chars().take(max_len - 1).collect();
-    out.push('…');
-    out
 }
 
 #[cfg(test)]
@@ -3274,5 +3360,67 @@ mod tests {
             .map(|line| line.trim_end().to_string())
             .collect::<String>();
         assert_eq!(reassembled, content);
+    }
+
+    #[test]
+    fn status_panel_height_grows_when_terminal_has_room() {
+        assert_eq!(compute_status_height(11), 3);
+        assert_eq!(compute_status_height(12), 4);
+        assert_eq!(compute_status_height(16), 4);
+    }
+
+    #[test]
+    fn status_field_line_respects_available_width() {
+        let colors = test_colors();
+        let line = build_status_field_line(
+            &[
+                (
+                    "Mode",
+                    "AI running".to_string(),
+                    Style::default().fg(colors.text_primary),
+                ),
+                (
+                    "Review",
+                    "demo:open".to_string(),
+                    Style::default().fg(colors.accent),
+                ),
+                (
+                    "Keys",
+                    "Ctrl+k commands".to_string(),
+                    Style::default().fg(colors.status_help),
+                ),
+            ],
+            42,
+            &colors,
+        );
+
+        let rendered = line_plain_text(&line);
+        assert_eq!(rendered.chars().count(), 42);
+        assert!(rendered.contains("Mode"));
+        assert!(rendered.contains("Review"));
+    }
+
+    #[test]
+    fn truncate_with_ellipsis_shortens_without_overflow() {
+        assert_eq!(truncate_with_ellipsis("abc", 5), "abc");
+        assert_eq!(truncate_with_ellipsis("abcdef", 4), "abc…");
+        assert_eq!(truncate_with_ellipsis("abcdef", 1), "…");
+    }
+
+    #[test]
+    fn inline_comment_editor_area_is_fixed_width_and_left_anchored() {
+        let area = Rect {
+            x: 10,
+            y: 5,
+            width: 140,
+            height: 28,
+        };
+
+        let editor = inline_comment_editor_area(area).expect("editor should fit");
+
+        assert_eq!(editor.x, 11);
+        assert_eq!(editor.width, 68);
+        assert_eq!(editor.height, 10);
+        assert_eq!(editor.y, 23);
     }
 }

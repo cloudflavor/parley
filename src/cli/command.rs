@@ -22,6 +22,12 @@ pub enum Command {
         theme: Option<String>,
         #[structopt(long)]
         no_mouse: bool,
+        #[structopt(long, conflicts_with_all = &["base", "head"])]
+        commit: Option<String>,
+        #[structopt(long, conflicts_with = "commit")]
+        base: Option<String>,
+        #[structopt(long, requires = "base", conflicts_with = "commit")]
+        head: Option<String>,
     },
     #[structopt(name = "review")]
     Review {
@@ -122,12 +128,54 @@ mod tests {
                 review,
                 theme,
                 no_mouse,
+                commit,
+                base,
+                head,
             } => {
                 assert_eq!(review.as_deref(), Some("main"));
                 assert_eq!(theme, None);
                 assert!(no_mouse);
+                assert_eq!(commit, None);
+                assert_eq!(base, None);
+                assert_eq!(head, None);
             }
             other => panic!("unexpected command: {other:?}"),
         }
+    }
+
+    #[test]
+    fn tui_command_parses_commit_source() {
+        let cli =
+            Cli::from_iter_safe(["parley", "tui", "--commit", "HEAD~2"]).expect("cli should parse");
+
+        match cli.command {
+            Command::Tui {
+                commit, base, head, ..
+            } => {
+                assert_eq!(commit.as_deref(), Some("HEAD~2"));
+                assert_eq!(base, None);
+                assert_eq!(head, None);
+            }
+            other => panic!("unexpected command: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn tui_command_rejects_head_without_base() {
+        let error = Cli::from_iter_safe(["parley", "tui", "--head", "HEAD~1"])
+            .expect_err("cli should reject head without base");
+
+        let message = error.to_string();
+        assert!(message.contains("--base"));
+    }
+
+    #[test]
+    fn tui_command_rejects_commit_and_base_combination() {
+        let error = Cli::from_iter_safe(["parley", "tui", "--commit", "HEAD", "--base", "HEAD~1"])
+            .expect_err("cli should reject conflicting diff sources");
+
+        let message = error.to_string();
+        assert!(message.contains("--commit"));
+        assert!(message.contains("--base"));
     }
 }

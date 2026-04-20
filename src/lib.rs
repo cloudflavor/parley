@@ -12,7 +12,7 @@ use structopt::StructOpt;
 use crate::{
     cli::{Cli, Command, ReviewCommand},
     domain::review::ReviewState,
-    git::review_name::resolve_tui_review_name,
+    git::{diff::DiffSource, review_name::resolve_tui_review_name},
     persistence::store::Store,
     services::{
         ai_session::{RunAiSessionInput, default_ai_session_mode, run_ai_session},
@@ -34,9 +34,13 @@ pub async fn run() -> Result<()> {
             review,
             theme,
             no_mouse,
+            commit,
+            base,
+            head,
         } => {
             let review = resolve_default_review_for_tui(&service, review.as_deref()).await?;
-            tui::run_tui(service, review, theme, no_mouse).await?;
+            let diff_source = resolve_tui_diff_source(commit, base, head);
+            tui::run_tui(service, review, theme, no_mouse, diff_source).await?;
         }
         Command::Review { command } => {
             handle_review_command(command, &service).await?;
@@ -68,6 +72,23 @@ async fn resolve_default_review_for_tui(
     }
 
     Ok(resolved)
+}
+
+fn resolve_tui_diff_source(
+    commit: Option<String>,
+    base: Option<String>,
+    head: Option<String>,
+) -> DiffSource {
+    if let Some(rev) = commit {
+        DiffSource::Commit { rev }
+    } else if let Some(base) = base {
+        DiffSource::Range {
+            base,
+            head: head.unwrap_or_else(|| "HEAD".to_string()),
+        }
+    } else {
+        DiffSource::WorkingTree
+    }
 }
 
 async fn handle_review_command(command: ReviewCommand, service: &ReviewService) -> Result<()> {
@@ -205,6 +226,7 @@ async fn handle_review_command(command: ReviewCommand, service: &ReviewService) 
                     provider: provider.0,
                     comment_ids,
                     mode,
+                    diff_source: DiffSource::WorkingTree,
                 },
             )
             .await?;

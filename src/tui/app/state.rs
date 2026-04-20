@@ -235,20 +235,23 @@ impl TextBuffer {
 }
 
 impl TuiApp {
-    pub(super) fn new(
-        review_name: String,
-        review: ReviewSession,
-        diff: DiffDocument,
-        config: AppConfig,
-        themes: Vec<UiTheme>,
-        theme_index: usize,
-        log_path: PathBuf,
-    ) -> Self {
+    pub(super) fn new(init: TuiAppInit) -> Self {
+        let TuiAppInit {
+            review_name,
+            review,
+            diff,
+            diff_source,
+            config,
+            themes,
+            theme_index,
+            log_path,
+        } = init;
         let ai_provider = config.ai.default_provider;
         let side_by_side_diff = config.diff_view.is_side_by_side();
         Self {
             review_name,
             review,
+            diff_source,
             config,
             themes,
             theme_index,
@@ -269,6 +272,9 @@ impl TuiApp {
             secondary_viewport_top_row: 0,
             selected_comment: 0,
             status_line: "ready".to_string(),
+            last_status_line_snapshot: "ready".to_string(),
+            status_toast_message: None,
+            status_toast_until: None,
             last_ai_detail: None,
             inline_comment: None,
             command_palette: None,
@@ -1253,6 +1259,7 @@ impl TuiApp {
             provider,
             comment_ids,
             mode,
+            diff_source: self.diff_source.clone(),
         };
         let (progress_tx, progress_rx) = mpsc::channel();
         let service_clone = service.clone();
@@ -1479,7 +1486,33 @@ impl TuiApp {
     }
 
     pub(super) fn requires_periodic_redraw(&self) -> bool {
-        self.ai_task.is_some() || self.pending_z_prefix_at.is_some()
+        self.ai_task.is_some()
+            || self.pending_z_prefix_at.is_some()
+            || self
+                .status_toast_until
+                .is_some_and(|deadline| Instant::now() < deadline)
+    }
+
+    pub(super) fn refresh_status_toast(&mut self) {
+        let now = Instant::now();
+        if self.status_line != self.last_status_line_snapshot {
+            self.last_status_line_snapshot = self.status_line.clone();
+            if self.status_line.trim().is_empty() || self.status_line == "ready" {
+                self.status_toast_message = None;
+                self.status_toast_until = None;
+            } else {
+                self.status_toast_message = Some(self.status_line.clone());
+                self.status_toast_until = now.checked_add(Duration::from_secs(4));
+            }
+        }
+
+        if self
+            .status_toast_until
+            .is_some_and(|deadline| now >= deadline)
+        {
+            self.status_toast_until = None;
+            self.status_toast_message = None;
+        }
     }
 
     pub(super) fn invalidate_redraw(&mut self) {
@@ -1649,7 +1682,7 @@ impl TuiApp {
             .retain(|id| self.review.comments.iter().any(|comment| comment.id == *id));
         self.collapsed_threads
             .retain(|id| self.review.comments.iter().any(|comment| comment.id == *id));
-        self.diff = load_git_diff_head(&self.config).await?;
+        self.diff = load_git_diff(&self.config, &self.diff_source).await?;
         self.selected_file = previous_primary_path
             .and_then(|path| self.diff.files.iter().position(|f| f.path == path))
             .unwrap_or(0);
@@ -1896,15 +1929,16 @@ mod tests {
                 .collect(),
         };
         let themes = load_themes().expect("embedded themes should load");
-        TuiApp::new(
-            review.name.clone(),
+        TuiApp::new(TuiAppInit {
+            review_name: review.name.clone(),
             review,
             diff,
-            AppConfig::default(),
+            diff_source: DiffSource::WorkingTree,
+            config: AppConfig::default(),
             themes,
-            0,
-            PathBuf::from("test.log"),
-        )
+            theme_index: 0,
+            log_path: PathBuf::from("test.log"),
+        })
     }
 
     fn make_comment(id: u64, file_path: &str, status: CommentStatus) -> LineComment {
