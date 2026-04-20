@@ -49,6 +49,13 @@ Use line-level comments for actionable feedback. Keep one issue per thread so re
 - Use `pending` when a reply is waiting on counterpart action.
 - Use `addressed` when the original reviewer confirms resolution.
 
+Example:
+
+- reviewer leaves a comment -> `open`
+- author replies "fixed in 9d2b3af" -> `pending`
+- reviewer checks the change and is still unhappy -> reply reopens thread to `open`
+- reviewer is satisfied -> mark `addressed`
+
 ## 6. AI eligibility matrix (what status to use before sending to AI)
 
 Global precondition:
@@ -89,6 +96,30 @@ What this means:
 - In typical human-authored threads, this sets thread status to `pending`.
 - Review state then reconciles based on resulting thread statuses.
 
+Example:
+
+- thread is `open`
+- you press `x` for AI refactor
+- AI posts a reply into that thread
+- thread becomes `pending`
+- you inspect the code and either mark it `addressed` or reopen it
+
 ## 8. Refresh after code edits
 
 After code edits or automation runs, refresh in TUI so thread anchors and diff context stay current.
+
+If the TUI was opened with `--commit` or `--base` / `--head`, refresh keeps using that same revision source instead of falling back to the working tree.
+
+## 9. Reviewing historical revisions
+
+Parley can review more than the live working tree:
+
+- `parley tui --commit <rev>`: diff that commit against its first parent
+- `parley tui --base <rev>`: diff `<rev>..HEAD`
+- `parley tui --base <rev> --head <rev>`: diff an explicit base/head range
+
+AI sessions use the same selected revision source for prompt context.
+
+Current limitation:
+
+- the revision source is not stored in the review session yet, so a later reopen still needs the same CLI flags.

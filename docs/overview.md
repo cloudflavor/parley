@@ -12,6 +12,31 @@ Review discussions are anchored to concrete diff lines, and both thread state an
 - **Keyboard-first workflow**: full navigation and review operations without leaving the terminal.
 - **Optional AI automation**: run AI thread replies/refactors while keeping state transitions human-controlled.
 
+## How to think about the app
+
+Parley is not just a diff viewer and not just a notes file.
+
+It combines:
+
+- a diff source: working tree, commit, or range
+- a local review session: named review metadata stored under `.parley/`
+
+That review session tracks threads as structured objects with:
+
+- an anchor line in the diff
+- an original author
+- a thread status
+- ordered replies
+
+This is why status changes are opinionated:
+
+- new thread -> `open`
+- reply from the original commenter -> `open`
+- reply from anyone else, including AI -> `pending`
+- original commenter marks resolution -> `addressed`
+
+The review state is then derived from the unresolved thread set until you explicitly set it to `done`.
+
 ## Thread model at a glance
 
 - A thread starts as `open` when a comment is created.
@@ -44,6 +69,28 @@ parley tui --review my-review
 ```
 
 If you are running over SSH and your terminal client does not play well with mouse reporting, start the TUI with `--no-mouse`.
+
+## Revision sources
+
+By default, Parley reviews the current working tree diff against `HEAD`.
+
+You can also open historical diffs directly in the TUI:
+
+```bash
+parley tui --commit HEAD~2
+parley tui --base main --head feature/my-branch
+parley tui --base v0.1.0
+```
+
+- `--commit <rev>` reviews that commit against its first parent.
+- `--base <rev>` reviews `<rev>..HEAD`.
+- `--base <rev> --head <rev>` reviews an explicit tree-to-tree range.
+
+AI sessions and TUI refresh use the same selected revision source, so they stay aligned with the diff you opened.
+
+Current limitation:
+
+- the selected revision source is not persisted into the review session yet, so reopening the review later still requires passing the same CLI flags again.
 
 ## File references in comment drafts
 

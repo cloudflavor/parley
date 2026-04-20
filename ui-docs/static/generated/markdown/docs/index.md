@@ -7,7 +7,7 @@ Workflow-focused Parley documentation for terminal review, TUI controls, and MCP
 - [Parley Overview](/docs/overview)
   Parley is a terminal-first review tool for local git diffs, optimized for iterative AI-assisted code review.
 - [Quickstart](/docs/quickstart)
-  Covers Build, Create and start a review, and Open the TUI.
+  Covers Build, What Parley is actually doing, and Create a review session.
 - [Keybindings](/docs/keybindings)
   Covers Navigation, Search and jump, and Threads.
 - [Review Workflow](/docs/review-workflow)
