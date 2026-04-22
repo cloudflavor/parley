@@ -59,11 +59,17 @@ By default, the TUI opens the current working tree diff. You can also open histo
 ./target/release/parley tui --commit HEAD~2
 ./target/release/parley tui --base main --head feature/my-branch
 ./target/release/parley tui --base v0.1.0
+# everything after HEAD~2 (exclude that commit)
+./target/release/parley tui --base HEAD~2 --head HEAD
+# everything after and including HEAD~2
+./target/release/parley tui --base HEAD~2^ --head HEAD
 ```
 
 - `--commit <rev>` shows that commit against its first parent.
 - `--base <rev>` defaults `head` to `HEAD`.
 - `--base <rev> --head <rev>` shows an explicit range.
+- Use `--base <rev> --head HEAD` to review everything after `<rev>`.
+- Use `--base <rev>^ --head HEAD` to include `<rev>` itself in that cumulative range.
 
 Refresh (`R`) keeps using the same source while the TUI session stays open, and AI prompt context follows that same diff source.
 

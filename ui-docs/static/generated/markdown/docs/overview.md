@@ -80,11 +80,17 @@ You can also open historical diffs directly in the TUI:
 parley tui --commit HEAD~2
 parley tui --base main --head feature/my-branch
 parley tui --base v0.1.0
+# everything after HEAD~2 (exclude that commit)
+parley tui --base HEAD~2 --head HEAD
+# everything after and including HEAD~2
+parley tui --base HEAD~2^ --head HEAD
 ```
 
 - `--commit <rev>` reviews that commit against its first parent.
 - `--base <rev>` reviews `<rev>..HEAD`.
 - `--base <rev> --head <rev>` reviews an explicit tree-to-tree range.
+- Use `--base <rev> --head HEAD` to review everything after `<rev>`.
+- Use `--base <rev>^ --head HEAD` to include `<rev>` itself in that cumulative range.
 
 AI sessions and TUI refresh use the same selected revision source, so they stay aligned with the diff you opened.
 
