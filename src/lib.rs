@@ -32,7 +32,6 @@ pub async fn run() -> Result<()> {
     match cli.command {
         Command::Tui {
             review,
-            theme,
             no_mouse,
             commit,
             base,
@@ -40,7 +39,7 @@ pub async fn run() -> Result<()> {
         } => {
             let review = resolve_default_review_for_tui(&service, review.as_deref()).await?;
             let diff_source = resolve_tui_diff_source(commit, base, head);
-            tui::run_tui(service, review, theme, no_mouse, diff_source).await?;
+            tui::run_tui(service, review, no_mouse, diff_source).await?;
         }
         Command::Review { command } => {
             handle_review_command(command, &service).await?;

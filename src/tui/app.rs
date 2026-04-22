@@ -30,7 +30,6 @@ use super::theme::{UiTheme, default_theme_name, load_themes, resolve_theme_index
 pub async fn run_tui(
     service: ReviewService,
     review_name: String,
-    requested_theme: Option<String>,
     no_mouse: bool,
     diff_source: DiffSource,
 ) -> Result<()> {
@@ -45,11 +44,6 @@ pub async fn run_tui(
 
     if config.user_name.trim().is_empty() || config.user_name == "User" {
         config.user_name = default_user_name();
-    }
-
-    if let Some(requested) = requested_theme {
-        config.theme = requested;
-        service.save_config(&config).await?;
     }
 
     let theme_index = resolve_theme_index(&themes, &config.theme)
