@@ -9,7 +9,9 @@ use crate::{
         diff::DiffLineKind,
         review::{Author, DiffSide, LineComment, ReviewState},
     },
-    services::review_service::{AddCommentInput, AddReplyInput, ReviewService},
+    services::review_service::{
+        AddCommentInput, AddReplyInput, ReanchorCommentInput, ReviewService,
+    },
 };
 
 use super::{
@@ -828,8 +830,14 @@ impl TuiApp {
                 self.scroll_active_pane_page(true, true);
                 self.status_line = "half-page down".into();
             }
-            KeyCode::Char('u') => {
+            KeyCode::Char('U') if key.modifiers.contains(KeyModifiers::SHIFT) => {
                 self.open_user_name_editor();
+            }
+            KeyCode::Char('u') => {
+                self.ensure_row_cache();
+                if let Err(error) = self.reanchor_selected_comment(service).await {
+                    self.status_line = format!("re-anchor failed: {error}");
+                }
             }
             KeyCode::Char('i') => {
                 if let Err(error) = self.cycle_ai_provider(service).await {
@@ -2128,12 +2136,9 @@ impl TuiApp {
         }
 
         self.status_line = if line_selected {
-            format!(
-                "select a diff line for {} (Enter/Tab confirms, click inserts)",
-                path
-            )
+            format!("select a diff line for {path} (Enter/Tab confirms, click inserts)")
         } else {
-            format!("opened {} but no diff line is available to reference", path)
+            format!("opened {path} but no diff line is available to reference")
         };
         line_selected
     }
@@ -2191,7 +2196,7 @@ impl TuiApp {
             .replace_range_on_cursor_line(replace_start, replace_end, &replacement);
         inline.file_reference_picker = None;
         self.restore_inline_file_reference_origin(origin_pane, origin_file_index, origin_row_index);
-        self.status_line = format!("inserted file reference: {}:{}", path, line);
+        self.status_line = format!("inserted file reference: {path}:{line}");
         true
     }
 
@@ -2307,6 +2312,7 @@ impl TuiApp {
     fn comment_target_for_row(&self, row_index: usize) -> Option<CommentTarget> {
         let file = self.current_file()?;
         let row = self.current_rows().get(row_index)?.clone();
+        let line_anchor = self.line_anchor_snapshot_for_row(row_index)?;
 
         let (side, old_line, new_line) = match row.kind {
             DiffLineKind::Added => (DiffSide::Right, None, row.new_line),
@@ -2320,6 +2326,7 @@ impl TuiApp {
             old_line,
             new_line,
             file_path: file.path.clone(),
+            line_anchor,
         })
     }
 
@@ -2461,6 +2468,7 @@ impl TuiApp {
                             old_line: target.old_line,
                             new_line: target.new_line,
                             side: target.side,
+                            line_anchor: Some(target.line_anchor),
                             body,
                             author: Author::User,
                         },
@@ -2498,6 +2506,39 @@ impl TuiApp {
             }
         }
         self.reload_review(service).await?;
+        Ok(())
+    }
+
+    async fn reanchor_selected_comment(&mut self, service: &ReviewService) -> Result<()> {
+        let Some(comment) = self.selected_comment_details().cloned() else {
+            self.status_line = "no selected thread to re-anchor".into();
+            return Ok(());
+        };
+        let Some(target) = self.comment_target_for_row(self.active_line_index()) else {
+            self.status_line = "selected line cannot receive a thread anchor".into();
+            return Ok(());
+        };
+
+        service
+            .reanchor_comment(
+                &self.review_name,
+                ReanchorCommentInput {
+                    comment_id: comment.id,
+                    file_path: target.file_path,
+                    old_line: target.old_line,
+                    new_line: target.new_line,
+                    side: target.side,
+                    line_anchor: Some(target.line_anchor),
+                },
+            )
+            .await
+            .context("failed to persist thread re-anchor")?;
+        self.refresh_review_and_diff(service).await?;
+        self.status_line = format!(
+            "thread #{} re-anchored to {}",
+            comment.id,
+            format_line_reference(target.old_line, target.new_line)
+        );
         Ok(())
     }
 }
@@ -2646,7 +2687,7 @@ mod tests {
     use crate::domain::{
         config::AppConfig,
         diff::{DiffDocument, DiffFile, DiffHunk, DiffLine, DiffLineKind},
-        review::{ReviewSession, ReviewState},
+        review::{LineAnchorSnapshot, ReviewSession, ReviewState},
     };
     use crate::persistence::store::Store;
     use crate::tui::app::{InlineFileReferencePickerState, TuiAppInit};
@@ -2682,6 +2723,7 @@ mod tests {
                 old_line: None,
                 new_line: Some(1),
                 file_path: "src/a.rs".into(),
+                line_anchor: LineAnchorSnapshot::default(),
             }),
             buffer: text_buffer_with_line("@src/target.rs"),
             preview_mode: false,
@@ -2729,6 +2771,7 @@ mod tests {
                 old_line: None,
                 new_line: Some(10),
                 file_path: "src/target.rs".into(),
+                line_anchor: LineAnchorSnapshot::default(),
             }),
             buffer: text_buffer_with_line("@src/target.rs"),
             preview_mode: false,
@@ -2766,6 +2809,7 @@ mod tests {
                 old_line: None,
                 new_line: Some(1),
                 file_path: "src/a.rs".into(),
+                line_anchor: LineAnchorSnapshot::default(),
             }),
             buffer: text_buffer_with_line("alpha  beta"),
             preview_mode: false,
@@ -2799,6 +2843,7 @@ mod tests {
                 old_line: None,
                 new_line: Some(1),
                 file_path: "src/a.rs".into(),
+                line_anchor: LineAnchorSnapshot::default(),
             }),
             buffer: TextBuffer {
                 lines: vec!["alpha".into(), "beta gamma".into()],

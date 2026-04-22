@@ -38,6 +38,15 @@ pub struct CommentReply {
     pub created_at_ms: u64,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+pub struct LineAnchorSnapshot {
+    pub target_code: String,
+    #[serde(default)]
+    pub before_context: Vec<String>,
+    #[serde(default)]
+    pub after_context: Vec<String>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct LineComment {
     pub id: u64,
@@ -45,6 +54,10 @@ pub struct LineComment {
     pub old_line: Option<u32>,
     pub new_line: Option<u32>,
     pub side: DiffSide,
+    #[serde(default)]
+    pub line_anchor: Option<LineAnchorSnapshot>,
+    #[serde(default)]
+    pub detached: bool,
     pub body: String,
     pub author: Author,
     pub status: CommentStatus,
@@ -72,8 +85,18 @@ pub struct NewLineComment {
     pub old_line: Option<u32>,
     pub new_line: Option<u32>,
     pub side: DiffSide,
+    pub line_anchor: Option<LineAnchorSnapshot>,
     pub body: String,
     pub author: Author,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ReanchorLineComment {
+    pub file_path: String,
+    pub old_line: Option<u32>,
+    pub new_line: Option<u32>,
+    pub side: DiffSide,
+    pub line_anchor: Option<LineAnchorSnapshot>,
 }
 
 impl ReviewSession {
@@ -137,6 +160,8 @@ impl ReviewSession {
             old_line: new_comment.old_line,
             new_line: new_comment.new_line,
             side: new_comment.side,
+            line_anchor: new_comment.line_anchor,
+            detached: false,
             body: new_comment.body,
             author: new_comment.author,
             status: CommentStatus::Open,
@@ -185,6 +210,29 @@ impl ReviewSession {
         self.reconcile_review_state_from_threads();
         self.updated_at_ms = now_ms;
         Ok(id)
+    }
+
+    pub fn reanchor_comment(
+        &mut self,
+        comment_id: u64,
+        target: ReanchorLineComment,
+        now_ms: u64,
+    ) -> Result<(), String> {
+        let comment = self
+            .comments
+            .iter_mut()
+            .find(|comment| comment.id == comment_id)
+            .ok_or_else(|| format!("comment_id {comment_id} not found"))?;
+
+        comment.file_path = target.file_path;
+        comment.old_line = target.old_line;
+        comment.new_line = target.new_line;
+        comment.side = target.side;
+        comment.line_anchor = target.line_anchor;
+        comment.detached = false;
+        comment.updated_at_ms = now_ms;
+        self.updated_at_ms = now_ms;
+        Ok(())
     }
 
     pub fn set_comment_status(
@@ -307,6 +355,7 @@ mod tests {
                 old_line: None,
                 new_line: Some(1),
                 side: DiffSide::Right,
+                line_anchor: None,
                 body: "needs refactor".into(),
                 author: Author::User,
             },
@@ -326,6 +375,7 @@ mod tests {
                 old_line: None,
                 new_line: Some(1),
                 side: DiffSide::Right,
+                line_anchor: None,
                 body: "needs refactor".into(),
                 author: Author::User,
             },
@@ -351,6 +401,7 @@ mod tests {
                 old_line: None,
                 new_line: Some(1),
                 side: DiffSide::Right,
+                line_anchor: None,
                 body: "new thread".into(),
                 author: Author::User,
             },
@@ -370,6 +421,7 @@ mod tests {
                 old_line: None,
                 new_line: Some(1),
                 side: DiffSide::Right,
+                line_anchor: None,
                 body: "needs refactor".into(),
                 author: Author::User,
             },
@@ -393,6 +445,7 @@ mod tests {
                 old_line: None,
                 new_line: Some(1),
                 side: DiffSide::Right,
+                line_anchor: None,
                 body: "needs refactor".into(),
                 author: Author::User,
             },
@@ -419,6 +472,7 @@ mod tests {
                 old_line: None,
                 new_line: Some(1),
                 side: DiffSide::Right,
+                line_anchor: None,
                 body: "needs refactor".into(),
                 author: Author::User,
             },
@@ -439,6 +493,7 @@ mod tests {
                 old_line: None,
                 new_line: Some(1),
                 side: DiffSide::Right,
+                line_anchor: None,
                 body: "needs refactor".into(),
                 author: Author::User,
             },
@@ -460,6 +515,7 @@ mod tests {
                 old_line: None,
                 new_line: Some(1),
                 side: DiffSide::Right,
+                line_anchor: None,
                 body: "needs refactor".into(),
                 author: Author::User,
             },

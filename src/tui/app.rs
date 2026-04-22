@@ -15,7 +15,7 @@ use crate::domain::ai::{AiProvider, AiSessionMode};
 use crate::domain::config::{AppConfig, default_user_name};
 use crate::domain::diff::{DiffDocument, DiffFile, DiffLineKind};
 use crate::domain::review::{
-    Author, CommentStatus, DiffSide, LineComment, ReviewSession, ReviewState,
+    Author, CommentStatus, DiffSide, LineAnchorSnapshot, LineComment, ReviewSession, ReviewState,
 };
 use crate::git::diff::{DiffSource, load_git_diff};
 use crate::services::ai_session::{
@@ -64,6 +64,7 @@ pub async fn run_tui(
         theme_index,
         log_path,
     });
+    app.refresh_review_and_diff(&service).await?;
     let mouse_capture_enabled = terminal_session.mouse_capture_enabled();
     run_loop(
         terminal_session.terminal_mut(),
@@ -229,6 +230,7 @@ struct CommentTarget {
     old_line: Option<u32>,
     new_line: Option<u32>,
     file_path: String,
+    line_anchor: LineAnchorSnapshot,
 }
 
 #[derive(Debug, Clone)]

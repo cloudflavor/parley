@@ -8,7 +8,10 @@ use anyhow::{Context, Result, anyhow};
 use crate::{
     domain::{
         config::AppConfig,
-        review::{Author, CommentStatus, DiffSide, NewLineComment, ReviewSession, ReviewState},
+        review::{
+            Author, CommentStatus, DiffSide, LineAnchorSnapshot, NewLineComment,
+            ReanchorLineComment, ReviewSession, ReviewState,
+        },
     },
     persistence::store::Store,
 };
@@ -24,6 +27,7 @@ pub struct AddCommentInput {
     pub old_line: Option<u32>,
     pub new_line: Option<u32>,
     pub side: DiffSide,
+    pub line_anchor: Option<LineAnchorSnapshot>,
     pub body: String,
     pub author: Author,
 }
@@ -33,6 +37,16 @@ pub struct AddReplyInput {
     pub comment_id: u64,
     pub author: Author,
     pub body: String,
+}
+
+#[derive(Debug, Clone)]
+pub struct ReanchorCommentInput {
+    pub comment_id: u64,
+    pub file_path: String,
+    pub old_line: Option<u32>,
+    pub new_line: Option<u32>,
+    pub side: DiffSide,
+    pub line_anchor: Option<LineAnchorSnapshot>,
 }
 
 impl ReviewService {
@@ -122,6 +136,7 @@ impl ReviewService {
                 old_line: input.old_line,
                 new_line: input.new_line,
                 side: input.side,
+                line_anchor: input.line_anchor,
                 body: input.body,
                 author: input.author,
             },
@@ -176,6 +191,39 @@ impl ReviewService {
             .await
             .context("failed to persist forced comment status")?;
         Ok(session)
+    }
+
+    pub async fn reanchor_comment(
+        &self,
+        name: &str,
+        input: ReanchorCommentInput,
+    ) -> Result<ReviewSession> {
+        let mut session = self.load_review(name).await?;
+        session
+            .reanchor_comment(
+                input.comment_id,
+                ReanchorLineComment {
+                    file_path: input.file_path,
+                    old_line: input.old_line,
+                    new_line: input.new_line,
+                    side: input.side,
+                    line_anchor: input.line_anchor,
+                },
+                now_ms()?,
+            )
+            .map_err(|error| anyhow!(error))?;
+        self.store
+            .save_review(&session)
+            .await
+            .context("failed to persist comment re-anchor")?;
+        Ok(session)
+    }
+
+    pub async fn save_review(&self, session: &ReviewSession) -> Result<()> {
+        self.store
+            .save_review(session)
+            .await
+            .context("failed to save review session")
     }
 
     async fn set_comment_status(

@@ -20,6 +20,10 @@ pub(super) const MOUSE_WHEEL_SCROLL_LINES: usize = 3;
 pub(super) const MOUSE_WHEEL_FILE_SCROLL_FILES: usize = 3;
 
 pub(super) fn comment_matches_display_row(comment: &LineComment, row: &DisplayRow) -> bool {
+    if comment.detached {
+        return false;
+    }
+
     if !matches!(
         row.kind,
         DiffLineKind::Added | DiffLineKind::Removed | DiffLineKind::Context
@@ -28,11 +32,7 @@ pub(super) fn comment_matches_display_row(comment: &LineComment, row: &DisplayRo
     }
 
     match (comment.old_line, comment.new_line) {
-        (Some(old), Some(new)) => {
-            // Prefer exact anchor pairs; if the right-side line drifts after edits,
-            // keep the thread attached by the stable old-side line mapping.
-            (row.old_line == Some(old) && row.new_line == Some(new)) || row.old_line == Some(old)
-        }
+        (Some(old), Some(new)) => row.old_line == Some(old) && row.new_line == Some(new),
         (Some(old), None) => {
             if matches!(comment.side, DiffSide::Right) {
                 false
@@ -230,6 +230,8 @@ mod tests {
             old_line,
             new_line,
             side,
+            line_anchor: None,
+            detached: false,
             body: "x".to_string(),
             author: Author::User,
             status: CommentStatus::Open,
@@ -271,10 +273,10 @@ mod tests {
     }
 
     #[test]
-    fn anchor_with_both_lines_falls_back_to_old_line_on_shift() {
+    fn anchor_with_both_lines_requires_exact_pair_after_shift() {
         let comment = make_comment(DiffSide::Right, Some(8), Some(7));
         let shifted = make_row(DiffLineKind::Context, Some(8), Some(10));
-        assert!(comment_matches_display_row(&comment, &shifted));
+        assert!(!comment_matches_display_row(&comment, &shifted));
     }
 
     #[test]

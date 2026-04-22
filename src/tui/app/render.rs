@@ -1289,10 +1289,16 @@ fn draw_diff_view_for_pane(frame: &mut Frame<'_>, app: &mut TuiApp, area: Rect, 
             .filter(|comment| !rendered_comment_ids.contains(&comment.id))
         {
             let inner_width = compute_thread_inner_width(pane_inner_width, 12);
+            let anchor_state = if comment.detached {
+                "detached"
+            } else {
+                "anchor not in current diff"
+            };
             let comment_header = format!(
-                "{} | {} | anchor {} not in current diff",
+                "{} | {} | {} @ {}",
                 app.author_label(&comment.author),
                 format_timestamp_utc(comment.created_at_ms),
+                anchor_state,
                 format_line_reference(comment.old_line, comment.new_line)
             );
             if matches!(app.thread_density_mode, ThreadDensityMode::Compact)
@@ -1307,10 +1313,11 @@ fn draw_diff_view_for_pane(frame: &mut Frame<'_>, app: &mut TuiApp, area: Rect, 
                         indent: 8,
                         width: compute_compact_thread_content_width(pane_inner_width, 8),
                         text: &format!(
-                            "▸ #{} [{}] {} @ {} - {}",
+                            "▸ #{} [{}] {} {} @ {} - {}",
                             comment.id,
                             comment_status_label(&comment.status),
                             app.author_label(&comment.author),
+                            anchor_state,
                             format_line_reference(comment.old_line, comment.new_line),
                             compact_preview(&comment.body)
                         ),
@@ -1490,15 +1497,12 @@ fn draw_inline_comment_editor(frame: &mut Frame<'_>, app: &TuiApp, area: Rect) {
         ),
     };
     let title_suffix = match line_picker {
-        Some(InlineFileReferencePickerState { path, .. }) => {
-            format!(" | Select Line for {}", path)
-        }
+        Some(InlineFileReferencePickerState { path, .. }) => format!(" | Select Line for {path}"),
         None => String::new(),
     };
     let help_line = match line_picker {
         Some(InlineFileReferencePickerState { path, .. }) => format!(
-            "Select a diff line for {} | ↑/↓/PgUp/PgDn move | Enter/Tab confirm | click line insert | Esc cancel",
-            path
+            "Select a diff line for {path} | ↑/↓/PgUp/PgDn move | Enter/Tab confirm | click line insert | Esc cancel"
         ),
         None => "Ctrl+S save | Ctrl+P preview | @path:line ref | ↑/↓ lines | Enter/Tab accept ref | Esc close"
             .to_string(),
@@ -1524,10 +1528,7 @@ fn draw_inline_comment_editor(frame: &mut Frame<'_>, app: &TuiApp, area: Rect) {
         }
         if let Some(InlineFileReferencePickerState { path, .. }) = line_picker {
             content.push(Line::from(Span::styled(
-                format!(
-                    "Select a diff line for {} before confirming the file reference.",
-                    path
-                ),
+                format!("Select a diff line for {path} before confirming the file reference."),
                 Style::default()
                     .fg(colors.accent)
                     .add_modifier(Modifier::BOLD),
@@ -1574,10 +1575,7 @@ fn draw_inline_comment_editor(frame: &mut Frame<'_>, app: &TuiApp, area: Rect) {
     }
     if let Some(InlineFileReferencePickerState { path, .. }) = line_picker {
         content.push(Line::from(Span::styled(
-            format!(
-                "Select a diff line for {} before confirming the file reference.",
-                path
-            ),
+            format!("Select a diff line for {path} before confirming the file reference."),
             Style::default()
                 .fg(colors.accent)
                 .add_modifier(Modifier::BOLD),

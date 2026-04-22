@@ -555,6 +555,18 @@ impl TuiApp {
             .unwrap_or(&[])
     }
 
+    pub(super) fn line_anchor_snapshot_for_row(
+        &self,
+        row_index: usize,
+    ) -> Option<LineAnchorSnapshot> {
+        let rows = self.current_rows();
+        let row = rows.get(row_index)?;
+        if !is_commentable_row(row) {
+            return None;
+        }
+        Some(build_line_anchor_snapshot(rows, row_index))
+    }
+
     pub(super) fn rows_and_highlights_for_file(
         &self,
         file_index: usize,
@@ -1667,6 +1679,89 @@ impl TuiApp {
         }
     }
 
+    fn remap_comment_anchors(&mut self) -> bool {
+        let mut changed = false;
+        let remap_timestamp = now_ms_utc();
+
+        for index in 0..self.review.comments.len() {
+            let snapshot = self.review.comments[index].clone();
+            let resolved = self.resolve_comment_anchor(&snapshot);
+            let comment = &mut self.review.comments[index];
+
+            match resolved {
+                Some(target) => {
+                    let needs_update = comment.side != target.side
+                        || comment.old_line != target.old_line
+                        || comment.new_line != target.new_line
+                        || comment.detached
+                        || comment.line_anchor.as_ref() != Some(&target.line_anchor);
+                    if needs_update {
+                        comment.side = target.side;
+                        comment.old_line = target.old_line;
+                        comment.new_line = target.new_line;
+                        comment.detached = false;
+                        comment.line_anchor = Some(target.line_anchor);
+                        comment.updated_at_ms = remap_timestamp;
+                        changed = true;
+                    }
+                }
+                None => {
+                    if !comment.detached {
+                        comment.detached = true;
+                        comment.updated_at_ms = remap_timestamp;
+                        changed = true;
+                    }
+                }
+            }
+        }
+
+        if changed {
+            self.review.updated_at_ms = remap_timestamp;
+        }
+        changed
+    }
+
+    fn resolve_comment_anchor(&mut self, comment: &LineComment) -> Option<ResolvedLineAnchor> {
+        let file_index = self
+            .diff
+            .files
+            .iter()
+            .position(|file| file.path == comment.file_path)?;
+        self.ensure_row_cache_for_file(file_index);
+        let rows = self.row_cache.get(&file_index)?.rows.as_slice();
+
+        if let Some((row_index, _)) = rows
+            .iter()
+            .enumerate()
+            .find(|(_, row)| is_commentable_row(row) && row_matches_exact_anchor(comment, row))
+        {
+            return Some(ResolvedLineAnchor::from_row(rows, row_index));
+        }
+
+        let snapshot = comment.line_anchor.as_ref()?;
+        if snapshot.target_code.trim().is_empty() {
+            return None;
+        }
+
+        let mut best_match: Option<(i32, usize)> = None;
+        for (row_index, row) in rows.iter().enumerate() {
+            if !is_commentable_row(row) {
+                continue;
+            }
+            let score =
+                score_anchor_candidate(comment.side.clone(), snapshot, rows, row_index, row);
+            if let Some((best_score, _)) = best_match
+                && score <= best_score
+            {
+                continue;
+            }
+            best_match = Some((score, row_index));
+        }
+
+        let (score, row_index) = best_match?;
+        (score >= 90).then(|| ResolvedLineAnchor::from_row(rows, row_index))
+    }
+
     pub(super) async fn refresh_review_and_diff(&mut self, service: &ReviewService) -> Result<()> {
         let previous_primary_path = self
             .file_for_pane(DiffPane::Primary)
@@ -1683,6 +1778,11 @@ impl TuiApp {
         self.collapsed_threads
             .retain(|id| self.review.comments.iter().any(|comment| comment.id == *id));
         self.diff = load_git_diff(&self.config, &self.diff_source).await?;
+        self.row_cache.clear();
+        self.clear_diff_render_cache();
+        if self.remap_comment_anchors() {
+            service.save_review(&self.review).await?;
+        }
         self.selected_file = previous_primary_path
             .and_then(|path| self.diff.files.iter().position(|f| f.path == path))
             .unwrap_or(0);
@@ -1690,8 +1790,6 @@ impl TuiApp {
             .and_then(|path| self.diff.files.iter().position(|f| f.path == path))
             .unwrap_or(self.selected_file);
 
-        self.row_cache.clear();
-        self.clear_diff_render_cache();
         self.selected_line = selected_line;
         self.secondary_selected_line = secondary_selected_line;
         self.selected_comment = selected_comment;
@@ -1701,6 +1799,151 @@ impl TuiApp {
         }
         self.constrain_selection();
         Ok(())
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct ResolvedLineAnchor {
+    side: DiffSide,
+    old_line: Option<u32>,
+    new_line: Option<u32>,
+    line_anchor: LineAnchorSnapshot,
+}
+
+impl ResolvedLineAnchor {
+    fn from_row(rows: &[DisplayRow], row_index: usize) -> Self {
+        let row = &rows[row_index];
+        let (side, old_line, new_line) = row_to_comment_anchor(row);
+        Self {
+            side,
+            old_line,
+            new_line,
+            line_anchor: build_line_anchor_snapshot(rows, row_index),
+        }
+    }
+}
+
+fn build_line_anchor_snapshot(rows: &[DisplayRow], row_index: usize) -> LineAnchorSnapshot {
+    let row = &rows[row_index];
+    let (before_context, after_context) = row_context_windows(rows, row_index, 2);
+    LineAnchorSnapshot {
+        target_code: normalize_anchor_text(&row.code),
+        before_context,
+        after_context,
+    }
+}
+
+fn row_matches_exact_anchor(comment: &LineComment, row: &DisplayRow) -> bool {
+    match (comment.old_line, comment.new_line) {
+        (Some(old), Some(new)) => row.old_line == Some(old) && row.new_line == Some(new),
+        (Some(old), None) => row.old_line == Some(old),
+        (None, Some(new)) => row.new_line == Some(new),
+        (None, None) => false,
+    }
+}
+
+fn score_anchor_candidate(
+    preferred_side: DiffSide,
+    snapshot: &LineAnchorSnapshot,
+    rows: &[DisplayRow],
+    row_index: usize,
+    row: &DisplayRow,
+) -> i32 {
+    let row_text = normalize_anchor_text(&row.code);
+    let target_text = normalize_anchor_text(&snapshot.target_code);
+    if row_text.is_empty() || target_text.is_empty() {
+        return i32::MIN;
+    }
+
+    let mut score = 0;
+    if row_text == target_text {
+        score += 100;
+    } else if normalize_ws(&row_text) == normalize_ws(&target_text) {
+        score += 80;
+    } else if row_text.contains(&target_text) || target_text.contains(&row_text) {
+        score += 40;
+    }
+
+    let (before_context, after_context) = row_context_windows(rows, row_index, 2);
+    score += score_context_side(&snapshot.before_context, &before_context);
+    score += score_context_side(&snapshot.after_context, &after_context);
+
+    if (matches!(preferred_side, DiffSide::Left) && row.old_line.is_some())
+        || (matches!(preferred_side, DiffSide::Right) && row.new_line.is_some())
+    {
+        score += 5;
+    }
+
+    score
+}
+
+fn score_context_side(expected: &[String], actual: &[String]) -> i32 {
+    expected
+        .iter()
+        .zip(actual.iter())
+        .map(|(left, right)| {
+            if left == right {
+                25
+            } else if normalize_ws(left) == normalize_ws(right) {
+                10
+            } else {
+                0
+            }
+        })
+        .sum()
+}
+
+fn row_context_windows(
+    rows: &[DisplayRow],
+    row_index: usize,
+    max_lines: usize,
+) -> (Vec<String>, Vec<String>) {
+    let mut before = Vec::new();
+    let mut cursor = row_index;
+    while cursor > 0 && before.len() < max_lines {
+        cursor -= 1;
+        let row = &rows[cursor];
+        if !is_commentable_row(row) {
+            continue;
+        }
+        before.push(normalize_anchor_text(&row.code));
+    }
+
+    let mut after = Vec::new();
+    let mut cursor = row_index + 1;
+    while cursor < rows.len() && after.len() < max_lines {
+        let row = &rows[cursor];
+        cursor += 1;
+        if !is_commentable_row(row) {
+            continue;
+        }
+        after.push(normalize_anchor_text(&row.code));
+    }
+
+    (before, after)
+}
+
+fn normalize_anchor_text(value: &str) -> String {
+    value.trim().to_string()
+}
+
+fn normalize_ws(value: &str) -> String {
+    value.split_whitespace().collect::<Vec<_>>().join(" ")
+}
+
+fn is_commentable_row(row: &DisplayRow) -> bool {
+    matches!(
+        row.kind,
+        DiffLineKind::Added | DiffLineKind::Removed | DiffLineKind::Context
+    )
+}
+
+fn row_to_comment_anchor(row: &DisplayRow) -> (DiffSide, Option<u32>, Option<u32>) {
+    match row.kind {
+        DiffLineKind::Added => (DiffSide::Right, None, row.new_line),
+        DiffLineKind::Removed => (DiffSide::Left, row.old_line, None),
+        DiffLineKind::Context => (DiffSide::Right, row.old_line, row.new_line),
+        _ => (DiffSide::Right, None, None),
     }
 }
 
@@ -1948,6 +2191,8 @@ mod tests {
             old_line: None,
             new_line: Some(1),
             side: DiffSide::Right,
+            line_anchor: None,
+            detached: false,
             body: format!("comment {id}"),
             author: Author::User,
             status,
