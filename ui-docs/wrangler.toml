@@ -1,4 +1,4 @@
-name = "parley-docs"
+name = "parley"
 main = "src/worker.js"
 compatibility_date = "2026-03-17"
 upload_source_maps = true
