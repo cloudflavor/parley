@@ -1958,13 +1958,11 @@ pub(super) fn now_ms_utc() -> u64 {
 mod tests {
     use std::path::PathBuf;
 
-    use crate::domain::{
-        config::AppConfig,
-        diff::{DiffDocument, DiffFile, DiffHunk, DiffLine, DiffLineKind},
-        review::{
-            Author, CommentStatus, DiffSide, LineAnchorSnapshot, LineComment, ReviewSession,
-            ReviewState,
-        },
+    use crate::domain::config::AppConfig;
+    use crate::domain::diff::{DiffDocument, DiffFile, DiffHunk, DiffLine, DiffLineKind};
+    use crate::domain::review::{
+        Author, CommentStatus, DiffSide, LineAnchorSnapshot, LineComment, ReviewSession,
+        ReviewState,
     };
     use crate::tui::theme::load_themes;
 
