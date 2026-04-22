@@ -117,6 +117,8 @@ Parley can review more than the live working tree:
 - `parley tui --commit <rev>`: diff that commit against its first parent
 - `parley tui --base <rev>`: diff `<rev>..HEAD`
 - `parley tui --base <rev> --head <rev>`: diff an explicit base/head range
+- `parley tui --base <rev> --head HEAD`: diff everything after `<rev>`
+- `parley tui --base <rev>^ --head HEAD`: diff everything after and including `<rev>`
 
 AI sessions use the same selected revision source for prompt context.
 

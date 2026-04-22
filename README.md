@@ -90,6 +90,10 @@ Review historical diffs:
 parley tui --review my-review --commit HEAD~2
 parley tui --review my-review --base main --head feature/my-branch
 parley tui --review my-review --base v0.1.0
+# everything after HEAD~2 (exclude that commit)
+parley tui --review my-review --base HEAD~2 --head HEAD
+# everything after and including HEAD~2
+parley tui --review my-review --base HEAD~2^ --head HEAD
 ```
 
 ## CLI Reference
