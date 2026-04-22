@@ -26,6 +26,7 @@
 - `a`: mark addressed
 - `o`: mark open
 - `f`: force-address selected thread
+- `u`: re-anchor selected thread to the currently selected diff line
 
 ### File references inside the comment box
 
@@ -65,6 +66,7 @@
 - `?`: open help docs
 - `Ctrl+k`: command palette
 - `Ctrl+f`: file filter input
+- `Shift+U`: edit user name
 - `V`: toggle split diff
 - `S`: toggle side-by-side diff
 - `Tab`: switch active diff pane
