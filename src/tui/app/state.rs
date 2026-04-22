@@ -1960,8 +1960,11 @@ mod tests {
 
     use crate::domain::{
         config::AppConfig,
-        diff::{DiffDocument, DiffFile},
-        review::{Author, CommentStatus, DiffSide, LineComment, ReviewSession, ReviewState},
+        diff::{DiffDocument, DiffFile, DiffHunk, DiffLine, DiffLineKind},
+        review::{
+            Author, CommentStatus, DiffSide, LineAnchorSnapshot, LineComment, ReviewSession,
+            ReviewState,
+        },
     };
     use crate::tui::theme::load_themes;
 
@@ -2150,7 +2153,83 @@ mod tests {
         assert!(!app.shortcuts_modal_visible);
     }
 
+    #[test]
+    fn remap_comment_anchors_keeps_exact_and_detaches_missing_anchors() {
+        let mut app = make_test_app_with_files_and_comments(
+            vec![diff_file_with_context_lines(
+                "src/a.rs",
+                &[(10, "fn keep() {}"), (11, "let value = 1;")],
+            )],
+            vec![
+                make_comment_with_anchor(1, "src/a.rs", Some(10), Some(10), None),
+                make_comment_with_anchor(2, "src/a.rs", Some(99), Some(99), None),
+            ],
+        );
+
+        assert!(app.remap_comment_anchors());
+
+        assert!(!app.review.comments[0].detached);
+        assert_eq!(app.review.comments[0].old_line, Some(10));
+        assert_eq!(app.review.comments[0].new_line, Some(10));
+        assert!(app.review.comments[0].line_anchor.is_some());
+
+        assert!(app.review.comments[1].detached);
+        assert_eq!(app.review.comments[1].old_line, Some(99));
+        assert_eq!(app.review.comments[1].new_line, Some(99));
+    }
+
+    #[test]
+    fn remap_comment_anchors_prefers_context_when_target_text_repeats() {
+        let mut app = make_test_app_with_files_and_comments(
+            vec![diff_file_with_context_lines(
+                "src/a.rs",
+                &[
+                    (100, "let before_one = true;"),
+                    (101, "let value = do_work();"),
+                    (102, "let after_one = true;"),
+                    (200, "let before_two = true;"),
+                    (201, "let value = do_work();"),
+                    (202, "let after_two = true;"),
+                ],
+            )],
+            vec![make_comment_with_anchor(
+                1,
+                "src/a.rs",
+                Some(999),
+                Some(999),
+                Some(LineAnchorSnapshot {
+                    target_code: "let value = do_work();".to_string(),
+                    before_context: vec!["let before_two = true;".to_string()],
+                    after_context: vec!["let after_two = true;".to_string()],
+                }),
+            )],
+        );
+
+        assert!(app.remap_comment_anchors());
+
+        let comment = &app.review.comments[0];
+        assert!(!comment.detached);
+        assert_eq!(comment.old_line, Some(201));
+        assert_eq!(comment.new_line, Some(201));
+        assert_eq!(comment.side, DiffSide::Right);
+    }
+
     fn make_test_app(paths: Vec<&str>, comments: Vec<LineComment>) -> TuiApp {
+        let files = paths
+            .into_iter()
+            .map(|path| DiffFile {
+                path: path.to_string(),
+                header_lines: Vec::new(),
+                hunks: Vec::new(),
+            })
+            .collect();
+        make_test_app_with_files_and_comments(files, comments)
+    }
+
+    fn make_test_app_with_files_and_comments(
+        files: Vec<DiffFile>,
+        comments: Vec<LineComment>,
+    ) -> TuiApp {
         let review = ReviewSession {
             name: "test-review".to_string(),
             state: ReviewState::Open,
@@ -2161,16 +2240,7 @@ mod tests {
             next_comment_id: 100,
             next_reply_id: 1,
         };
-        let diff = DiffDocument {
-            files: paths
-                .into_iter()
-                .map(|path| DiffFile {
-                    path: path.to_string(),
-                    header_lines: Vec::new(),
-                    hunks: Vec::new(),
-                })
-                .collect(),
-        };
+        let diff = DiffDocument { files };
         let themes = load_themes().expect("embedded themes should load");
         TuiApp::new(TuiAppInit {
             review_name: review.name.clone(),
@@ -2182,6 +2252,35 @@ mod tests {
             theme_index: 0,
             log_path: PathBuf::from("test.log"),
         })
+    }
+
+    fn diff_file_with_context_lines(path: &str, lines: &[(u32, &str)]) -> DiffFile {
+        let mut hunk_lines = vec![DiffLine {
+            kind: DiffLineKind::HunkHeader,
+            old_line: None,
+            new_line: None,
+            raw: "@@ -1,1 +1,1 @@".into(),
+            code: "@@ -1,1 +1,1 @@".into(),
+        }];
+        hunk_lines.extend(lines.iter().map(|(line, code)| DiffLine {
+            kind: DiffLineKind::Context,
+            old_line: Some(*line),
+            new_line: Some(*line),
+            raw: format!(" {code}"),
+            code: (*code).to_string(),
+        }));
+        DiffFile {
+            path: path.to_string(),
+            header_lines: Vec::new(),
+            hunks: vec![DiffHunk {
+                old_start: lines.first().map(|(line, _)| *line).unwrap_or(1),
+                old_count: lines.len() as u32,
+                new_start: lines.first().map(|(line, _)| *line).unwrap_or(1),
+                new_count: lines.len() as u32,
+                header: "@@ -1,1 +1,1 @@".into(),
+                lines: hunk_lines,
+            }],
+        }
     }
 
     fn make_comment(id: u64, file_path: &str, status: CommentStatus) -> LineComment {
@@ -2196,6 +2295,31 @@ mod tests {
             body: format!("comment {id}"),
             author: Author::User,
             status,
+            replies: Vec::new(),
+            created_at_ms: 0,
+            updated_at_ms: 0,
+            addressed_at_ms: None,
+        }
+    }
+
+    fn make_comment_with_anchor(
+        id: u64,
+        file_path: &str,
+        old_line: Option<u32>,
+        new_line: Option<u32>,
+        line_anchor: Option<LineAnchorSnapshot>,
+    ) -> LineComment {
+        LineComment {
+            id,
+            file_path: file_path.to_string(),
+            old_line,
+            new_line,
+            side: DiffSide::Right,
+            line_anchor,
+            detached: false,
+            body: format!("comment {id}"),
+            author: Author::User,
+            status: CommentStatus::Open,
             replies: Vec::new(),
             created_at_ms: 0,
             updated_at_ms: 0,

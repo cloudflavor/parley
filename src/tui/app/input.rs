@@ -2533,7 +2533,7 @@ impl TuiApp {
             )
             .await
             .context("failed to persist thread re-anchor")?;
-        self.refresh_review_and_diff(service).await?;
+        self.reload_review(service).await?;
         self.status_line = format!(
             "thread #{} re-anchored to {}",
             comment.id,
@@ -2871,6 +2871,68 @@ mod tests {
         assert_eq!(inline.buffer.cursor_col, "alpha".chars().count());
     }
 
+    #[tokio::test]
+    async fn pressing_u_reanchors_selected_thread_and_persists_review() {
+        let tempdir = tempdir().expect("tempdir should exist");
+        let service = ReviewService::new(Store::from_project_root(tempdir.path()));
+        service
+            .create_review("test-review")
+            .await
+            .expect("review should be created");
+        service
+            .add_comment(
+                "test-review",
+                AddCommentInput {
+                    file_path: "src/a.rs".into(),
+                    old_line: Some(10),
+                    new_line: Some(10),
+                    side: DiffSide::Right,
+                    line_anchor: None,
+                    body: "anchor me".into(),
+                    author: Author::User,
+                },
+            )
+            .await
+            .expect("comment should be added");
+        let review = service
+            .load_review("test-review")
+            .await
+            .expect("review should load");
+
+        let mut app = make_test_app_with_review_and_files(
+            review,
+            vec![diff_file_with_lines(
+                "src/a.rs",
+                &[(10, "fn old_anchor() {}"), (12, "fn new_anchor() {}")],
+            )],
+        );
+        app.ensure_row_cache();
+        assert!(app.goto_line_number(12));
+        app.selected_comment = 0;
+
+        app.handle_key(
+            KeyEvent::new(KeyCode::Char('u'), KeyModifiers::empty()),
+            &service,
+        )
+        .await
+        .expect("re-anchor key should succeed");
+
+        let updated = service
+            .load_review("test-review")
+            .await
+            .expect("updated review should load");
+        let comment = updated
+            .comments
+            .iter()
+            .find(|comment| comment.id == 1)
+            .expect("comment should exist");
+        assert_eq!(comment.old_line, Some(12));
+        assert_eq!(comment.new_line, Some(12));
+        assert!(!comment.detached);
+        assert!(comment.line_anchor.is_some());
+        assert!(app.status_line.contains("re-anchored"));
+    }
+
     fn make_test_app(paths: Vec<&str>) -> TuiApp {
         make_test_app_with_files(paths.into_iter().map(empty_diff_file).collect())
     }
@@ -2885,6 +2947,20 @@ mod tests {
             comments: Vec::new(),
             next_comment_id: 1,
             next_reply_id: 1,
+        };
+        make_test_app_with_review_and_files(review, files)
+    }
+
+    fn make_test_app_with_review_and_files(review: ReviewSession, files: Vec<DiffFile>) -> TuiApp {
+        let review = ReviewSession {
+            name: review.name,
+            state: review.state,
+            created_at_ms: review.created_at_ms,
+            updated_at_ms: review.updated_at_ms,
+            done_at_ms: review.done_at_ms,
+            comments: review.comments,
+            next_comment_id: review.next_comment_id,
+            next_reply_id: review.next_reply_id,
         };
         let diff = DiffDocument { files };
         let themes = load_themes().expect("embedded themes should load");
