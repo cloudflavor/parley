@@ -4,7 +4,7 @@ Parley exposes an MCP-compatible JSON-RPC interface over stdio.
 
 ## Transport
 
-- Uses `Content-Length` framed JSON-RPC messages.
+- Supports both `Content-Length` framed and newline-delimited JSON-RPC messages.
 - Implements `initialize`, `tools/list`, and `tools/call`.
 
 ## Typical tools

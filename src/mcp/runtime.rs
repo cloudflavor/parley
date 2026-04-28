@@ -7,8 +7,19 @@ use anyhow::{Context, Result, anyhow};
 use serde::Deserialize;
 use serde_json::{Value, from_str, json, to_vec};
 use tokio::io::{
-    AsyncBufRead, AsyncBufReadExt, AsyncReadExt, AsyncWriteExt, BufReader, BufWriter, stdin, stdout,
+    AsyncBufRead, AsyncBufReadExt, AsyncReadExt, AsyncWrite, AsyncWriteExt, BufReader, BufWriter,
+    stdin, stdout,
 };
+
+const DEFAULT_PROTOCOL_VERSION: &str = "2025-11-25";
+const SUPPORTED_PROTOCOL_VERSIONS: &[&str] =
+    &["2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"];
+
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+enum FramingMode {
+    ContentLength,
+    NewlineDelimited,
+}
 
 #[derive(Debug, Deserialize)]
 struct RpcRequest {
@@ -18,13 +29,20 @@ struct RpcRequest {
     params: Option<Value>,
 }
 
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct InitializeParams {
+    protocol_version: Option<String>,
+}
+
 pub async fn run_mcp(service: ReviewService) -> Result<()> {
     let stdin = stdin();
     let stdout = stdout();
     let mut reader = BufReader::new(stdin);
     let mut writer = BufWriter::new(stdout);
+    let mut framing_mode = None;
 
-    while let Some(body) = read_message_body(&mut reader).await? {
+    while let Some(body) = read_message_body(&mut reader, &mut framing_mode).await? {
         let request: RpcRequest = match from_str(&body) {
             Ok(request) => request,
             Err(error) => {
@@ -33,7 +51,12 @@ pub async fn run_mcp(service: ReviewService) -> Result<()> {
                     "id": Value::Null,
                     "error": {"code": -32700, "message": format!("parse error: {error}")}
                 });
-                write_response(&mut writer, &payload).await?;
+                write_response(
+                    &mut writer,
+                    &payload,
+                    framing_mode.unwrap_or(FramingMode::ContentLength),
+                )
+                .await?;
                 continue;
             }
         };
@@ -44,20 +67,72 @@ pub async fn run_mcp(service: ReviewService) -> Result<()> {
                 "id": request.id.unwrap_or(Value::Null),
                 "error": {"code": -32600, "message": "invalid jsonrpc version"}
             });
-            write_response(&mut writer, &payload).await?;
+            write_response(
+                &mut writer,
+                &payload,
+                framing_mode.unwrap_or(FramingMode::ContentLength),
+            )
+            .await?;
             continue;
         }
 
         let response = handle_request(&service, request).await;
         if let Some(payload) = response {
-            write_response(&mut writer, &payload).await?;
+            write_response(
+                &mut writer,
+                &payload,
+                framing_mode.unwrap_or(FramingMode::ContentLength),
+            )
+            .await?;
         }
     }
 
     Ok(())
 }
 
-async fn read_message_body<R: AsyncBufRead + Unpin>(reader: &mut R) -> Result<Option<String>> {
+async fn read_message_body<R: AsyncBufRead + Unpin>(
+    reader: &mut R,
+    framing_mode: &mut Option<FramingMode>,
+) -> Result<Option<String>> {
+    let mode = match framing_mode {
+        Some(mode) => *mode,
+        None => match detect_framing_mode(reader).await? {
+            Some(mode) => {
+                *framing_mode = Some(mode);
+                mode
+            }
+            None => return Ok(None),
+        },
+    };
+
+    match mode {
+        FramingMode::ContentLength => read_content_length_message_body(reader).await,
+        FramingMode::NewlineDelimited => read_newline_message_body(reader).await,
+    }
+}
+
+async fn detect_framing_mode<R: AsyncBufRead + Unpin>(reader: &mut R) -> Result<Option<FramingMode>> {
+    loop {
+        let buffer = reader
+            .fill_buf()
+            .await
+            .context("failed to read MCP framing prefix")?;
+        if buffer.is_empty() {
+            return Ok(None);
+        }
+
+        match buffer[0] {
+            b'{' => return Ok(Some(FramingMode::NewlineDelimited)),
+            b'C' | b'c' => return Ok(Some(FramingMode::ContentLength)),
+            b'\r' | b'\n' | b' ' | b'\t' => reader.consume(1),
+            _ => return Ok(Some(FramingMode::NewlineDelimited)),
+        }
+    }
+}
+
+async fn read_content_length_message_body<R: AsyncBufRead + Unpin>(
+    reader: &mut R,
+) -> Result<Option<String>> {
     let mut content_length: Option<usize> = None;
 
     loop {
@@ -100,14 +175,52 @@ async fn read_message_body<R: AsyncBufRead + Unpin>(reader: &mut R) -> Result<Op
     Ok(Some(text))
 }
 
-async fn write_response<W: AsyncWriteExt + Unpin>(writer: &mut W, payload: &Value) -> Result<()> {
+async fn read_newline_message_body<R: AsyncBufRead + Unpin>(reader: &mut R) -> Result<Option<String>> {
+    loop {
+        let mut line = String::new();
+        let bytes_read = reader
+            .read_line(&mut line)
+            .await
+            .context("failed to read newline-delimited MCP message")?;
+        if bytes_read == 0 {
+            return Ok(None);
+        }
+
+        let trimmed = line.trim();
+        if trimmed.is_empty() {
+            continue;
+        }
+
+        return Ok(Some(trimmed.to_string()));
+    }
+}
+
+async fn write_response<W: AsyncWrite + Unpin>(
+    writer: &mut W,
+    payload: &Value,
+    framing_mode: FramingMode,
+) -> Result<()> {
     let body = to_vec(payload)?;
-    let header = format!("Content-Length: {}\r\n\r\n", body.len());
-    writer.write_all(header.as_bytes()).await?;
-    writer
-        .write_all(&body)
-        .await
-        .context("failed to write MCP response body")?;
+    match framing_mode {
+        FramingMode::ContentLength => {
+            let header = format!("Content-Length: {}\r\n\r\n", body.len());
+            writer.write_all(header.as_bytes()).await?;
+            writer
+                .write_all(&body)
+                .await
+                .context("failed to write MCP response body")?;
+        }
+        FramingMode::NewlineDelimited => {
+            writer
+                .write_all(&body)
+                .await
+                .context("failed to write MCP response body")?;
+            writer
+                .write_all(b"\n")
+                .await
+                .context("failed to write newline-delimited MCP separator")?;
+        }
+    }
     writer.flush().await?;
     Ok(())
 }
@@ -115,12 +228,9 @@ async fn write_response<W: AsyncWriteExt + Unpin>(writer: &mut W, payload: &Valu
 async fn handle_request(service: &ReviewService, request: RpcRequest) -> Option<Value> {
     let id = request.id;
     let result = match request.method.as_str() {
-        "initialize" => Ok(json!({
-            "protocolVersion": "2024-11-05",
-            "serverInfo": {"name": "parley", "version": "0.1.0"},
-            "capabilities": {"tools": {}}
-        })),
-        "notifications/initialized" => return None,
+        "initialize" => Ok(initialize_result(request.params.as_ref())),
+        "notifications/initialized" | "initialized" | "notifications/cancelled" => return None,
+        "ping" => Ok(json!({})),
         "tools/list" => Ok(json!({
             "tools": [
                 {"name": "list_reviews", "description": "List review session names", "inputSchema": {"type": "object", "properties": {}}},
@@ -153,6 +263,43 @@ async fn handle_request(service: &ReviewService, request: RpcRequest) -> Option<
                 "message": error.to_string(),
             }
         })),
+    }
+}
+
+fn initialize_result(params: Option<&Value>) -> Value {
+    let protocol_version = negotiate_protocol_version(params);
+    json!({
+        "protocolVersion": protocol_version,
+        "serverInfo": {"name": "parley", "version": env!("CARGO_PKG_VERSION")},
+        "capabilities": {
+            "tools": {
+                "listChanged": false
+            }
+        }
+    })
+}
+
+fn negotiate_protocol_version(params: Option<&Value>) -> String {
+    let Some(raw_params) = params else {
+        return DEFAULT_PROTOCOL_VERSION.to_string();
+    };
+
+    let Some(requested) = serde_json::from_value::<InitializeParams>(raw_params.clone())
+        .ok()
+        .and_then(|parsed| parsed.protocol_version)
+        .map(|value| value.trim().to_string())
+        .filter(|value| !value.is_empty())
+    else {
+        return DEFAULT_PROTOCOL_VERSION.to_string();
+    };
+
+    if SUPPORTED_PROTOCOL_VERSIONS
+        .iter()
+        .any(|supported| *supported == requested)
+    {
+        requested
+    } else {
+        DEFAULT_PROTOCOL_VERSION.to_string()
     }
 }
 
@@ -315,5 +462,86 @@ fn parse_state(value: &str) -> Result<ReviewState> {
         "under_review" => Ok(ReviewState::UnderReview),
         "done" => Ok(ReviewState::Done),
         _ => Err(anyhow!("invalid state value: {value}")),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::persistence::store::Store;
+    use tempfile::tempdir;
+    use tokio::io::BufReader;
+
+    #[test]
+    fn initialize_uses_requested_supported_protocol_version() {
+        let params = json!({"protocolVersion": "2025-03-26"});
+        let response = initialize_result(Some(&params));
+
+        assert_eq!(response["protocolVersion"], json!("2025-03-26"));
+        assert_eq!(
+            response["capabilities"]["tools"]["listChanged"],
+            json!(false)
+        );
+    }
+
+    #[test]
+    fn initialize_falls_back_to_default_protocol_version() {
+        let unsupported = json!({"protocolVersion": "1.0.0"});
+        let response = initialize_result(Some(&unsupported));
+        assert_eq!(response["protocolVersion"], json!(DEFAULT_PROTOCOL_VERSION));
+
+        let missing = initialize_result(None);
+        assert_eq!(missing["protocolVersion"], json!(DEFAULT_PROTOCOL_VERSION));
+    }
+
+    #[tokio::test]
+    async fn ping_request_returns_empty_result() {
+        let tempdir = tempdir().expect("tempdir should exist");
+        let service = ReviewService::new(Store::from_project_root(tempdir.path()));
+        let request = RpcRequest {
+            jsonrpc: Some("2.0".to_string()),
+            id: Some(json!(1)),
+            method: "ping".to_string(),
+            params: None,
+        };
+
+        let response = handle_request(&service, request)
+            .await
+            .expect("ping request should return a response");
+
+        assert_eq!(response["result"], json!({}));
+    }
+
+    #[tokio::test]
+    async fn read_message_body_supports_newline_delimited_json() {
+        let raw = b"{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"ping\"}\n";
+        let mut reader = BufReader::new(&raw[..]);
+        let mut framing_mode = None;
+
+        let body = read_message_body(&mut reader, &mut framing_mode)
+            .await
+            .expect("newline message should parse")
+            .expect("newline message should exist");
+
+        assert_eq!(framing_mode, Some(FramingMode::NewlineDelimited));
+        let parsed: Value = serde_json::from_str(&body).expect("message body should be valid json");
+        assert_eq!(parsed["method"], json!("ping"));
+    }
+
+    #[tokio::test]
+    async fn read_message_body_supports_content_length_framing() {
+        let payload = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"ping\"}";
+        let raw = format!("Content-Length: {}\r\n\r\n{}", payload.len(), payload);
+        let mut reader = BufReader::new(raw.as_bytes());
+        let mut framing_mode = None;
+
+        let body = read_message_body(&mut reader, &mut framing_mode)
+            .await
+            .expect("content-length message should parse")
+            .expect("content-length message should exist");
+
+        assert_eq!(framing_mode, Some(FramingMode::ContentLength));
+        let parsed: Value = serde_json::from_str(&body).expect("message body should be valid json");
+        assert_eq!(parsed["method"], json!("ping"));
     }
 }

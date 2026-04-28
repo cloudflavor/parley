@@ -7,6 +7,8 @@ pub mod services;
 pub mod tui;
 
 use anyhow::{Context, Result, anyhow};
+use std::ffi::OsString;
+use std::io::IsTerminal;
 use structopt::StructOpt;
 
 use crate::{
@@ -21,15 +23,19 @@ use crate::{
 };
 
 pub async fn run() -> Result<()> {
-    let cli = Cli::from_args();
+    let args: Vec<OsString> = std::env::args_os().collect();
+    let command = if should_run_mcp(&args) {
+        Command::Mcp
+    } else {
+        Cli::from_args().command
+    };
 
     let project_root =
         std::env::current_dir().context("failed to read current working directory")?;
     let store = Store::from_project_root(&project_root);
-    store.ensure_dirs().await?;
     let service = ReviewService::new(store);
 
-    match cli.command {
+    match command {
         Command::Tui {
             review,
             no_mouse,
@@ -50,6 +56,22 @@ pub async fn run() -> Result<()> {
     }
 
     Ok(())
+}
+
+fn should_run_mcp(args: &[OsString]) -> bool {
+    if args.len() == 1 && !std::io::stdin().is_terminal() && !std::io::stdout().is_terminal() {
+        return true;
+    }
+
+    let first_arg = args.get(1).and_then(|value| value.to_str());
+    if matches!(first_arg, Some("mcp")) {
+        return true;
+    }
+
+    args.iter()
+        .skip(1)
+        .filter_map(|value| value.to_str())
+        .any(|value| matches!(value, "--stdio" | "--mcp"))
 }
 
 async fn resolve_default_review_for_tui(
@@ -235,4 +257,22 @@ async fn handle_review_command(command: ReviewCommand, service: &ReviewService) 
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::should_run_mcp;
+    use std::ffi::OsString;
+
+    #[test]
+    fn should_run_mcp_when_first_arg_is_mcp() {
+        let args = vec![OsString::from("parley"), OsString::from("mcp")];
+        assert!(should_run_mcp(&args));
+    }
+
+    #[test]
+    fn should_run_mcp_when_stdio_flag_is_present() {
+        let args = vec![OsString::from("parley"), OsString::from("--stdio")];
+        assert!(should_run_mcp(&args));
+    }
 }
