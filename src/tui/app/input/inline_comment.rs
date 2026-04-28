@@ -699,7 +699,10 @@ impl TuiApp {
         Ok(())
     }
 
-    pub(super) async fn reanchor_selected_comment(&mut self, service: &ReviewService) -> Result<()> {
+    pub(super) async fn reanchor_selected_comment(
+        &mut self,
+        service: &ReviewService,
+    ) -> Result<()> {
         let Some(comment) = self.selected_comment_details().cloned() else {
             self.status_line = "no selected thread to re-anchor".into();
             return Ok(());

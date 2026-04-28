@@ -1,4 +1,5 @@
 use super::*;
+use crate::tui::app::help_docs::HELP_DOCS;
 
 impl TuiApp {
     pub(super) fn open_command_palette(&mut self) {
@@ -169,17 +170,13 @@ impl TuiApp {
             }
             KeyCode::Left | KeyCode::Char('h') | KeyCode::BackTab => {
                 self.cycle_help_doc(false);
-                if let Some(doc) = crate::tui::app::help_docs::HELP_DOCS
-                    .get(self.shortcuts_modal_doc_index)
-                {
+                if let Some(doc) = HELP_DOCS.get(self.shortcuts_modal_doc_index) {
                     self.status_line = format!("help doc: {}", doc.title);
                 }
             }
             KeyCode::Right | KeyCode::Char('l') | KeyCode::Tab => {
                 self.cycle_help_doc(true);
-                if let Some(doc) = crate::tui::app::help_docs::HELP_DOCS
-                    .get(self.shortcuts_modal_doc_index)
-                {
+                if let Some(doc) = HELP_DOCS.get(self.shortcuts_modal_doc_index) {
                     self.status_line = format!("help doc: {}", doc.title);
                 }
             }
@@ -187,9 +184,7 @@ impl TuiApp {
                 let digit = ch as usize - '0' as usize;
                 if digit > 0 {
                     self.set_help_doc_index(digit - 1);
-                    if let Some(doc) =
-                        crate::tui::app::help_docs::HELP_DOCS.get(self.shortcuts_modal_doc_index)
-                    {
+                    if let Some(doc) = HELP_DOCS.get(self.shortcuts_modal_doc_index) {
                         self.status_line = format!("help doc: {}", doc.title);
                     }
                 }
@@ -857,5 +852,4 @@ impl TuiApp {
             _ => false,
         }
     }
-
 }
