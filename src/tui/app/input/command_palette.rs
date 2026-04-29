@@ -478,6 +478,14 @@ impl TuiApp {
             self.status_line = "editing file filter".into();
             return Ok(());
         }
+        if matches!(key.code, KeyCode::Char('z'))
+            && key.modifiers.contains(KeyModifiers::CONTROL)
+        {
+            self.pending_z_prefix_at = None;
+            self.pending_action = Some(PendingUiAction::SuspendTuiProcess);
+            self.status_line = "suspending parley; run `fg` to resume".into();
+            return Ok(());
+        }
 
         if matches!(key.code, KeyCode::Char('z')) && key.modifiers.is_empty() {
             if let Some(pressed_at) = self.pending_z_prefix_at

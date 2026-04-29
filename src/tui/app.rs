@@ -149,6 +149,16 @@ async fn run_loop(
                         }
                     }
                 }
+                PendingUiAction::SuspendTuiProcess => {
+                    match suspend_tui_process(terminal, mouse_capture_enabled) {
+                        Ok(()) => {
+                            app.status_line = "resumed parley (Ctrl+Z suspend)".into();
+                        }
+                        Err(error) => {
+                            app.status_line = format!("suspend failed: {error}");
+                        }
+                    }
+                }
             }
             app.invalidate_redraw();
         }
@@ -178,7 +188,7 @@ mod state;
 use helpers::{
     MOUSE_WHEEL_FILE_SCROLL_FILES, MOUSE_WHEEL_SCROLL_LINES, comment_matches_display_row,
     format_line_reference, format_timestamp_utc, insert_char_at, open_log_in_less, point_in_rect,
-    remove_char_at, slice_chars,
+    remove_char_at, slice_chars, suspend_tui_process,
 };
 use render::draw;
 
@@ -411,6 +421,7 @@ struct CommandPaletteState {
 #[derive(Debug, Clone)]
 enum PendingUiAction {
     OpenLogsInLess,
+    SuspendTuiProcess,
 }
 
 #[derive(Debug)]

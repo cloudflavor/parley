@@ -190,6 +190,71 @@ pub(super) fn open_log_in_less(
     Ok(())
 }
 
+pub(super) fn suspend_tui_process(
+    terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
+    mouse_capture_enabled: bool,
+) -> Result<()> {
+    disable_raw_mode().context("failed to disable raw mode before suspend")?;
+    if mouse_capture_enabled {
+        execute!(
+            terminal.backend_mut(),
+            LeaveAlternateScreen,
+            DisableMouseCapture
+        )
+        .context("failed to leave alternate screen before suspend")?;
+    } else {
+        execute!(terminal.backend_mut(), LeaveAlternateScreen)
+            .context("failed to leave alternate screen before suspend")?;
+    }
+    terminal.show_cursor().context("failed to show cursor")?;
+
+    let suspend_result = suspend_current_process();
+
+    if mouse_capture_enabled {
+        execute!(
+            terminal.backend_mut(),
+            EnterAlternateScreen,
+            EnableMouseCapture
+        )
+        .context("failed to re-enter alternate screen after suspend")?;
+    } else {
+        execute!(terminal.backend_mut(), EnterAlternateScreen)
+            .context("failed to re-enter alternate screen after suspend")?;
+    }
+    enable_raw_mode().context("failed to re-enable raw mode after suspend")?;
+    terminal
+        .hide_cursor()
+        .context("failed to hide cursor after suspend")?;
+    terminal
+        .clear()
+        .context("failed to clear terminal after suspend")?;
+
+    suspend_result
+}
+
+#[cfg(unix)]
+fn suspend_current_process() -> Result<()> {
+    let pid = std::process::id().to_string();
+    let status = Command::new("kill")
+        .arg("-TSTP")
+        .arg(pid)
+        .status()
+        .context("failed to invoke kill -TSTP")?;
+    if !status.success() {
+        return Err(anyhow::anyhow!(
+            "kill -TSTP exited with status {status}"
+        ));
+    }
+    Ok(())
+}
+
+#[cfg(not(unix))]
+fn suspend_current_process() -> Result<()> {
+    Err(anyhow::anyhow!(
+        "suspend is unsupported on this platform; use SIGTSTP on Unix"
+    ))
+}
+
 pub(super) fn insert_char_at(text: &mut String, char_index: usize, ch: char) {
     let mut chars: Vec<char> = text.chars().collect();
     let idx = char_index.min(chars.len());

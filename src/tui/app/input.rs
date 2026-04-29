@@ -1171,6 +1171,25 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn ctrl_z_queues_suspend_action() {
+        let mut app = make_test_app(vec!["src/a.rs"]);
+        let service = make_test_service();
+
+        app.handle_key(
+            KeyEvent::new(KeyCode::Char('z'), KeyModifiers::CONTROL),
+            &service,
+        )
+        .await
+        .expect("ctrl+z should be handled");
+
+        assert!(matches!(
+            app.pending_action,
+            Some(PendingUiAction::SuspendTuiProcess)
+        ));
+        assert_eq!(app.status_line, "suspending parley; run `fg` to resume");
+    }
+
+    #[tokio::test]
     async fn pressing_u_reanchors_selected_thread_and_persists_review() {
         let tempdir = tempdir().expect("tempdir should exist");
         let service = ReviewService::new(Store::from_project_root(tempdir.path()));
