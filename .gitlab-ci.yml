@@ -1,5 +1,6 @@
 stages:
   - validate
+  - release
 
 default:
   image: rust:1.88
@@ -20,3 +21,51 @@ test:
   stage: validate
   script:
     - cargo test --all-targets --all-features
+
+.release_manual:
+  stage: release
+  when: manual
+  allow_failure: true
+  artifacts:
+    expire_in: 7 days
+
+build_release_amd64_linux:
+  extends: .release_manual
+  script:
+    - rustup target add x86_64-unknown-linux-gnu
+    - cargo build --release --locked --bin parley --target x86_64-unknown-linux-gnu
+  artifacts:
+    paths:
+      - target/x86_64-unknown-linux-gnu/release/parley
+    expire_in: 7 days
+
+build_release_aarch64_linux:
+  extends: .release_manual
+  variables:
+    CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
+  before_script:
+    - rustup component add rustfmt clippy
+    - apt-get update
+    - apt-get install -y --no-install-recommends gcc-aarch64-linux-gnu libc6-dev-arm64-cross pkg-config
+    - rustup target add aarch64-unknown-linux-gnu
+  script:
+    - cargo build --release --locked --bin parley --target aarch64-unknown-linux-gnu
+  artifacts:
+    paths:
+      - target/aarch64-unknown-linux-gnu/release/parley
+    expire_in: 7 days
+
+build_release_aarch64_macos:
+  extends: .release_manual
+  tags:
+    - macos
+    - arm64
+  before_script:
+    - rustup component add rustfmt clippy
+    - rustup target add aarch64-apple-darwin
+  script:
+    - cargo build --release --locked --bin parley --target aarch64-apple-darwin
+  artifacts:
+    paths:
+      - target/aarch64-apple-darwin/release/parley
+    expire_in: 7 days
