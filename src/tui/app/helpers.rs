@@ -241,9 +241,7 @@ fn suspend_current_process() -> Result<()> {
         .status()
         .context("failed to invoke kill -TSTP")?;
     if !status.success() {
-        return Err(anyhow::anyhow!(
-            "kill -TSTP exited with status {status}"
-        ));
+        return Err(anyhow::anyhow!("kill -TSTP exited with status {status}"));
     }
     Ok(())
 }

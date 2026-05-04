@@ -111,7 +111,9 @@ async fn read_message_body<R: AsyncBufRead + Unpin>(
     }
 }
 
-async fn detect_framing_mode<R: AsyncBufRead + Unpin>(reader: &mut R) -> Result<Option<FramingMode>> {
+async fn detect_framing_mode<R: AsyncBufRead + Unpin>(
+    reader: &mut R,
+) -> Result<Option<FramingMode>> {
     loop {
         let buffer = reader
             .fill_buf()
@@ -175,7 +177,9 @@ async fn read_content_length_message_body<R: AsyncBufRead + Unpin>(
     Ok(Some(text))
 }
 
-async fn read_newline_message_body<R: AsyncBufRead + Unpin>(reader: &mut R) -> Result<Option<String>> {
+async fn read_newline_message_body<R: AsyncBufRead + Unpin>(
+    reader: &mut R,
+) -> Result<Option<String>> {
     loop {
         let mut line = String::new();
         let bytes_read = reader
