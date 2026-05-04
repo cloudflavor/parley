@@ -348,6 +348,22 @@ struct ThemePickerState {
 }
 
 #[derive(Debug, Clone)]
+struct CommitPickerEntry {
+    oid: String,
+    short_oid: String,
+    summary: String,
+}
+
+#[derive(Debug, Clone)]
+struct CommitPickerState {
+    commits: Vec<CommitPickerEntry>,
+    query: String,
+    cursor_col: usize,
+    selected_index: usize,
+    scroll: usize,
+}
+
+#[derive(Debug, Clone)]
 struct FileSearchState {
     query: String,
     cursor_col: usize,
@@ -386,6 +402,7 @@ enum CommandPaletteAction {
     SetReviewDone,
     OpenUserNameEditor,
     OpenThemePicker,
+    OpenCommitPicker,
     ToggleLightDarkTheme,
     CycleAiProvider,
     RunAiReviewRefactor,
@@ -484,6 +501,7 @@ struct TuiApp {
     inline_comment: Option<InlineCommentState>,
     command_palette: Option<CommandPaletteState>,
     theme_picker: Option<ThemePickerState>,
+    commit_picker: Option<CommitPickerState>,
     file_search: FileSearchState,
     file_filter_mode: FileFilterMode,
     file_sort_mode: FileSortMode,

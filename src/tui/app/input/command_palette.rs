@@ -106,6 +106,11 @@ impl TuiApp {
                 keywords: "theme colors",
             },
             CommandPaletteItem {
+                action: CommandPaletteAction::OpenCommitPicker,
+                label: "Open Commit Picker",
+                keywords: "git commit sha revision ref",
+            },
+            CommandPaletteItem {
                 action: CommandPaletteAction::ToggleLightDarkTheme,
                 label: "Toggle Theme Light/Dark Variant",
                 keywords: "theme light dark",
@@ -403,6 +408,9 @@ impl TuiApp {
             }
             CommandPaletteAction::OpenThemePicker => {
                 self.open_theme_picker();
+            }
+            CommandPaletteAction::OpenCommitPicker => {
+                self.open_commit_picker()?;
             }
             CommandPaletteAction::ToggleLightDarkTheme => {
                 self.toggle_light_dark_theme(service).await?;

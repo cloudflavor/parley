@@ -54,6 +54,9 @@ impl TuiApp {
         if self.theme_picker.is_some() {
             return self.handle_theme_picker_key(key, service).await;
         }
+        if self.commit_picker.is_some() {
+            return self.handle_commit_picker_key(key, service).await;
+        }
         if self.settings_editor.is_some() {
             return self.handle_settings_editor_key(key, service).await;
         }
@@ -291,6 +294,121 @@ impl TuiApp {
         let lower_bound = picker.scroll.saturating_add(8);
         if picker.selected_index > lower_bound {
             picker.scroll = picker.selected_index.saturating_sub(8);
+        }
+        Ok(())
+    }
+
+    async fn handle_commit_picker_key(
+        &mut self,
+        key: KeyEvent,
+        service: &ReviewService,
+    ) -> Result<()> {
+        if matches!(key.code, KeyCode::Esc) {
+            self.commit_picker = None;
+            self.status_line = "commit picker closed".into();
+            return Ok(());
+        }
+
+        if matches!(key.code, KeyCode::Enter) {
+            let filtered = self.commit_picker_filtered_indices();
+            let Some(picker) = self.commit_picker.as_ref() else {
+                return Ok(());
+            };
+            if filtered.is_empty() {
+                self.status_line = "no commits match the current search".into();
+                return Ok(());
+            }
+            let selected = picker.selected_index.min(filtered.len().saturating_sub(1));
+            let commit = picker
+                .commits
+                .get(filtered[selected])
+                .cloned()
+                .context("selected commit is unavailable")?;
+            self.commit_picker = None;
+            self.diff_source = crate::git::diff::DiffSource::Commit { rev: commit.oid };
+            self.refresh_review_and_diff(service).await?;
+            self.status_line = format!("diff source set to {}", commit.short_oid);
+            return Ok(());
+        }
+
+        let filtered_len = self.commit_picker_filtered_indices().len();
+        let Some(picker) = self.commit_picker.as_mut() else {
+            return Ok(());
+        };
+        match key.code {
+            KeyCode::Up | KeyCode::Char('k') => {
+                picker.selected_index = picker.selected_index.saturating_sub(1);
+            }
+            KeyCode::Down | KeyCode::Char('j') => {
+                let max_index = filtered_len.saturating_sub(1);
+                picker.selected_index = (picker.selected_index + 1).min(max_index);
+            }
+            KeyCode::Home | KeyCode::Char('g') => {
+                picker.selected_index = 0;
+            }
+            KeyCode::End => {
+                picker.selected_index = filtered_len.saturating_sub(1);
+            }
+            KeyCode::PageUp => {
+                picker.selected_index = picker.selected_index.saturating_sub(8);
+            }
+            KeyCode::PageDown => {
+                let max_index = filtered_len.saturating_sub(1);
+                picker.selected_index = (picker.selected_index + 8).min(max_index);
+            }
+            KeyCode::Left => {
+                picker.cursor_col = picker.cursor_col.saturating_sub(1);
+            }
+            KeyCode::Right => {
+                picker.cursor_col = (picker.cursor_col + 1).min(picker.query.chars().count());
+            }
+            KeyCode::Char('a') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                picker.cursor_col = 0;
+            }
+            KeyCode::Char('e') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                picker.cursor_col = picker.query.chars().count();
+            }
+            KeyCode::Backspace => {
+                if picker.cursor_col > 0 {
+                    remove_char_at(&mut picker.query, picker.cursor_col - 1);
+                    picker.cursor_col -= 1;
+                    picker.selected_index = 0;
+                    picker.scroll = 0;
+                }
+            }
+            KeyCode::Delete => {
+                if picker.cursor_col < picker.query.chars().count() {
+                    remove_char_at(&mut picker.query, picker.cursor_col);
+                    picker.selected_index = 0;
+                    picker.scroll = 0;
+                }
+            }
+            KeyCode::Char(ch)
+                if key.modifiers.is_empty() || key.modifiers == KeyModifiers::SHIFT =>
+            {
+                insert_char_at(&mut picker.query, picker.cursor_col, ch);
+                picker.cursor_col += 1;
+                picker.selected_index = 0;
+                picker.scroll = 0;
+            }
+            _ => {}
+        }
+
+        let refreshed_len = self.commit_picker_filtered_indices().len();
+        if let Some(picker) = self.commit_picker.as_mut() {
+            if refreshed_len == 0 {
+                picker.selected_index = 0;
+                picker.scroll = 0;
+            } else {
+                picker.selected_index = picker.selected_index.min(refreshed_len.saturating_sub(1));
+                if picker.selected_index < picker.scroll {
+                    picker.scroll = picker.selected_index;
+                }
+                let lower_bound = picker.scroll.saturating_add(8);
+                if picker.selected_index > lower_bound {
+                    picker.scroll = picker.selected_index.saturating_sub(8);
+                }
+            }
         }
         Ok(())
     }
@@ -663,6 +781,7 @@ impl TuiApp {
 
         if self.command_palette.is_some()
             || self.theme_picker.is_some()
+            || self.commit_picker.is_some()
             || self.settings_editor.is_some()
             || self.command_prompt.is_some()
         {

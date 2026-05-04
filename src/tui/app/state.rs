@@ -279,6 +279,7 @@ impl TuiApp {
             inline_comment: None,
             command_palette: None,
             theme_picker: None,
+            commit_picker: None,
             file_search: FileSearchState {
                 query: String::new(),
                 cursor_col: 0,
@@ -1155,6 +1156,52 @@ impl TuiApp {
             scroll: self.theme_index.saturating_sub(3),
         });
         self.status_line = "theme picker opened".into();
+    }
+
+    pub(super) fn open_commit_picker(&mut self) -> Result<()> {
+        let commits = crate::git::history::recent_commits(200)?;
+        if commits.is_empty() {
+            self.status_line = "commit picker unavailable: no commits found".into();
+            return Ok(());
+        }
+        self.dismiss_ai_progress_popup();
+        self.commit_picker = Some(super::CommitPickerState {
+            commits: commits
+                .into_iter()
+                .map(|commit| super::CommitPickerEntry {
+                    oid: commit.oid,
+                    short_oid: commit.short_oid,
+                    summary: commit.summary,
+                })
+                .collect(),
+            query: String::new(),
+            cursor_col: 0,
+            selected_index: 0,
+            scroll: 0,
+        });
+        self.status_line = "commit picker opened".into();
+        Ok(())
+    }
+
+    pub(super) fn commit_picker_filtered_indices(&self) -> Vec<usize> {
+        let Some(picker) = self.commit_picker.as_ref() else {
+            return Vec::new();
+        };
+        let needle = picker.query.trim().to_ascii_lowercase();
+        picker
+            .commits
+            .iter()
+            .enumerate()
+            .filter(|(_, commit)| {
+                if needle.is_empty() {
+                    return true;
+                }
+                commit.oid.to_ascii_lowercase().contains(&needle)
+                    || commit.short_oid.to_ascii_lowercase().contains(&needle)
+                    || commit.summary.to_ascii_lowercase().contains(&needle)
+            })
+            .map(|(idx, _)| idx)
+            .collect()
     }
 
     pub(super) async fn apply_theme_picker_selection(
