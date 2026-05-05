@@ -35,7 +35,6 @@ impl Store {
 
     pub async fn ensure_dirs(&self) -> StoreResult<()> {
         fs::create_dir_all(self.reviews_dir()).await?;
-        fs::create_dir_all(self.logs_dir()).await?;
         Ok(())
     }
 
@@ -49,6 +48,9 @@ impl Store {
         self.ensure_dirs().await?;
 
         let path = self.review_path(&session.name)?;
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).await?;
+        }
         let data = serde_json::to_vec_pretty(session)?;
         fs::write(path, data).await?;
         Ok(())
@@ -56,12 +58,16 @@ impl Store {
 
     pub async fn load_review(&self, name: &str) -> StoreResult<ReviewSession> {
         validate_review_name(name)?;
-        let path = self.review_path(name)?;
-
-        match fs::read(&path).await {
+        match fs::read(self.review_path(name)?).await {
             Ok(bytes) => Ok(serde_json::from_slice(&bytes)?),
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
-                Err(StoreError::ReviewNotFound(name.to_string()))
+                match fs::read(self.legacy_review_path(name)?).await {
+                    Ok(bytes) => Ok(serde_json::from_slice(&bytes)?),
+                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                        Err(StoreError::ReviewNotFound(name.to_string()))
+                    }
+                    Err(error) => Err(StoreError::Io(error)),
+                }
             }
             Err(error) => Err(StoreError::Io(error)),
         }
@@ -74,15 +80,55 @@ impl Store {
 
         while let Some(entry) = dir.next_entry().await? {
             let path = entry.path();
-            if path.extension().and_then(|value| value.to_str()) == Some("json")
+            let file_type = entry.file_type().await?;
+            if file_type.is_dir() {
+                let review_path = path.join("review.json");
+                match fs::read(review_path).await {
+                    Ok(bytes) => {
+                        let review: ReviewSession = serde_json::from_slice(&bytes)?;
+                        result.push(review.name);
+                    }
+                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                    Err(error) => return Err(StoreError::Io(error)),
+                }
+            } else if path.extension().and_then(|value| value.to_str()) == Some("json")
                 && let Some(stem) = path.file_stem().and_then(|value| value.to_str())
             {
-                result.push(stem.to_string());
+                let name = stem.to_string();
+                let normalized_path = self.review_path(&name)?;
+                if fs::try_exists(normalized_path).await? {
+                    continue;
+                }
+                result.push(name);
             }
         }
 
         result.sort_unstable();
+        result.dedup();
         Ok(result)
+    }
+
+    pub fn review_log_path(&self, review_name: &str) -> StoreResult<PathBuf> {
+        validate_review_name(review_name)?;
+        Ok(self.review_dir(review_name)?.join("logs").join("tui.log"))
+    }
+
+    fn review_path(&self, name: &str) -> StoreResult<PathBuf> {
+        Ok(self.review_dir(name)?.join("review.json"))
+    }
+
+    fn legacy_review_path(&self, name: &str) -> StoreResult<PathBuf> {
+        validate_review_name(name)?;
+        Ok(self.reviews_dir().join(format!("{name}.json")))
+    }
+
+    fn review_dir(&self, name: &str) -> StoreResult<PathBuf> {
+        validate_review_name(name)?;
+        Ok(self.reviews_dir().join(normalize_review_name(name)?))
+    }
+
+    fn reviews_dir(&self) -> PathBuf {
+        self.root.join("reviews")
     }
 
     pub async fn load_config(&self) -> StoreResult<AppConfig> {
@@ -113,24 +159,6 @@ impl Store {
         Ok(())
     }
 
-    fn review_path(&self, name: &str) -> StoreResult<PathBuf> {
-        validate_review_name(name)?;
-        Ok(self.reviews_dir().join(format!("{name}.json")))
-    }
-
-    fn reviews_dir(&self) -> PathBuf {
-        self.root.join("reviews")
-    }
-
-    fn logs_dir(&self) -> PathBuf {
-        self.root.join("logs")
-    }
-
-    pub fn review_log_path(&self, review_name: &str) -> StoreResult<PathBuf> {
-        validate_review_name(review_name)?;
-        Ok(self.logs_dir().join(format!("{review_name}.log")))
-    }
-
     fn config_path(&self) -> PathBuf {
         self.root.join("config.toml")
     }
@@ -146,6 +174,15 @@ impl Store {
             Err(error) => Err(StoreError::Io(error)),
         }
     }
+}
+
+pub fn normalize_review_name(name: &str) -> StoreResult<String> {
+    validate_review_name(name)?;
+    let normalized = name.trim_matches(|ch| matches!(ch, '_' | '.')).to_string();
+    if normalized.is_empty() {
+        return Err(StoreError::InvalidReviewName(name.to_string()));
+    }
+    Ok(normalized)
 }
 
 pub fn validate_review_name(name: &str) -> StoreResult<()> {
@@ -185,6 +222,48 @@ mod tests {
 
         assert_eq!(loaded.name, "r1");
         assert_eq!(loaded.state, review.state);
+    }
+
+    #[tokio::test]
+    async fn save_review_should_use_normalized_review_directory() {
+        let tmp = tempdir().expect("tempdir should exist");
+        let store = super::Store::from_project_root(tmp.path());
+        let review = super::ReviewSession::new("__r1__".into(), 1);
+
+        store
+            .save_review(&review)
+            .await
+            .expect("review should save successfully");
+
+        let path = tmp.path().join(".parley/reviews/r1/review.json");
+        assert!(path.exists());
+    }
+
+    #[tokio::test]
+    async fn load_and_list_reviews_should_support_legacy_flat_files() {
+        let tmp = tempdir().expect("tempdir should exist");
+        let store = super::Store::from_project_root(tmp.path());
+        store
+            .ensure_dirs()
+            .await
+            .expect("store dirs should be created");
+        let review = super::ReviewSession::new("legacy".into(), 1);
+        let data = serde_json::to_vec_pretty(&review).expect("review should serialize");
+        tokio::fs::write(tmp.path().join(".parley/reviews/legacy.json"), data)
+            .await
+            .expect("legacy review should be written");
+
+        let loaded = store
+            .load_review("legacy")
+            .await
+            .expect("legacy review should load");
+        let reviews = store
+            .list_reviews()
+            .await
+            .expect("reviews should list successfully");
+
+        assert_eq!(loaded.name, "legacy");
+        assert_eq!(reviews, vec!["legacy"]);
     }
 
     #[test]

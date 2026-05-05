@@ -57,6 +57,9 @@ impl TuiApp {
         if self.commit_picker.is_some() {
             return self.handle_commit_picker_key(key, service).await;
         }
+        if self.review_picker.is_some() {
+            return self.handle_review_picker_key(key, service).await;
+        }
         if self.settings_editor.is_some() {
             return self.handle_settings_editor_key(key, service).await;
         }
@@ -336,14 +339,14 @@ impl TuiApp {
             return Ok(());
         };
         match key.code {
-            KeyCode::Up | KeyCode::Char('k') => {
+            KeyCode::Up => {
                 picker.selected_index = picker.selected_index.saturating_sub(1);
             }
-            KeyCode::Down | KeyCode::Char('j') => {
+            KeyCode::Down => {
                 let max_index = filtered_len.saturating_sub(1);
                 picker.selected_index = (picker.selected_index + 1).min(max_index);
             }
-            KeyCode::Home | KeyCode::Char('g') => {
+            KeyCode::Home => {
                 picker.selected_index = 0;
             }
             KeyCode::End => {
@@ -396,6 +399,129 @@ impl TuiApp {
 
         let refreshed_len = self.commit_picker_filtered_indices().len();
         if let Some(picker) = self.commit_picker.as_mut() {
+            if refreshed_len == 0 {
+                picker.selected_index = 0;
+                picker.scroll = 0;
+            } else {
+                picker.selected_index = picker.selected_index.min(refreshed_len.saturating_sub(1));
+                if picker.selected_index < picker.scroll {
+                    picker.scroll = picker.selected_index;
+                }
+                let lower_bound = picker.scroll.saturating_add(8);
+                if picker.selected_index > lower_bound {
+                    picker.scroll = picker.selected_index.saturating_sub(8);
+                }
+            }
+        }
+        Ok(())
+    }
+
+    async fn handle_review_picker_key(
+        &mut self,
+        key: KeyEvent,
+        service: &ReviewService,
+    ) -> Result<()> {
+        if matches!(key.code, KeyCode::Esc) {
+            self.review_picker = None;
+            self.status_line = "review picker closed".into();
+            return Ok(());
+        }
+
+        if matches!(key.code, KeyCode::Enter) {
+            let filtered = self.review_picker_filtered_indices();
+            let Some(picker) = self.review_picker.as_ref() else {
+                return Ok(());
+            };
+            if filtered.is_empty() {
+                let name = picker.query.trim().to_string();
+                self.review_picker = None;
+                self.settings_editor = Some(super::SettingsEditorState {
+                    kind: super::SettingsEditorKind::CreateReview,
+                    cursor_col: name.chars().count(),
+                    value: name,
+                });
+                self.status_line = "creating review".into();
+                return Ok(());
+            }
+            let selected = picker.selected_index.min(filtered.len().saturating_sub(1));
+            let review = picker
+                .reviews
+                .get(filtered[selected])
+                .cloned()
+                .context("selected review is unavailable")?;
+            self.review_picker = None;
+            self.review_name = review.name.clone();
+            self.log_path = service.review_log_path(&self.review_name)?;
+            self.reload_review(service).await?;
+            self.status_line = format!("review context set to {}", review.name);
+            return Ok(());
+        }
+
+        let filtered_len = self.review_picker_filtered_indices().len();
+        let Some(picker) = self.review_picker.as_mut() else {
+            return Ok(());
+        };
+        match key.code {
+            KeyCode::Up => {
+                picker.selected_index = picker.selected_index.saturating_sub(1);
+            }
+            KeyCode::Down => {
+                let max_index = filtered_len.saturating_sub(1);
+                picker.selected_index = (picker.selected_index + 1).min(max_index);
+            }
+            KeyCode::Home => {
+                picker.selected_index = 0;
+            }
+            KeyCode::End => {
+                picker.selected_index = filtered_len.saturating_sub(1);
+            }
+            KeyCode::PageUp => {
+                picker.selected_index = picker.selected_index.saturating_sub(8);
+            }
+            KeyCode::PageDown => {
+                let max_index = filtered_len.saturating_sub(1);
+                picker.selected_index = (picker.selected_index + 8).min(max_index);
+            }
+            KeyCode::Left => {
+                picker.cursor_col = picker.cursor_col.saturating_sub(1);
+            }
+            KeyCode::Right => {
+                picker.cursor_col = (picker.cursor_col + 1).min(picker.query.chars().count());
+            }
+            KeyCode::Char('a') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                picker.cursor_col = 0;
+            }
+            KeyCode::Char('e') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                picker.cursor_col = picker.query.chars().count();
+            }
+            KeyCode::Backspace => {
+                if picker.cursor_col > 0 {
+                    remove_char_at(&mut picker.query, picker.cursor_col - 1);
+                    picker.cursor_col -= 1;
+                    picker.selected_index = 0;
+                    picker.scroll = 0;
+                }
+            }
+            KeyCode::Delete => {
+                if picker.cursor_col < picker.query.chars().count() {
+                    remove_char_at(&mut picker.query, picker.cursor_col);
+                    picker.selected_index = 0;
+                    picker.scroll = 0;
+                }
+            }
+            KeyCode::Char(ch)
+                if key.modifiers.is_empty() || key.modifiers == KeyModifiers::SHIFT =>
+            {
+                insert_char_at(&mut picker.query, picker.cursor_col, ch);
+                picker.cursor_col += 1;
+                picker.selected_index = 0;
+                picker.scroll = 0;
+            }
+            _ => {}
+        }
+
+        let refreshed_len = self.review_picker_filtered_indices().len();
+        if let Some(picker) = self.review_picker.as_mut() {
             if refreshed_len == 0 {
                 picker.selected_index = 0;
                 picker.scroll = 0;
@@ -1248,6 +1374,27 @@ mod tests {
             .expect("inline comment should exist");
         assert_eq!(inline.buffer.cursor_line, 0);
         assert_eq!(inline.buffer.cursor_col, "alpha  ".chars().count());
+    }
+
+    #[tokio::test]
+    async fn command_palette_plain_k_filters_instead_of_navigating() {
+        let mut app = make_test_app(vec!["src/a.rs"]);
+        let service = make_test_service();
+        app.open_command_palette();
+
+        app.handle_command_palette_key(
+            KeyEvent::new(KeyCode::Char('k'), KeyModifiers::NONE),
+            &service,
+        )
+        .await
+        .expect("command palette should handle k");
+
+        let palette = app
+            .command_palette
+            .as_ref()
+            .expect("command palette should remain open");
+        assert_eq!(palette.query, "k");
+        assert_eq!(palette.cursor_col, 1);
     }
 
     #[tokio::test]

@@ -14,7 +14,7 @@ use structopt::StructOpt;
 use crate::{
     cli::{Cli, Command, ReviewCommand},
     domain::review::ReviewState,
-    git::{diff::DiffSource, review_name::resolve_tui_review_name},
+    git::diff::DiffSource,
     persistence::store::Store,
     services::{
         ai_session::{RunAiSessionInput, default_ai_session_mode, run_ai_session},
@@ -43,7 +43,6 @@ pub async fn run() -> Result<()> {
             base,
             head,
         } => {
-            let review = resolve_default_review_for_tui(&service, review.as_deref()).await?;
             let diff_source = resolve_tui_diff_source(commit, base, head);
             tui::run_tui(service, review, no_mouse, diff_source).await?;
         }
@@ -72,27 +71,6 @@ fn should_run_mcp(args: &[OsString]) -> bool {
         .skip(1)
         .filter_map(|value| value.to_str())
         .any(|value| matches!(value, "--stdio" | "--mcp"))
-}
-
-async fn resolve_default_review_for_tui(
-    service: &ReviewService,
-    explicit: Option<&str>,
-) -> Result<String> {
-    let resolved = resolve_tui_review_name(explicit)?;
-    if explicit.is_some() {
-        return Ok(resolved);
-    }
-
-    if service.load_review(&resolved).await.is_ok() {
-        return Ok(resolved);
-    }
-
-    let existing = service.list_reviews().await?;
-    if existing.len() == 1 {
-        return Ok(existing[0].clone());
-    }
-
-    Ok(resolved)
 }
 
 fn resolve_tui_diff_source(

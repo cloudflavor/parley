@@ -280,6 +280,7 @@ impl TuiApp {
             command_palette: None,
             theme_picker: None,
             commit_picker: None,
+            review_picker: None,
             file_search: FileSearchState {
                 query: String::new(),
                 cursor_col: 0,
@@ -1064,6 +1065,8 @@ impl TuiApp {
     pub(super) fn dismiss_blocking_overlays(&mut self) {
         self.command_palette = None;
         self.theme_picker = None;
+        self.commit_picker = None;
+        self.review_picker = None;
         self.settings_editor = None;
         self.command_prompt = None;
         self.shortcuts_modal_visible = false;
@@ -1120,6 +1123,17 @@ impl TuiApp {
         self.status_line = "editing user name".into();
     }
 
+    pub(super) fn open_create_review_editor(&mut self) {
+        self.dismiss_ai_progress_popup();
+        self.review_picker = None;
+        self.settings_editor = Some(SettingsEditorState {
+            kind: SettingsEditorKind::CreateReview,
+            value: String::new(),
+            cursor_col: 0,
+        });
+        self.status_line = "creating review".into();
+    }
+
     pub(super) async fn save_settings_editor(&mut self, service: &ReviewService) -> Result<()> {
         let Some(editor) = self.settings_editor.take() else {
             return Ok(());
@@ -1140,6 +1154,28 @@ impl TuiApp {
                 self.config.user_name = next.to_string();
                 service.save_config(&self.config).await?;
                 self.status_line = format!("user name set to {}", self.config.user_name);
+            }
+            SettingsEditorKind::CreateReview => {
+                let next = editor.value.trim();
+                if next.is_empty() {
+                    self.status_line = "review name cannot be empty".into();
+                    self.settings_editor = Some(SettingsEditorState {
+                        kind: SettingsEditorKind::CreateReview,
+                        value: editor.value,
+                        cursor_col: editor.cursor_col,
+                    });
+                    return Ok(());
+                }
+                let review = service.create_review(next).await?;
+                self.review_name = review.name.clone();
+                self.review = review;
+                self.log_path = service.review_log_path(&self.review_name)?;
+                self.selected_comment = 0;
+                self.expanded_threads.clear();
+                self.collapsed_threads.clear();
+                self.clear_diff_render_cache();
+                self.constrain_selection();
+                self.status_line = format!("created review {}", self.review_name);
             }
         }
         Ok(())
@@ -1183,6 +1219,59 @@ impl TuiApp {
         Ok(())
     }
 
+    pub(super) async fn open_review_picker(&mut self, service: &ReviewService) -> Result<()> {
+        let review_names = service.list_reviews().await?;
+        if review_names.is_empty() {
+            self.status_line = "review picker unavailable: no reviews found".into();
+            return Ok(());
+        }
+
+        let mut reviews = Vec::with_capacity(review_names.len());
+        for name in review_names {
+            let review = service
+                .load_review(&name)
+                .await
+                .with_context(|| format!("failed to load review {name}"))?;
+            let open_count = review
+                .comments
+                .iter()
+                .filter(|comment| comment.status == crate::domain::review::CommentStatus::Open)
+                .count();
+            let pending_count = review
+                .comments
+                .iter()
+                .filter(|comment| comment.status == crate::domain::review::CommentStatus::Pending)
+                .count();
+            let addressed_count = review
+                .comments
+                .iter()
+                .filter(|comment| comment.status == crate::domain::review::CommentStatus::Addressed)
+                .count();
+            reviews.push(super::ReviewPickerEntry {
+                name: review.name,
+                state: review.state,
+                open_count,
+                pending_count,
+                addressed_count,
+            });
+        }
+
+        let selected_index = reviews
+            .iter()
+            .position(|review| review.name == self.review_name)
+            .unwrap_or(0);
+        self.dismiss_ai_progress_popup();
+        self.review_picker = Some(super::ReviewPickerState {
+            reviews,
+            query: String::new(),
+            cursor_col: 0,
+            selected_index,
+            scroll: selected_index.saturating_sub(3),
+        });
+        self.status_line = "review picker opened".into();
+        Ok(())
+    }
+
     pub(super) fn commit_picker_filtered_indices(&self) -> Vec<usize> {
         let Some(picker) = self.commit_picker.as_ref() else {
             return Vec::new();
@@ -1199,6 +1288,30 @@ impl TuiApp {
                 commit.oid.to_ascii_lowercase().contains(&needle)
                     || commit.short_oid.to_ascii_lowercase().contains(&needle)
                     || commit.summary.to_ascii_lowercase().contains(&needle)
+            })
+            .map(|(idx, _)| idx)
+            .collect()
+    }
+
+    pub(super) fn review_picker_filtered_indices(&self) -> Vec<usize> {
+        let Some(picker) = self.review_picker.as_ref() else {
+            return Vec::new();
+        };
+        let needle = picker.query.trim().to_ascii_lowercase();
+        picker
+            .reviews
+            .iter()
+            .enumerate()
+            .filter(|(_, review)| {
+                if needle.is_empty() {
+                    return true;
+                }
+                let state = match review.state {
+                    ReviewState::Open => "open",
+                    ReviewState::UnderReview => "under_review",
+                    ReviewState::Done => "done",
+                };
+                review.name.to_ascii_lowercase().contains(&needle) || state.contains(&needle)
             })
             .map(|(idx, _)| idx)
             .collect()
@@ -2158,9 +2271,52 @@ mod tests {
         assert!(app.settings_editor.is_some());
 
         app.ai_progress_visible = true;
+        app.open_create_review_editor();
+        assert!(!app.ai_progress_visible);
+        assert!(app.settings_editor.is_some());
+
+        app.ai_progress_visible = true;
         app.open_theme_picker();
         assert!(!app.ai_progress_visible);
         assert!(app.theme_picker.is_some());
+    }
+
+    #[test]
+    fn review_picker_filter_matches_name_and_state() {
+        let mut app = make_test_app(vec!["src/a.rs"], Vec::new());
+        app.review_picker = Some(ReviewPickerState {
+            reviews: vec![
+                ReviewPickerEntry {
+                    name: "parser-cleanup".into(),
+                    state: ReviewState::Open,
+                    open_count: 1,
+                    pending_count: 0,
+                    addressed_count: 0,
+                },
+                ReviewPickerEntry {
+                    name: "release-check".into(),
+                    state: ReviewState::Done,
+                    open_count: 0,
+                    pending_count: 0,
+                    addressed_count: 3,
+                },
+            ],
+            query: "done".into(),
+            cursor_col: 4,
+            selected_index: 0,
+            scroll: 0,
+        });
+
+        assert_eq!(app.review_picker_filtered_indices(), vec![1]);
+
+        let picker = app
+            .review_picker
+            .as_mut()
+            .expect("review picker should be open");
+        picker.query = "parser".into();
+        picker.cursor_col = 6;
+
+        assert_eq!(app.review_picker_filtered_indices(), vec![0]);
     }
 
     #[test]
@@ -2186,6 +2342,20 @@ mod tests {
             selected_index: 0,
             scroll: 0,
         });
+        app.commit_picker = Some(CommitPickerState {
+            commits: Vec::new(),
+            query: String::new(),
+            cursor_col: 0,
+            selected_index: 0,
+            scroll: 0,
+        });
+        app.review_picker = Some(ReviewPickerState {
+            reviews: Vec::new(),
+            query: String::new(),
+            cursor_col: 0,
+            selected_index: 0,
+            scroll: 0,
+        });
         app.shortcuts_modal_visible = true;
 
         app.toggle_ai_progress_popup();
@@ -2195,6 +2365,8 @@ mod tests {
         assert!(app.command_prompt.is_none());
         assert!(app.settings_editor.is_none());
         assert!(app.theme_picker.is_none());
+        assert!(app.commit_picker.is_none());
+        assert!(app.review_picker.is_none());
         assert!(!app.shortcuts_modal_visible);
     }
 

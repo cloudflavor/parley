@@ -111,6 +111,16 @@ impl TuiApp {
                 keywords: "git commit sha revision ref",
             },
             CommandPaletteItem {
+                action: CommandPaletteAction::OpenReviewPicker,
+                label: "Open Review Picker",
+                keywords: "review context session comments threads",
+            },
+            CommandPaletteItem {
+                action: CommandPaletteAction::CreateReview,
+                label: "Create Review",
+                keywords: "review new create context session",
+            },
+            CommandPaletteItem {
                 action: CommandPaletteAction::ToggleLightDarkTheme,
                 label: "Toggle Theme Light/Dark Variant",
                 keywords: "theme light dark",
@@ -265,14 +275,14 @@ impl TuiApp {
             return Ok(());
         };
         match key.code {
-            KeyCode::Up | KeyCode::Char('k') => {
+            KeyCode::Up => {
                 palette.selected_index = palette.selected_index.saturating_sub(1);
             }
-            KeyCode::Down | KeyCode::Char('j') => {
+            KeyCode::Down => {
                 let max_index = filtered_items.len().saturating_sub(1);
                 palette.selected_index = (palette.selected_index + 1).min(max_index);
             }
-            KeyCode::Home | KeyCode::Char('g') => {
+            KeyCode::Home => {
                 palette.selected_index = 0;
             }
             KeyCode::End => {
@@ -411,6 +421,12 @@ impl TuiApp {
             }
             CommandPaletteAction::OpenCommitPicker => {
                 self.open_commit_picker()?;
+            }
+            CommandPaletteAction::OpenReviewPicker => {
+                self.open_review_picker(service).await?;
+            }
+            CommandPaletteAction::CreateReview => {
+                self.open_create_review_editor();
             }
             CommandPaletteAction::ToggleLightDarkTheme => {
                 self.toggle_light_dark_theme(service).await?;

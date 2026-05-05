@@ -35,9 +35,13 @@ pub async fn run_tui(
 ) -> Result<()> {
     let mut terminal_session = TerminalSession::new(!no_mouse)?;
     let review = service
-        .load_or_create_review(&review_name)
+        .load_review(&review_name)
         .await
-        .with_context(|| format!("failed to open review {review_name}"))?;
+        .with_context(|| {
+            format!(
+                "failed to open review {review_name}; create it first with `parley review create {review_name}`"
+            )
+        })?;
     let themes = load_themes()?;
     let mut config = service.load_config().await?;
     let diff = load_git_diff(&config, &diff_source).await?;
@@ -332,6 +336,7 @@ struct CommandPromptState {
 #[derive(Debug, Clone)]
 enum SettingsEditorKind {
     UserName,
+    CreateReview,
 }
 
 #[derive(Debug, Clone)]
@@ -357,6 +362,24 @@ struct CommitPickerEntry {
 #[derive(Debug, Clone)]
 struct CommitPickerState {
     commits: Vec<CommitPickerEntry>,
+    query: String,
+    cursor_col: usize,
+    selected_index: usize,
+    scroll: usize,
+}
+
+#[derive(Debug, Clone)]
+struct ReviewPickerEntry {
+    name: String,
+    state: ReviewState,
+    open_count: usize,
+    pending_count: usize,
+    addressed_count: usize,
+}
+
+#[derive(Debug, Clone)]
+struct ReviewPickerState {
+    reviews: Vec<ReviewPickerEntry>,
     query: String,
     cursor_col: usize,
     selected_index: usize,
@@ -403,6 +426,8 @@ enum CommandPaletteAction {
     OpenUserNameEditor,
     OpenThemePicker,
     OpenCommitPicker,
+    OpenReviewPicker,
+    CreateReview,
     ToggleLightDarkTheme,
     CycleAiProvider,
     RunAiReviewRefactor,
@@ -502,6 +527,7 @@ struct TuiApp {
     command_palette: Option<CommandPaletteState>,
     theme_picker: Option<ThemePickerState>,
     commit_picker: Option<CommitPickerState>,
+    review_picker: Option<ReviewPickerState>,
     file_search: FileSearchState,
     file_filter_mode: FileFilterMode,
     file_sort_mode: FileSortMode,

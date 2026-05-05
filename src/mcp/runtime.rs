@@ -1,6 +1,7 @@
 use crate::domain::ai::{AiProvider, AiSessionMode};
 use crate::domain::review::{Author, CommentStatus, ReviewState};
-use crate::git::{diff::DiffSource, review_name::resolve_tui_review_name};
+use crate::git::diff::DiffSource;
+use crate::persistence::store::validate_review_name;
 use crate::services::ai_session::{RunAiSessionInput, default_ai_session_mode, run_ai_session};
 use crate::services::review_service::{AddReplyInput, ReviewService};
 use anyhow::{Context, Result, anyhow};
@@ -414,8 +415,9 @@ async fn handle_tools_call(service: &ReviewService, params: Value) -> Result<Val
 }
 
 fn resolve_review_name(arguments: &Value) -> Result<String> {
-    let explicit = arguments.get("review_name").and_then(Value::as_str);
-    resolve_tui_review_name(explicit)
+    let name = required_string(arguments, "review_name")?.trim();
+    validate_review_name(name).map_err(|error| anyhow!(error))?;
+    Ok(name.to_string())
 }
 
 fn required_string<'a>(value: &'a Value, key: &str) -> Result<&'a str> {

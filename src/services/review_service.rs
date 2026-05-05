@@ -70,13 +70,6 @@ impl ReviewService {
             .with_context(|| format!("failed to load review {name}"))
     }
 
-    pub async fn load_or_create_review(&self, name: &str) -> Result<ReviewSession> {
-        match self.store.load_review(name).await {
-            Ok(review) => Ok(review),
-            Err(_) => self.create_review(name).await,
-        }
-    }
-
     pub async fn list_reviews(&self) -> Result<Vec<String>> {
         self.store
             .list_reviews()

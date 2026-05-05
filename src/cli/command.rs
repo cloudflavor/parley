@@ -18,7 +18,7 @@ pub enum Command {
     Tui {
         /// Review name to open in the TUI.
         #[structopt(long)]
-        review: Option<String>,
+        review: String,
         /// Disable mouse capture and mouse interaction in the TUI.
         #[structopt(long)]
         no_mouse: bool,
@@ -140,8 +140,9 @@ mod tests {
 
     #[test]
     fn tui_command_parses_no_mouse_flag() {
-        let cli = Cli::from_iter_safe(["parley", "tui", "--review", "main", "--no-mouse"])
-            .expect("cli should parse");
+        let cli =
+            Cli::from_iter_safe(["parley", "tui", "--review", "parser-cleanup", "--no-mouse"])
+                .expect("cli should parse");
 
         match cli.command {
             Command::Tui {
@@ -151,7 +152,7 @@ mod tests {
                 base,
                 head,
             } => {
-                assert_eq!(review.as_deref(), Some("main"));
+                assert_eq!(review, "parser-cleanup");
                 assert!(no_mouse);
                 assert_eq!(commit, None);
                 assert_eq!(base, None);
@@ -163,8 +164,15 @@ mod tests {
 
     #[test]
     fn tui_command_parses_commit_source() {
-        let cli =
-            Cli::from_iter_safe(["parley", "tui", "--commit", "HEAD~2"]).expect("cli should parse");
+        let cli = Cli::from_iter_safe([
+            "parley",
+            "tui",
+            "--review",
+            "parser-cleanup",
+            "--commit",
+            "HEAD~2",
+        ])
+        .expect("cli should parse");
 
         match cli.command {
             Command::Tui {
@@ -176,6 +184,15 @@ mod tests {
             }
             other => panic!("unexpected command: {other:?}"),
         }
+    }
+
+    #[test]
+    fn tui_command_requires_review_name() {
+        let error = Cli::from_iter_safe(["parley", "tui", "--commit", "HEAD~2"])
+            .expect_err("cli should require review name");
+
+        let message = error.to_string();
+        assert!(message.contains("--review"));
     }
 
     #[test]

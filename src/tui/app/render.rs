@@ -39,6 +39,7 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &mut TuiApp) {
         || app.command_palette.is_some()
         || app.theme_picker.is_some()
         || app.commit_picker.is_some()
+        || app.review_picker.is_some()
         || app.settings_editor.is_some()
         || app.shortcuts_modal_visible;
     app.last_shortcuts_modal_area = None;
@@ -76,6 +77,9 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &mut TuiApp) {
         }
         if app.commit_picker.is_some() {
             draw_commit_picker(frame, app);
+        }
+        if app.review_picker.is_some() {
+            draw_review_picker(frame, app);
         }
         if app.command_prompt.is_some() {
             draw_command_prompt(frame, app);
@@ -129,6 +133,9 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &mut TuiApp) {
     }
     if app.commit_picker.is_some() {
         draw_commit_picker(frame, app);
+    }
+    if app.review_picker.is_some() {
+        draw_review_picker(frame, app);
     }
     if app.command_prompt.is_some() {
         draw_command_prompt(frame, app);
@@ -481,6 +488,7 @@ fn draw_settings_editor(frame: &mut Frame<'_>, app: &TuiApp) {
 
     let title = match editor.kind {
         SettingsEditorKind::UserName => "Set User Name",
+        SettingsEditorKind::CreateReview => "Create Review",
     };
     let colors = app.theme().colors.clone();
     let inner_width = usize::from(area.width.saturating_sub(2)).max(1);
@@ -490,7 +498,10 @@ fn draw_settings_editor(frame: &mut Frame<'_>, app: &TuiApp) {
     let visible_value = slice_chars(&editor.value, horizontal_scroll, inner_width);
 
     let content = vec![
-        Line::from("Type a display name for your comments/replies."),
+        Line::from(match editor.kind {
+            SettingsEditorKind::UserName => "Type a display name for your comments/replies.",
+            SettingsEditorKind::CreateReview => "Type a review name for the new comment context.",
+        }),
         Line::from(""),
         Line::from(visible_value),
         Line::from(""),
@@ -803,6 +814,141 @@ fn draw_commit_picker(frame: &mut Frame<'_>, app: &TuiApp) {
     frame.render_stateful_widget(
         List::new(items)
             .block(Block::default().title("Commits").borders(Borders::ALL))
+            .highlight_style(
+                Style::default()
+                    .bg(colors.sidebar_highlight_bg)
+                    .fg(colors.sidebar_highlight_fg)
+                    .add_modifier(Modifier::BOLD),
+            )
+            .highlight_symbol("> "),
+        rows[1],
+        &mut state,
+    );
+
+    frame.render_widget(
+        Paragraph::new(Line::from(Span::styled(
+            "Enter apply · Esc close · ↑↓ select · type to filter",
+            Style::default().fg(colors.status_help),
+        ))),
+        rows[2],
+    );
+
+    let filter_area = Block::default().borders(Borders::ALL).inner(rows[0]);
+    let cursor_x = filter_area
+        .x
+        .saturating_add("Search ".chars().count() as u16)
+        .saturating_add(picker.cursor_col as u16);
+    let max_cursor_x = filter_area
+        .x
+        .saturating_add(filter_area.width.saturating_sub(1));
+    frame.set_cursor_position((cursor_x.min(max_cursor_x), filter_area.y));
+}
+
+fn draw_review_picker(frame: &mut Frame<'_>, app: &TuiApp) {
+    let Some(picker) = app.review_picker.as_ref() else {
+        return;
+    };
+
+    let root = frame.area();
+    let width = root.width.saturating_sub(2).clamp(72, 120);
+    let height = root.height.saturating_sub(2).clamp(14, 24);
+    let area = Rect {
+        x: root.x + root.width.saturating_sub(width) / 2,
+        y: root.y + root.height.saturating_sub(height) / 2,
+        width,
+        height,
+    };
+    let colors = app.theme().colors.clone();
+    let filtered = app.review_picker_filtered_indices();
+    let selected = picker.selected_index.min(filtered.len().saturating_sub(1));
+
+    frame.render_widget(Clear, area);
+    let outer_block = Block::default()
+        .title("Review Picker")
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(colors.thread_border))
+        .title_style(
+            Style::default()
+                .fg(colors.accent)
+                .add_modifier(Modifier::BOLD),
+        );
+    let content = outer_block.inner(area);
+    frame.render_widget(outer_block, area);
+
+    let rows = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(3),
+            Constraint::Min(3),
+            Constraint::Length(1),
+        ])
+        .split(content);
+
+    let filter_line = Line::from(vec![
+        Span::styled(
+            "Search ",
+            Style::default()
+                .fg(colors.status_help)
+                .add_modifier(Modifier::BOLD),
+        ),
+        Span::styled(
+            picker.query.clone(),
+            Style::default().fg(colors.text_primary),
+        ),
+    ]);
+    frame.render_widget(
+        Paragraph::new(vec![
+            filter_line,
+            Line::from(Span::styled(
+                "Filter by review name or state",
+                Style::default().fg(colors.text_muted),
+            )),
+        ])
+        .block(Block::default().borders(Borders::ALL)),
+        rows[0],
+    );
+
+    let visible_rows = usize::from(rows[1].height.saturating_sub(2)).max(1);
+    let max_scroll = filtered.len().saturating_sub(visible_rows);
+    let scroll = picker.scroll.min(max_scroll);
+    let mut items = Vec::new();
+    for &review_index in filtered.iter().skip(scroll).take(visible_rows) {
+        if let Some(review) = picker.reviews.get(review_index) {
+            let current_marker = if review.name == app.review_name {
+                "* "
+            } else {
+                "  "
+            };
+            let total_count = review.open_count + review.pending_count + review.addressed_count;
+            let label = format!(
+                "{current_marker}{} [{}] open:{} pending:{} addressed:{} total:{}",
+                review.name,
+                review_state_label(&review.state),
+                review.open_count,
+                review.pending_count,
+                review.addressed_count,
+                total_count
+            );
+            items.push(ListItem::new(fit_to_width(
+                &label,
+                usize::from(rows[1].width.saturating_sub(6)).max(8),
+            )));
+        }
+    }
+    if items.is_empty() {
+        items.push(ListItem::new(Span::styled(
+            "(no matching reviews)",
+            Style::default().fg(colors.text_muted),
+        )));
+    }
+
+    let mut state = ListState::default();
+    if !filtered.is_empty() {
+        state.select(Some(selected.saturating_sub(scroll)));
+    }
+    frame.render_stateful_widget(
+        List::new(items)
+            .block(Block::default().title("Reviews").borders(Borders::ALL))
             .highlight_style(
                 Style::default()
                     .bg(colors.sidebar_highlight_bg)
@@ -3327,6 +3473,8 @@ fn status_footer_context(app: &TuiApp) -> String {
         "Theme picker · enter apply · esc close".to_string()
     } else if app.commit_picker.is_some() {
         "Commit picker · type sha/message · enter apply".to_string()
+    } else if app.review_picker.is_some() {
+        "Review picker · type name/state · enter apply".to_string()
     } else if app.settings_editor.is_some() {
         "Settings · enter save · esc cancel".to_string()
     } else if app.command_prompt.is_some() {
