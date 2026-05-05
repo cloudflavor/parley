@@ -65,6 +65,9 @@
 
 - `?`: open help docs
 - `Ctrl+k`: command palette
+- Command palette `Open Commit Picker`: open recent commits, filter by message or SHA, and apply the selected commit as the active diff source
+- Command palette `Open Review Picker`: open reviews, filter by name or state, and apply the selected review as the active comment context
+- Command palette `Create Review`: create a new review context and switch to it
 - `Ctrl+f`: file filter input
 - `Shift+U`: edit user name
 - `V`: toggle split diff

@@ -21,6 +21,8 @@ It combines:
 - a diff source: working tree, commit, or range
 - a local review session: named review metadata stored under `.parley/`
 
+Each review is its own context. Switching reviews changes the comment threads, replies, and review status shown in the TUI; it does not change the active diff source.
+
 That review session tracks threads as structured objects with:
 
 - an anchor line in the diff
@@ -68,6 +70,8 @@ parley review start my-review
 parley tui --review my-review
 ```
 
+The TUI requires an explicit existing review. Create the review first with `parley review create <name>`, then open it with `parley tui --review <name>`.
+
 If you are running over SSH and your terminal client does not play well with mouse reporting, start the TUI with `--no-mouse`.
 
 ## Revision sources
@@ -78,7 +82,7 @@ You can also open historical diffs directly in the TUI:
 
 ```bash
 parley tui --commit HEAD~2
-parley tui --base main --head feature/my-branch
+parley tui --base origin/trunk --head feature/my-branch
 parley tui --base v0.1.0
 # everything after HEAD~2 (exclude that commit)
 parley tui --base HEAD~2 --head HEAD
@@ -93,6 +97,12 @@ parley tui --base HEAD~2^ --head HEAD
 - Use `--base <rev>^ --head HEAD` to include `<rev>` itself in that cumulative range.
 
 AI sessions and TUI refresh use the same selected revision source, so they stay aligned with the diff you opened.
+
+From inside the TUI, use `Ctrl+k` to open the command palette, choose `Open Commit Picker`, then search by commit message or SHA. `Enter` switches the active diff source to the selected commit, and `Esc` closes the picker without changing the current diff.
+
+Use `Ctrl+k` and `Open Review Picker` to switch the active review context. The picker filters by review name or state and shows each review's thread counts. Applying a review reloads the review-owned comments while keeping the current diff source.
+
+Use `Ctrl+k` and `Create Review` to create a new review from inside the TUI and switch to it immediately. Entering a name in the review picker that has no matches also opens the create-review prompt.
 
 Current limitation:
 
@@ -110,7 +120,21 @@ Inside that same draft editor, `Alt+b` moves backward by the previous whitespace
 
 ## Local state and diff filtering
 
-Parley stores reviews, logs, and config under `.parley/`.
+Parley stores config under `.parley/` and review-owned data under normalized review directories:
+
+```text
+.parley/
+  config.toml
+  reviews/
+    <review-name>/
+      review.json
+      logs/
+        tui.log
+```
+
+Comments, replies, thread state, review state, and TUI logs belong to that review directory.
+
+Older flat files such as `.parley/reviews/<review-name>.json` are still readable.
 
 Those `.parley/` files are ignored by default when Parley builds the review diff, so local review metadata does not pollute the file sidebar. This behavior is configurable through `.parley/config.toml`:
 

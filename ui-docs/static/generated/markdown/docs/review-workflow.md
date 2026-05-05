@@ -122,6 +122,12 @@ Parley can review more than the live working tree:
 
 AI sessions use the same selected revision source for prompt context.
 
+Inside the TUI, `Ctrl+k` opens the command palette. Select `Open Commit Picker` to choose from recent commits, filter by message or SHA, and press `Enter` to apply the selected commit as the active diff source.
+
+Select `Open Review Picker` from the same command palette to switch review context. This reloads comments, replies, and review state from the selected review while keeping the active working tree, commit, or range diff unchanged.
+
+Select `Create Review` to create a new review context from inside the TUI and switch to it immediately. New comments then persist under that review's directory.
+
 Current limitation:
 
 - the revision source is not stored in the review session yet, so a later reopen still needs the same CLI flags.

@@ -88,7 +88,7 @@ Reply mode on explicit thread IDs:
 
 ## Notes
 
-- Review names can be resolved from current branch context.
+- Tools that operate on review state require an explicit `review_name`.
 - Thread state updates are explicit tool calls.
 - `set_review_state` accepts Parley review states (`open`, `under_review`, `done`).
 - `run_ai_session` supports `reply` and `refactor` modes.

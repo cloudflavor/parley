@@ -28,6 +28,8 @@ The review session is the structured review state Parley keeps locally:
 
 That matters because comments are not just free-form notes. Each thread is attached to a file path and line reference, and replies update the parent thread status.
 
+The review session is the comment context. Switching reviews changes which comments and review state are visible, while the selected diff source stays as-is.
+
 ## Create a review session
 
 ```bash
@@ -43,13 +45,15 @@ That matters because comments are not just free-form notes. Each thread is attac
 ./target/release/parley tui --review my-review
 ```
 
+`--review` is required, and the review must already exist. Create it first with `review create`.
+
 If your terminal or SSH session mishandles mouse reporting, disable mouse capture:
 
 ```bash
 ./target/release/parley tui --review my-review --no-mouse
 ```
 
-If only one review exists, Parley can resolve that review automatically, but using `--review` is the clearest form.
+The TUI never creates or guesses a startup review. Review context is explicit so comments are always written under the intended review.
 
 ## Open a specific commit or range
 
@@ -57,7 +61,7 @@ By default, the TUI opens the current working tree diff. You can also open histo
 
 ```bash
 ./target/release/parley tui --commit HEAD~2
-./target/release/parley tui --base main --head feature/my-branch
+./target/release/parley tui --base origin/trunk --head feature/my-branch
 ./target/release/parley tui --base v0.1.0
 # everything after HEAD~2 (exclude that commit)
 ./target/release/parley tui --base HEAD~2 --head HEAD
@@ -72,6 +76,27 @@ By default, the TUI opens the current working tree diff. You can also open histo
 - Use `--base <rev>^ --head HEAD` to include `<rev>` itself in that cumulative range.
 
 Refresh (`R`) keeps using the same source while the TUI session stays open, and AI prompt context follows that same diff source.
+
+You can also switch to a specific commit from inside the TUI:
+
+1. Press `Ctrl+k` to open the command palette.
+2. Choose `Open Commit Picker`.
+3. Type part of a commit message, short SHA, or full SHA to filter the recent commit list.
+4. Use `↑/↓`, `j/k`, `PgUp/PgDn`, `Home`, or `End` to select a commit.
+5. Press `Enter` to apply it.
+
+The picker changes only Parley's active diff source. It does not run `git checkout` or modify the working tree.
+
+To switch comment context without changing the diff:
+
+1. Press `Ctrl+k` to open the command palette.
+2. Choose `Open Review Picker`.
+3. Filter by review name or state.
+4. Press `Enter` to apply the selected review.
+
+The TUI reloads comments from the selected review and keeps the current diff source.
+
+To create a new review from inside the TUI, use `Ctrl+k` and `Create Review`. The new review becomes active immediately, and later comments are written to that review's directory. If the review picker has no matches for the typed name, pressing `Enter` opens the same create-review prompt with that name.
 
 Current limitation:
 
@@ -200,6 +225,9 @@ Review state mostly follows thread state:
 - `H`: toggle AI stream popup
 - `L`: open log file in `less`
 - `Ctrl+k`: open command palette
+- Command palette `Open Commit Picker`: switch the active diff source to a recent commit
+- Command palette `Open Review Picker`: switch the active review context
+- Command palette `Create Review`: create a new review context and switch to it
 - `Ctrl+f`: focus files filter input
 - `?`: open in-app docs/help overlay
 
@@ -224,14 +252,25 @@ Inside the TUI:
 For a historical review:
 
 ```bash
-./target/release/parley tui --review parser-cleanup --base main --head feature/parser-cleanup
+./target/release/parley tui --review parser-cleanup --base origin/trunk --head feature/parser-cleanup
 ```
 
 That lets you keep one named review session while pointing the TUI at an explicit base/head diff.
 
 ## Config
 
-Parley stores its local state in `.parley/` and reads configuration from `.parley/config.toml`.
+Parley reads configuration from `.parley/config.toml` and stores review-owned state under `.parley/reviews/<review-name>/`.
+
+Each review directory contains:
+
+```text
+review.json
+logs/tui.log
+```
+
+All comments, replies, thread status, review status, and TUI logs for that review stay under this directory.
+
+Older flat review files in `.parley/reviews/<review-name>.json` are still loaded.
 
 By default, Parley ignores its own `.parley/` files when building the review diff so that review metadata and logs do not show up in the file list.
 
