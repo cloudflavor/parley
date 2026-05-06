@@ -1,0 +1,40 @@
+[bootstrap]
+command = "mkdir -p dist"
+
+[[bootstrap.mounts]]
+host = "../dist"
+container = "/dist"
+read_only = false
+
+[[jobs]]
+name = "build_release_amd64_linux"
+arch = "amd64"
+
+[[jobs]]
+name = "build_release_aarch64_linux"
+arch = "arm64"
+
+[[jobs]]
+name = "build_release_aarch64_macos"
+engine = "sandbox"
+sandbox_allowed_domains = [
+  "static.rust-lang.org",
+  "crates.io",
+  "index.crates.io",
+  "static.crates.io",
+  "github.com",
+  "*.github.com",
+  "api.github.com",
+]
+sandbox_allow_write = [
+  ".",
+  "/tmp",
+  "/dist",
+  "~/.cargo",
+  "~/.rustup",
+  "~/.cache",
+  "~/Library/Caches",
+  "~/.local/share/opal",
+]
+sandbox_ignore_violations = { "*" = [".cargo/registry/src"] }
+sandbox_mandatory_deny_search_depth = 3

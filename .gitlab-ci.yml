@@ -32,27 +32,23 @@ test:
 build_release_amd64_linux:
   extends: .release_manual
   script:
-    - rustup target add x86_64-unknown-linux-gnu
-    - cargo build --release --locked --bin parley --target x86_64-unknown-linux-gnu
+    - cargo build --release --locked --bin parley
+    - mkdir -p /dist/x86_64-unknown-linux-gnu
+    - mv target/release/parley /dist/x86_64-unknown-linux-gnu/parley
   artifacts:
     paths:
-      - target/x86_64-unknown-linux-gnu/release/parley
+      - /dist/x86_64-unknown-linux-gnu/parley
     expire_in: 7 days
 
 build_release_aarch64_linux:
   extends: .release_manual
-  variables:
-    CARGO_TARGET_AARCH64_UNKNOWN_LINUX_GNU_LINKER: aarch64-linux-gnu-gcc
-  before_script:
-    - rustup component add rustfmt clippy
-    - apt-get update
-    - apt-get install -y --no-install-recommends gcc-aarch64-linux-gnu libc6-dev-arm64-cross pkg-config
-    - rustup target add aarch64-unknown-linux-gnu
   script:
-    - cargo build --release --locked --bin parley --target aarch64-unknown-linux-gnu
+    - cargo build --release --locked --bin parley
+    - mkdir -p /dist/aarch64-unknown-linux-gnu
+    - mv target/release/parley /dist/aarch64-unknown-linux-gnu/parley
   artifacts:
     paths:
-      - target/aarch64-unknown-linux-gnu/release/parley
+      - /dist/aarch64-unknown-linux-gnu/parley
     expire_in: 7 days
 
 build_release_aarch64_macos:
@@ -62,10 +58,11 @@ build_release_aarch64_macos:
     - arm64
   before_script:
     - rustup component add rustfmt clippy
-    - rustup target add aarch64-apple-darwin
   script:
-    - cargo build --release --locked --bin parley --target aarch64-apple-darwin
+    - cargo build --release --locked --bin parley
+    - mkdir -p /dist/aarch64-apple-darwin
+    - mv target/release/parley /dist/aarch64-apple-darwin/parley
   artifacts:
     paths:
-      - target/aarch64-apple-darwin/release/parley
+      - /dist/aarch64-apple-darwin/parley
     expire_in: 7 days
