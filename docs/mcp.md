@@ -5,7 +5,8 @@ Parley exposes an MCP-compatible JSON-RPC interface over stdio.
 ## Transport
 
 - Supports both `Content-Length` framed and newline-delimited JSON-RPC messages.
-- Implements `initialize`, `tools/list`, and `tools/call`.
+- Implements `initialize`, `tools/list`, `tools/call`, `resources/list`, and `resources/read`.
+- Advertises embedded documentation through MCP resources with `parley://docs/{slug}` URIs.
 
 ## Typical tools
 
@@ -17,6 +18,25 @@ Parley exposes an MCP-compatible JSON-RPC interface over stdio.
 - `mark_comment_open`
 - `set_review_state`
 - `run_ai_session`
+- `get_documentation`
+
+## Embedded documentation
+
+Agents can discover Parley's built-in markdown docs through `resources/list` and read any page with `resources/read`.
+
+Available resource URIs:
+
+- `parley://docs/keybindings`
+- `parley://docs/overview`
+- `parley://docs/quickstart`
+- `parley://docs/review-workflow`
+- `parley://docs/mcp`
+
+Agents that prefer tools can call `get_documentation`.
+
+Inputs:
+
+- `doc`: optional doc slug, title, source path, or URI. If omitted, the tool returns the available docs list.
 
 ## `run_ai_session` behavior
 

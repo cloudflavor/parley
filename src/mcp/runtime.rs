@@ -1,3 +1,4 @@
+use crate::docs::{PARLEY_DOCS, ParleyDoc, find_doc};
 use crate::domain::ai::{AiProvider, AiSessionMode};
 use crate::domain::review::{Author, CommentStatus, ReviewState};
 use crate::git::diff::DiffSource;
@@ -236,11 +237,14 @@ async fn handle_request(service: &ReviewService, request: RpcRequest) -> Option<
         "initialize" => Ok(initialize_result(request.params.as_ref())),
         "notifications/initialized" | "initialized" | "notifications/cancelled" => return None,
         "ping" => Ok(json!({})),
+        "resources/list" => Ok(list_documentation_resources()),
+        "resources/read" => read_documentation_resource(request.params.unwrap_or(Value::Null)),
         "tools/list" => Ok(json!({
             "tools": [
                 {"name": "list_reviews", "description": "List review session names", "inputSchema": {"type": "object", "properties": {}}},
                 {"name": "get_review", "description": "Get a review by name (defaults to current branch review)", "inputSchema": {"type": "object", "properties": {"review_name": {"type": "string"}}}},
                 {"name": "list_open_comments", "description": "List open comments for a review (defaults to current branch review)", "inputSchema": {"type": "object", "properties": {"review_name": {"type": "string"}}}},
+                {"name": "get_documentation", "description": "Get embedded Parley documentation. Omit doc to list available docs.", "inputSchema": {"type": "object", "properties": {"doc": {"type": "string", "description": "Documentation slug, title, source path, or URI", "enum": ["keybindings", "overview", "quickstart", "review-workflow", "mcp"]}}}},
                 {"name": "add_reply", "description": "Add a reply to a comment", "inputSchema": {"type": "object", "required": ["comment_id", "body"], "properties": {"review_name": {"type": "string"}, "comment_id": {"type": "integer"}, "body": {"type": "string"}, "author": {"type": "string"}}}},
                 {"name": "mark_comment_addressed", "description": "Mark a comment as addressed", "inputSchema": {"type": "object", "required": ["comment_id"], "properties": {"review_name": {"type": "string"}, "comment_id": {"type": "integer"}, "author": {"type": "string"}}}},
                 {"name": "mark_comment_open", "description": "Mark a comment as open", "inputSchema": {"type": "object", "required": ["comment_id"], "properties": {"review_name": {"type": "string"}, "comment_id": {"type": "integer"}, "author": {"type": "string"}}}},
@@ -277,6 +281,9 @@ fn initialize_result(params: Option<&Value>) -> Value {
         "protocolVersion": protocol_version,
         "serverInfo": {"name": "parley", "version": env!("CARGO_PKG_VERSION")},
         "capabilities": {
+            "resources": {
+                "listChanged": false
+            },
             "tools": {
                 "listChanged": false
             }
@@ -308,6 +315,40 @@ fn negotiate_protocol_version(params: Option<&Value>) -> String {
     }
 }
 
+fn list_documentation_resources() -> Value {
+    json!({
+        "resources": PARLEY_DOCS
+            .iter()
+            .map(documentation_resource_metadata)
+            .collect::<Vec<_>>()
+    })
+}
+
+fn documentation_resource_metadata(doc: &ParleyDoc) -> Value {
+    json!({
+        "uri": doc.uri,
+        "name": doc.slug,
+        "title": doc.title,
+        "description": format!("Embedded Parley documentation from {}", doc.source_path),
+        "mimeType": "text/markdown",
+    })
+}
+
+fn read_documentation_resource(params: Value) -> Result<Value> {
+    let uri = required_string(&params, "uri")?;
+    let doc = find_doc(uri).ok_or_else(|| anyhow!("documentation resource not found: {uri}"))?;
+
+    Ok(json!({
+        "contents": [
+            {
+                "uri": doc.uri,
+                "mimeType": "text/markdown",
+                "text": doc.body,
+            }
+        ]
+    }))
+}
+
 async fn handle_tools_call(service: &ReviewService, params: Value) -> Result<Value> {
     let tool = params
         .get("name")
@@ -321,6 +362,7 @@ async fn handle_tools_call(service: &ReviewService, params: Value) -> Result<Val
 
     let output = match tool {
         "list_reviews" => json!({ "reviews": service.list_reviews().await? }),
+        "get_documentation" => get_documentation_tool_output(&arguments)?,
         "get_review" => {
             let review_name = resolve_review_name(&arguments)?;
             let review = service.load_review(&review_name).await?;
@@ -414,6 +456,28 @@ async fn handle_tools_call(service: &ReviewService, params: Value) -> Result<Val
     }))
 }
 
+fn get_documentation_tool_output(arguments: &Value) -> Result<Value> {
+    let Some(doc_value) = arguments.get("doc").and_then(Value::as_str) else {
+        return Ok(json!({
+            "docs": PARLEY_DOCS
+                .iter()
+                .map(documentation_resource_metadata)
+                .collect::<Vec<_>>()
+        }));
+    };
+
+    let doc = find_doc(doc_value).ok_or_else(|| anyhow!("documentation not found: {doc_value}"))?;
+
+    Ok(json!({
+        "title": doc.title,
+        "slug": doc.slug,
+        "source_path": doc.source_path,
+        "uri": doc.uri,
+        "mime_type": "text/markdown",
+        "body": doc.body,
+    }))
+}
+
 fn resolve_review_name(arguments: &Value) -> Result<String> {
     let name = required_string(arguments, "review_name")?.trim();
     validate_review_name(name).map_err(|error| anyhow!(error))?;
@@ -488,6 +552,10 @@ mod tests {
             response["capabilities"]["tools"]["listChanged"],
             json!(false)
         );
+        assert_eq!(
+            response["capabilities"]["resources"]["listChanged"],
+            json!(false)
+        );
     }
 
     #[test]
@@ -516,6 +584,80 @@ mod tests {
             .expect("ping request should return a response");
 
         assert_eq!(response["result"], json!({}));
+    }
+
+    #[tokio::test]
+    async fn resources_list_returns_embedded_documentation() {
+        let tempdir = tempdir().expect("tempdir should exist");
+        let service = ReviewService::new(Store::from_project_root(tempdir.path()));
+        let request = RpcRequest {
+            jsonrpc: Some("2.0".to_string()),
+            id: Some(json!(1)),
+            method: "resources/list".to_string(),
+            params: None,
+        };
+
+        let response = handle_request(&service, request)
+            .await
+            .expect("resources/list request should return a response");
+        let resources = response["result"]["resources"]
+            .as_array()
+            .expect("resources should be an array");
+
+        assert!(
+            resources
+                .iter()
+                .any(|resource| resource["uri"] == json!("parley://docs/overview"))
+        );
+    }
+
+    #[tokio::test]
+    async fn resources_read_returns_embedded_markdown() {
+        let tempdir = tempdir().expect("tempdir should exist");
+        let service = ReviewService::new(Store::from_project_root(tempdir.path()));
+        let request = RpcRequest {
+            jsonrpc: Some("2.0".to_string()),
+            id: Some(json!(1)),
+            method: "resources/read".to_string(),
+            params: Some(json!({"uri": "parley://docs/overview"})),
+        };
+
+        let response = handle_request(&service, request)
+            .await
+            .expect("resources/read request should return a response");
+        let content = &response["result"]["contents"][0];
+
+        assert_eq!(content["uri"], json!("parley://docs/overview"));
+        assert_eq!(content["mimeType"], json!("text/markdown"));
+        assert!(
+            content["text"]
+                .as_str()
+                .expect("content text should be a string")
+                .contains("# Parley")
+        );
+    }
+
+    #[tokio::test]
+    async fn get_documentation_tool_returns_requested_doc() {
+        let tempdir = tempdir().expect("tempdir should exist");
+        let service = ReviewService::new(Store::from_project_root(tempdir.path()));
+        let response = handle_tools_call(
+            &service,
+            json!({
+                "name": "get_documentation",
+                "arguments": {"doc": "mcp"}
+            }),
+        )
+        .await
+        .expect("get_documentation should return a response");
+
+        assert_eq!(response["structuredContent"]["slug"], json!("mcp"));
+        assert!(
+            response["structuredContent"]["body"]
+                .as_str()
+                .expect("body should be a string")
+                .contains("# MCP Integration")
+        );
     }
 
     #[tokio::test]
