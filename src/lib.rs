@@ -1,4 +1,5 @@
 pub mod cli;
+pub mod docs;
 pub mod domain;
 pub mod git;
 pub mod mcp;
