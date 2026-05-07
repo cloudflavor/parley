@@ -8,7 +8,7 @@ use ratatui::{
 };
 
 use crate::domain::review::{CommentStatus, ReviewState};
-use crate::tui::app::render::fit_spans_to_width;
+use crate::tui::app::render::helpers::fit_spans_to_width;
 
 use super::super::super::theme::ThemeColors;
 use super::super::helpers::format_line_reference;

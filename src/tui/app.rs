@@ -8,7 +8,7 @@ use std::{
 
 use anyhow::{Context, Result, anyhow};
 use crossterm::event::{self, Event};
-use ratatui::{Terminal, backend::CrosstermBackend, layout::Rect, style::Style, text::Line};
+use ratatui::{Terminal, backend::CrosstermBackend, layout::Rect};
 use tokio::task::JoinHandle;
 
 use crate::domain::ai::{AiProvider, AiSessionMode};
@@ -183,7 +183,7 @@ async fn run_loop(
     Ok(())
 }
 
-mod help_docs;
+pub(super) mod help_docs;
 mod helpers;
 mod input;
 mod render;
@@ -195,47 +195,19 @@ use helpers::{
     remove_char_at, slice_chars, suspend_tui_process,
 };
 use render::draw;
+pub(super) use render::{
+    DiffRenderCacheEntry, DiffRenderCacheKey, DisplayRow, FileReferenceHit, HighlightParts,
+};
 
 const AI_PROGRESS_MAX_LINES: usize = 300;
 const DIFF_RENDER_CACHE_MAX_ENTRIES: usize = 64;
-const INLINE_FILE_MENTION_MAX_CANDIDATES: usize = 120;
 const INLINE_FILE_MENTION_MAX_VISIBLE_ROWS: usize = 6;
-type HighlightParts = Vec<(Style, String)>;
-
-#[derive(Debug, Clone)]
-struct DisplayRow {
-    kind: DiffLineKind,
-    old_line: Option<u32>,
-    new_line: Option<u32>,
-    raw: String,
-    code: String,
-}
+const INLINE_FILE_MENTION_MAX_CANDIDATES: usize = 120;
 
 #[derive(Debug, Clone)]
 struct CachedFileRows {
     rows: Vec<DisplayRow>,
     highlights: Vec<HighlightParts>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Hash)]
-struct DiffRenderCacheKey {
-    file_index: usize,
-    pane_inner_width: usize,
-    side_by_side_diff: bool,
-    search_query: Option<String>,
-    thread_density_mode: ThreadDensityMode,
-    selected_line: usize,
-    selected_comment_id: Option<u64>,
-    expanded_thread_ids: Vec<u64>,
-    review_state_code: u8,
-    is_active: bool,
-}
-
-#[derive(Debug, Clone)]
-struct DiffRenderCacheEntry {
-    lines: Vec<Line<'static>>,
-    row_map: Vec<usize>,
-    link_hits: Vec<FileReferenceHit>,
 }
 
 #[derive(Debug, Clone)]
@@ -303,15 +275,6 @@ struct ThreadAnchor {
     comment_id: u64,
     old_line: Option<u32>,
     new_line: Option<u32>,
-}
-
-#[derive(Debug, Clone)]
-struct FileReferenceHit {
-    rendered_row_index: usize,
-    col_start: usize,
-    col_end: usize,
-    path: String,
-    line: Option<u32>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -400,17 +363,17 @@ enum FileFilterMode {
     Pending,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(super) enum ThreadDensityMode {
+    Compact,
+    Expanded,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum FileSortMode {
     Path,
     OpenCountDesc,
     TotalCountDesc,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-enum ThreadDensityMode {
-    Compact,
-    Expanded,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

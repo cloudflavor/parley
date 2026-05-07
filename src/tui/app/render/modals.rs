@@ -7,10 +7,9 @@ use ratatui::{
 };
 
 use super::super::helpers::slice_chars;
-use super::{
-    SettingsEditorKind, TuiApp, fit_to_width, review_state_label, theme_family_label,
-    theme_variant_label,
-};
+use super::{SettingsEditorKind, TuiApp};
+use super::helpers::fit_to_width;
+use super::status::{review_state_label, theme_family_label, theme_variant_label};
 
 pub(super) fn draw_settings_editor(frame: &mut Frame<'_>, app: &TuiApp) {
     let Some(editor) = app.settings_editor.as_ref() else {
