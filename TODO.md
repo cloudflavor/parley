@@ -45,10 +45,11 @@
 **Files**:
 - `src/services/ai_session.rs:1109`
 - `src/services/review_service.rs:241`
+- `src/tui/app/state/anchor.rs:pub(crate) fn now_ms_utc()`
 
 **Fix**: Create shared utility module `src/utils/time.rs` with single implementation
 **Benefit**: DRY principle, easier maintenance
-**Status**: ✅ **COMPLETED**
+**Status**: ⏳ **PENDING** - Still 3 duplicate implementations exist
 
 ### 2.2 CLI Argument Parsing Error Types
 **File**: `src/cli/args.rs`
@@ -123,11 +124,11 @@ pub enum ParleyError {
 
 ### 4.2 Extract Common Utilities
 **Create**: `src/utils/mod.rs`
-- `time.rs` - `now_ms()` function
+- `time.rs` - `now_ms()` function (3 duplicates still exist)
 - `fs.rs` - Async file operations wrappers
 - `validation.rs` - Review name validation
 
-**Status**: ✅ **PARTIALLY COMPLETED** (time utils done)
+**Status**: ⏳ **PENDING** - No utils module created yet
 
 ## Priority 5: Modularization (refactor-001)
 
@@ -162,7 +163,7 @@ pub enum ParleyError {
 
 1. ✅ Fix all production unwrap/expect (Priority 1) - **COMPLETED**
 2. ✅ Fix blocking I/O in async (Priority 2.3) - **COMPLETED**
-3. ✅ Consolidate duplicate now_ms() functions (Priority 2.1) - **COMPLETED**
+3. ⏳ Consolidate duplicate now_ms() functions (Priority 2.1) - **PENDING**
 4. ✅ Improve CLI error types (Priority 2.2) - **COMPLETED**
 5. ✅ Migrate structopt → clap (Priority 3.1) - **COMPLETED**
 6. ⏳ Create error type hierarchy (Priority 4.1) - **PENDING**
@@ -187,7 +188,7 @@ pub enum ParleyError {
 ## Current Status (refactor-001)
 
 **Branch**: `refactor-001`
-**Commits**: 7 ahead of main
+**Commits**: 8 ahead of main (including TODO.md restoration)
 **Status**: ✅ All checks passing
 - `cargo fmt` ✓
 - `cargo check` ✓
@@ -195,3 +196,10 @@ pub enum ParleyError {
 - `cargo test --all-targets --all-features` ✓ (96 tests)
 
 **Ready to merge to main**
+
+## Remaining Work (refactor-002 candidates)
+
+1. ⏳ Consolidate duplicate `now_ms()` functions into `src/utils/time.rs`
+2. ⏳ Create error type hierarchy (`src/errors.rs`)
+3. ⏳ Complete utilities extraction (`src/utils/mod.rs`)
+4. ⏳ (Low priority) Clean up MCP runtime `unwrap_or(Value::Null)` patterns
