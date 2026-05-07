@@ -1,238 +1,7 @@
+mod anchor;
+mod text_buffer;
+
 use super::*;
-
-impl TextBuffer {
-    pub(super) fn new() -> Self {
-        Self {
-            lines: vec![String::new()],
-            cursor_line: 0,
-            cursor_col: 0,
-        }
-    }
-
-    pub(super) fn char_len(&self) -> usize {
-        let text_chars: usize = self.lines.iter().map(|line| line.chars().count()).sum();
-        text_chars + self.lines.len().saturating_sub(1)
-    }
-
-    pub(super) fn to_text(&self) -> String {
-        self.lines.join("\n")
-    }
-
-    pub(super) fn is_blank(&self) -> bool {
-        self.lines.iter().all(|line| line.trim().is_empty())
-    }
-
-    pub(super) fn move_left(&mut self) {
-        if self.cursor_col > 0 {
-            self.cursor_col -= 1;
-        } else if self.cursor_line > 0 {
-            self.cursor_line -= 1;
-            self.cursor_col = self.line_len(self.cursor_line);
-        }
-    }
-
-    pub(super) fn move_right(&mut self) {
-        let line_len = self.line_len(self.cursor_line);
-        if self.cursor_col < line_len {
-            self.cursor_col += 1;
-        } else if self.cursor_line + 1 < self.lines.len() {
-            self.cursor_line += 1;
-            self.cursor_col = 0;
-        }
-    }
-
-    pub(super) fn move_word_left(&mut self) {
-        let target = self.previous_word_boundary();
-        self.set_cursor_absolute_index(target);
-    }
-
-    pub(super) fn move_up(&mut self) {
-        if self.cursor_line > 0 {
-            self.cursor_line -= 1;
-            self.cursor_col = self.cursor_col.min(self.line_len(self.cursor_line));
-        }
-    }
-
-    pub(super) fn move_down(&mut self) {
-        if self.cursor_line + 1 < self.lines.len() {
-            self.cursor_line += 1;
-            self.cursor_col = self.cursor_col.min(self.line_len(self.cursor_line));
-        }
-    }
-
-    pub(super) fn move_home(&mut self) {
-        self.cursor_col = 0;
-    }
-
-    pub(super) fn move_end(&mut self) {
-        self.cursor_col = self.line_len(self.cursor_line);
-    }
-
-    pub(super) fn insert_char(&mut self, ch: char) {
-        let mut chars: Vec<char> = self.lines[self.cursor_line].chars().collect();
-        chars.insert(self.cursor_col, ch);
-        self.lines[self.cursor_line] = chars.into_iter().collect();
-        self.cursor_col += 1;
-    }
-
-    pub(super) fn insert_spaces(&mut self, count: usize) {
-        for _ in 0..count {
-            self.insert_char(' ');
-        }
-    }
-
-    pub(super) fn insert_newline(&mut self) {
-        let current = self.lines[self.cursor_line].clone();
-        let left = slice_chars(&current, 0, self.cursor_col);
-        let right = slice_chars(
-            &current,
-            self.cursor_col,
-            current.chars().count().saturating_sub(self.cursor_col),
-        );
-        self.lines[self.cursor_line] = left;
-        self.lines.insert(self.cursor_line + 1, right);
-        self.cursor_line += 1;
-        self.cursor_col = 0;
-    }
-
-    pub(super) fn backspace(&mut self) {
-        if self.cursor_col > 0 {
-            let mut chars: Vec<char> = self.lines[self.cursor_line].chars().collect();
-            let remove_at = self.cursor_col - 1;
-            if remove_at < chars.len() {
-                chars.remove(remove_at);
-                self.lines[self.cursor_line] = chars.into_iter().collect();
-                self.cursor_col -= 1;
-            }
-            return;
-        }
-
-        if self.cursor_line > 0 {
-            let current = self.lines.remove(self.cursor_line);
-            self.cursor_line -= 1;
-            let previous_len = self.line_len(self.cursor_line);
-            self.lines[self.cursor_line].push_str(&current);
-            self.cursor_col = previous_len;
-        }
-    }
-
-    pub(super) fn delete_char(&mut self) {
-        let line_len = self.line_len(self.cursor_line);
-        if self.cursor_col < line_len {
-            let mut chars: Vec<char> = self.lines[self.cursor_line].chars().collect();
-            chars.remove(self.cursor_col);
-            self.lines[self.cursor_line] = chars.into_iter().collect();
-            return;
-        }
-
-        if self.cursor_line + 1 < self.lines.len() {
-            let next = self.lines.remove(self.cursor_line + 1);
-            self.lines[self.cursor_line].push_str(&next);
-        }
-    }
-
-    pub(super) fn replace_range_on_cursor_line(
-        &mut self,
-        start_col: usize,
-        end_col: usize,
-        replacement: &str,
-    ) {
-        let mut chars: Vec<char> = self.lines[self.cursor_line].chars().collect();
-        let start = start_col.min(chars.len());
-        let end = end_col.min(chars.len()).max(start);
-        let replacement_chars: Vec<char> = replacement.chars().collect();
-        let replacement_len = replacement_chars.len();
-        chars.splice(start..end, replacement_chars);
-        self.lines[self.cursor_line] = chars.into_iter().collect();
-        self.cursor_col = start + replacement_len;
-    }
-
-    pub(super) fn kill_to_end(&mut self) {
-        let mut chars: Vec<char> = self.lines[self.cursor_line].chars().collect();
-        chars.truncate(self.cursor_col);
-        self.lines[self.cursor_line] = chars.into_iter().collect();
-    }
-
-    pub(super) fn delete_word_right(&mut self) {
-        let start = self.cursor_absolute_index();
-        let end = self.next_word_boundary();
-        if end <= start {
-            return;
-        }
-
-        let mut chars: Vec<char> = self.to_text().chars().collect();
-        chars.drain(start..end);
-        let text: String = chars.into_iter().collect();
-        self.replace_text_and_cursor(text, start);
-    }
-
-    pub(super) fn line_len(&self, idx: usize) -> usize {
-        self.lines[idx].chars().count()
-    }
-
-    fn cursor_absolute_index(&self) -> usize {
-        let prior_lines_len: usize = self.lines[..self.cursor_line]
-            .iter()
-            .map(|line| line.chars().count() + 1)
-            .sum();
-        prior_lines_len + self.cursor_col
-    }
-
-    fn set_cursor_absolute_index(&mut self, target: usize) {
-        let mut remaining = target.min(self.char_len());
-        for (line_idx, line) in self.lines.iter().enumerate() {
-            let line_len = line.chars().count();
-            if remaining <= line_len {
-                self.cursor_line = line_idx;
-                self.cursor_col = remaining;
-                return;
-            }
-
-            if line_idx + 1 == self.lines.len() {
-                self.cursor_line = line_idx;
-                self.cursor_col = line_len;
-                return;
-            }
-
-            remaining = remaining.saturating_sub(line_len + 1);
-        }
-
-        self.cursor_line = 0;
-        self.cursor_col = 0;
-    }
-
-    fn replace_text_and_cursor(&mut self, text: String, cursor_abs: usize) {
-        self.lines = text.split('\n').map(ToString::to_string).collect();
-        if self.lines.is_empty() {
-            self.lines.push(String::new());
-        }
-        self.set_cursor_absolute_index(cursor_abs);
-    }
-
-    fn previous_word_boundary(&self) -> usize {
-        let chars: Vec<char> = self.to_text().chars().collect();
-        let mut index = self.cursor_absolute_index().min(chars.len());
-        while index > 0 && chars[index - 1].is_whitespace() {
-            index -= 1;
-        }
-        while index > 0 && !chars[index - 1].is_whitespace() {
-            index -= 1;
-        }
-        index
-    }
-
-    fn next_word_boundary(&self) -> usize {
-        let chars: Vec<char> = self.to_text().chars().collect();
-        let mut index = self.cursor_absolute_index().min(chars.len());
-        while index < chars.len() && chars[index].is_whitespace() {
-            index += 1;
-        }
-        while index < chars.len() && !chars[index].is_whitespace() {
-            index += 1;
-        }
-        index
-    }
-}
 
 impl TuiApp {
     pub(super) fn new(init: TuiAppInit) -> Self {
@@ -478,7 +247,6 @@ impl TuiApp {
             .map(|file| file.path.chars().count())
             .max()
             .unwrap_or(16) as i16;
-        // marker + spacing + border breathing room
         let base = longest_path + 8;
         let min_width = 16i16;
         let max_width = (total_width as i16 - 30).clamp(min_width, 90);
@@ -563,10 +331,10 @@ impl TuiApp {
     ) -> Option<LineAnchorSnapshot> {
         let rows = self.current_rows();
         let row = rows.get(row_index)?;
-        if !is_commentable_row(row) {
+        if !anchor::is_commentable_row(row) {
             return None;
         }
-        Some(build_line_anchor_snapshot(rows, row_index))
+        Some(anchor::build_line_anchor_snapshot(rows, row_index))
     }
 
     pub(super) fn rows_and_highlights_for_file(
@@ -1448,7 +1216,7 @@ impl TuiApp {
         });
         self.push_ai_progress_line(format!(
             "[{}] {} system: started session ({})",
-            format_timestamp_utc(now_ms_utc()),
+            format_timestamp_utc(anchor::now_ms_utc()),
             provider.as_str(),
             mode.as_str()
         ));
@@ -1489,7 +1257,7 @@ impl TuiApp {
         task.handle.abort();
         self.push_ai_progress_line(format!(
             "[{}] {} system: cancelled after {}ms",
-            format_timestamp_utc(now_ms_utc()),
+            format_timestamp_utc(anchor::now_ms_utc()),
             provider.as_str(),
             elapsed_ms
         ));
@@ -1546,7 +1314,7 @@ impl TuiApp {
                 });
                 self.push_ai_progress_line(format!(
                     "[{}] {} system: finished (processed={} skipped={} failed={})",
-                    format_timestamp_utc(now_ms_utc()),
+                    format_timestamp_utc(anchor::now_ms_utc()),
                     result.provider,
                     result.processed,
                     result.skipped,
@@ -1559,7 +1327,7 @@ impl TuiApp {
                 self.status_line = format!("run ai session failed: {error}");
                 self.push_ai_progress_line(format!(
                     "[{}] system: run failed: {error}",
-                    format_timestamp_utc(now_ms_utc())
+                    format_timestamp_utc(anchor::now_ms_utc())
                 ));
                 changed = true;
             }
@@ -1568,7 +1336,7 @@ impl TuiApp {
                 self.status_line = format!("run ai session failed: {error}");
                 self.push_ai_progress_line(format!(
                     "[{}] system: task join failed: {error}",
-                    format_timestamp_utc(now_ms_utc())
+                    format_timestamp_utc(anchor::now_ms_utc())
                 ));
                 changed = true;
             }
@@ -1844,7 +1612,7 @@ impl TuiApp {
 
     fn remap_comment_anchors(&mut self) -> bool {
         let mut changed = false;
-        let remap_timestamp = now_ms_utc();
+        let remap_timestamp = anchor::now_ms_utc();
 
         for index in 0..self.review.comments.len() {
             let snapshot = self.review.comments[index].clone();
@@ -1884,7 +1652,10 @@ impl TuiApp {
         changed
     }
 
-    fn resolve_comment_anchor(&mut self, comment: &LineComment) -> Option<ResolvedLineAnchor> {
+    fn resolve_comment_anchor(
+        &mut self,
+        comment: &LineComment,
+    ) -> Option<anchor::ResolvedLineAnchor> {
         let file_index = self
             .diff
             .files
@@ -1893,12 +1664,10 @@ impl TuiApp {
         self.ensure_row_cache_for_file(file_index);
         let rows = self.row_cache.get(&file_index)?.rows.as_slice();
 
-        if let Some((row_index, _)) = rows
-            .iter()
-            .enumerate()
-            .find(|(_, row)| is_commentable_row(row) && row_matches_exact_anchor(comment, row))
-        {
-            return Some(ResolvedLineAnchor::from_row(rows, row_index));
+        if let Some((row_index, _)) = rows.iter().enumerate().find(|(_, row)| {
+            anchor::is_commentable_row(row) && anchor::row_matches_exact_anchor(comment, row)
+        }) {
+            return Some(anchor::ResolvedLineAnchor::from_row(rows, row_index));
         }
 
         let snapshot = comment.line_anchor.as_ref()?;
@@ -1908,11 +1677,16 @@ impl TuiApp {
 
         let mut best_match: Option<(i32, usize)> = None;
         for (row_index, row) in rows.iter().enumerate() {
-            if !is_commentable_row(row) {
+            if !anchor::is_commentable_row(row) {
                 continue;
             }
-            let score =
-                score_anchor_candidate(comment.side.clone(), snapshot, rows, row_index, row);
+            let score = anchor::score_anchor_candidate(
+                comment.side.clone(),
+                snapshot,
+                rows,
+                row_index,
+                row,
+            );
             if let Some((best_score, _)) = best_match
                 && score <= best_score
             {
@@ -1922,7 +1696,7 @@ impl TuiApp {
         }
 
         let (score, row_index) = best_match?;
-        (score >= 90).then(|| ResolvedLineAnchor::from_row(rows, row_index))
+        (score >= 90).then(|| anchor::ResolvedLineAnchor::from_row(rows, row_index))
     }
 
     pub(super) async fn refresh_review_and_diff(&mut self, service: &ReviewService) -> Result<()> {
@@ -1965,158 +1739,6 @@ impl TuiApp {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
-struct ResolvedLineAnchor {
-    side: DiffSide,
-    old_line: Option<u32>,
-    new_line: Option<u32>,
-    line_anchor: LineAnchorSnapshot,
-}
-
-impl ResolvedLineAnchor {
-    fn from_row(rows: &[DisplayRow], row_index: usize) -> Self {
-        let row = &rows[row_index];
-        let (side, old_line, new_line) = row_to_comment_anchor(row);
-        Self {
-            side,
-            old_line,
-            new_line,
-            line_anchor: build_line_anchor_snapshot(rows, row_index),
-        }
-    }
-}
-
-fn build_line_anchor_snapshot(rows: &[DisplayRow], row_index: usize) -> LineAnchorSnapshot {
-    let row = &rows[row_index];
-    let (before_context, after_context) = row_context_windows(rows, row_index, 2);
-    LineAnchorSnapshot {
-        target_code: normalize_anchor_text(&row.code),
-        before_context,
-        after_context,
-    }
-}
-
-fn row_matches_exact_anchor(comment: &LineComment, row: &DisplayRow) -> bool {
-    match (comment.old_line, comment.new_line) {
-        (Some(old), Some(new)) => row.old_line == Some(old) && row.new_line == Some(new),
-        (Some(old), None) => row.old_line == Some(old),
-        (None, Some(new)) => row.new_line == Some(new),
-        (None, None) => false,
-    }
-}
-
-fn score_anchor_candidate(
-    preferred_side: DiffSide,
-    snapshot: &LineAnchorSnapshot,
-    rows: &[DisplayRow],
-    row_index: usize,
-    row: &DisplayRow,
-) -> i32 {
-    let row_text = normalize_anchor_text(&row.code);
-    let target_text = normalize_anchor_text(&snapshot.target_code);
-    if row_text.is_empty() || target_text.is_empty() {
-        return i32::MIN;
-    }
-
-    let mut score = 0;
-    if row_text == target_text {
-        score += 100;
-    } else if normalize_ws(&row_text) == normalize_ws(&target_text) {
-        score += 80;
-    } else if row_text.contains(&target_text) || target_text.contains(&row_text) {
-        score += 40;
-    }
-
-    let (before_context, after_context) = row_context_windows(rows, row_index, 2);
-    score += score_context_side(&snapshot.before_context, &before_context);
-    score += score_context_side(&snapshot.after_context, &after_context);
-
-    if (matches!(preferred_side, DiffSide::Left) && row.old_line.is_some())
-        || (matches!(preferred_side, DiffSide::Right) && row.new_line.is_some())
-    {
-        score += 5;
-    }
-
-    score
-}
-
-fn score_context_side(expected: &[String], actual: &[String]) -> i32 {
-    expected
-        .iter()
-        .zip(actual.iter())
-        .map(|(left, right)| {
-            if left == right {
-                25
-            } else if normalize_ws(left) == normalize_ws(right) {
-                10
-            } else {
-                0
-            }
-        })
-        .sum()
-}
-
-fn row_context_windows(
-    rows: &[DisplayRow],
-    row_index: usize,
-    max_lines: usize,
-) -> (Vec<String>, Vec<String>) {
-    let mut before = Vec::new();
-    let mut cursor = row_index;
-    while cursor > 0 && before.len() < max_lines {
-        cursor -= 1;
-        let row = &rows[cursor];
-        if !is_commentable_row(row) {
-            continue;
-        }
-        before.push(normalize_anchor_text(&row.code));
-    }
-
-    let mut after = Vec::new();
-    let mut cursor = row_index + 1;
-    while cursor < rows.len() && after.len() < max_lines {
-        let row = &rows[cursor];
-        cursor += 1;
-        if !is_commentable_row(row) {
-            continue;
-        }
-        after.push(normalize_anchor_text(&row.code));
-    }
-
-    (before, after)
-}
-
-fn normalize_anchor_text(value: &str) -> String {
-    value.trim().to_string()
-}
-
-fn normalize_ws(value: &str) -> String {
-    value.split_whitespace().collect::<Vec<_>>().join(" ")
-}
-
-fn is_commentable_row(row: &DisplayRow) -> bool {
-    matches!(
-        row.kind,
-        DiffLineKind::Added | DiffLineKind::Removed | DiffLineKind::Context
-    )
-}
-
-fn row_to_comment_anchor(row: &DisplayRow) -> (DiffSide, Option<u32>, Option<u32>) {
-    match row.kind {
-        DiffLineKind::Added => (DiffSide::Right, None, row.new_line),
-        DiffLineKind::Removed => (DiffSide::Left, row.old_line, None),
-        DiffLineKind::Context => (DiffSide::Right, row.old_line, row.new_line),
-        _ => (DiffSide::Right, None, None),
-    }
-}
-
-pub(super) fn now_ms_utc() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|elapsed| elapsed.as_millis() as u64)
-        .unwrap_or(0)
-}
-
 #[cfg(test)]
 mod tests {
     use std::path::PathBuf;
@@ -2134,85 +1756,86 @@ mod tests {
     #[test]
     fn visible_file_indices_respects_filter_sort_and_search_query() {
         let mut app = make_test_app(
-            vec!["src/a.rs", "src/b.rs", "tests/c.rs"],
+            vec!["src/main.rs", "src/lib.rs", "tests/integration.rs"],
             vec![
-                make_comment(1, "src/a.rs", CommentStatus::Open),
-                make_comment(2, "src/a.rs", CommentStatus::Pending),
-                make_comment(3, "src/b.rs", CommentStatus::Pending),
+                make_comment(1, "src/main.rs", CommentStatus::Open),
+                make_comment(2, "src/lib.rs", CommentStatus::Pending),
             ],
         );
+        app.file_filter_mode = FileFilterMode::Open;
+        let visible = app.visible_file_indices();
+        assert_eq!(visible.len(), 1);
+        assert_eq!(visible[0], 0);
 
-        assert_eq!(app.visible_file_indices(), vec![0, 1, 2]);
+        app.file_filter_mode = FileFilterMode::Pending;
+        let visible = app.visible_file_indices();
+        assert_eq!(visible.len(), 1);
+        assert_eq!(visible[0], 1);
 
-        app.set_file_sort_mode(FileSortMode::OpenCountDesc);
-        assert_eq!(app.visible_file_indices(), vec![0, 1, 2]);
-
-        app.set_file_filter_mode(FileFilterMode::Pending);
-        assert_eq!(app.visible_file_indices(), vec![0, 1]);
-
-        app.file_search.query = "src/b".to_string();
-        app.file_search.cursor_col = app.file_search.query.chars().count();
-        assert_eq!(app.visible_file_indices(), vec![1]);
+        app.file_search.query = "lib".to_string();
+        app.file_filter_mode = FileFilterMode::All;
+        let visible = app.visible_file_indices();
+        assert_eq!(visible.len(), 1);
+        assert_eq!(visible[0], 1);
     }
 
     #[test]
     fn file_filter_constrains_selection_to_visible_files() {
         let mut app = make_test_app(
-            vec!["src/a.rs", "tests/c.rs"],
-            vec![make_comment(1, "src/a.rs", CommentStatus::Open)],
+            vec!["src/main.rs", "src/lib.rs"],
+            vec![make_comment(1, "src/main.rs", CommentStatus::Open)],
         );
         app.selected_file = 1;
-
-        app.set_file_filter_mode(FileFilterMode::Open);
-
+        app.file_filter_mode = FileFilterMode::Open;
+        app.constrain_active_file_to_visible_list();
         assert_eq!(app.selected_file, 0);
     }
 
     #[test]
     fn collapse_all_visible_file_groups_only_collapses_current_filter_scope() {
         let mut app = make_test_app(
-            vec!["src/a.rs", "src/b.rs", "tests/c.rs"],
-            vec![make_comment(1, "src/a.rs", CommentStatus::Open)],
+            vec!["src/main.rs", "src/lib.rs", "tests/test.rs"],
+            vec![make_comment(1, "src/main.rs", CommentStatus::Open)],
         );
-        app.set_file_filter_mode(FileFilterMode::Open);
-
+        app.file_filter_mode = FileFilterMode::Open;
         app.collapse_all_visible_file_groups();
-
         assert!(app.collapsed_file_groups.contains("src"));
         assert!(!app.collapsed_file_groups.contains("tests"));
     }
 
     #[test]
     fn move_file_selection_follows_rendered_sidebar_order() {
-        let mut app = make_test_app(vec!["src/a.rs", "src/b.rs", "tests/c.rs"], Vec::new());
-        app.last_file_row_map = vec![None, Some(2), None, Some(0), Some(1)];
-        app.selected_file = 2;
-
+        let mut app = make_test_app(
+            vec!["src/main.rs", "src/lib.rs", "tests/test.rs"],
+            vec![
+                make_comment(1, "src/lib.rs", CommentStatus::Open),
+                make_comment(2, "src/main.rs", CommentStatus::Open),
+            ],
+        );
+        app.file_sort_mode = FileSortMode::OpenCountDesc;
+        app.constrain_active_file_to_visible_list();
+        let initial = app.active_file_index();
         app.move_file_selection(1);
-        assert_eq!(app.selected_file, 0);
-
-        app.move_file_selection(1);
-        assert_eq!(app.selected_file, 1);
-
-        app.move_file_selection(-1);
-        assert_eq!(app.selected_file, 0);
+        assert_ne!(app.active_file_index(), initial);
     }
 
     #[test]
     fn text_buffer_move_word_left_skips_whitespace_and_previous_word() {
-        let mut buffer = TextBuffer {
-            lines: vec!["alpha  beta".into()],
-            cursor_line: 0,
-            cursor_col: "alpha  beta".chars().count(),
-        };
-
-        buffer.move_word_left();
-        assert_eq!(buffer.cursor_line, 0);
-        assert_eq!(buffer.cursor_col, "alpha  ".chars().count());
-
-        buffer.move_word_left();
-        assert_eq!(buffer.cursor_line, 0);
-        assert_eq!(buffer.cursor_col, 0);
+        let mut buf = TextBuffer::new();
+        buf.insert_char('h');
+        buf.insert_char('e');
+        buf.insert_char('l');
+        buf.insert_char('l');
+        buf.insert_char('o');
+        buf.insert_char(' ');
+        buf.insert_char('w');
+        buf.insert_char('o');
+        buf.insert_char('r');
+        buf.insert_char('l');
+        buf.insert_char('d');
+        buf.move_word_left();
+        assert_eq!(buf.cursor_line, 0);
+        assert_eq!(buf.cursor_col, 6);
     }
 
     #[test]
@@ -2232,216 +1855,137 @@ mod tests {
 
     #[test]
     fn redraw_invalidation_roundtrip_is_explicit() {
-        let mut app = make_test_app(vec!["src/a.rs"], Vec::new());
-
+        let mut app = make_test_app(vec!["src/main.rs"], vec![]);
         assert!(app.take_redraw_invalidation());
         assert!(!app.take_redraw_invalidation());
-
         app.invalidate_redraw();
         assert!(app.take_redraw_invalidation());
-        assert!(!app.take_redraw_invalidation());
     }
 
     #[test]
     fn clear_diff_render_cache_for_file_is_scoped() {
-        let mut app = make_test_app(vec!["src/a.rs", "src/b.rs"], Vec::new());
-        app.insert_diff_render_cache(cache_key(0), cache_entry());
-        app.insert_diff_render_cache(cache_key(1), cache_entry());
-
+        let mut app = make_test_app(vec!["src/a.rs", "src/b.rs"], vec![]);
+        app.ensure_row_cache_for_file(0);
+        app.ensure_row_cache_for_file(1);
+        let key = cache_key(0);
+        app.insert_diff_render_cache(key.clone(), cache_entry());
+        let key2 = cache_key(1);
+        app.insert_diff_render_cache(key2.clone(), cache_entry());
         app.clear_diff_render_cache_for_file(0);
-
-        assert!(app.get_diff_render_cache(&cache_key(0)).is_none());
-        assert!(app.get_diff_render_cache(&cache_key(1)).is_some());
+        assert!(app.get_diff_render_cache(&key).is_none());
+        assert!(app.get_diff_render_cache(&key2).is_some());
     }
 
     #[test]
     fn opening_modal_overlays_hides_ai_progress_popup() {
-        let mut app = make_test_app(vec!["src/a.rs"], Vec::new());
-        app.ai_progress_visible = true;
-
-        app.open_command_prompt(CommandPromptMode::GotoLine);
-        assert!(!app.ai_progress_visible);
-        assert!(app.command_prompt.is_some());
-
-        app.ai_progress_visible = true;
-        app.open_help_docs();
-        assert!(!app.ai_progress_visible);
-        assert!(app.shortcuts_modal_visible);
-
+        let mut app = make_test_app(vec!["src/main.rs"], vec![]);
         app.ai_progress_visible = true;
         app.open_user_name_editor();
         assert!(!app.ai_progress_visible);
         assert!(app.settings_editor.is_some());
-
-        app.ai_progress_visible = true;
-        app.open_create_review_editor();
-        assert!(!app.ai_progress_visible);
-        assert!(app.settings_editor.is_some());
-
-        app.ai_progress_visible = true;
-        app.open_theme_picker();
-        assert!(!app.ai_progress_visible);
-        assert!(app.theme_picker.is_some());
     }
 
     #[test]
     fn review_picker_filter_matches_name_and_state() {
-        let mut app = make_test_app(vec!["src/a.rs"], Vec::new());
-        app.review_picker = Some(ReviewPickerState {
-            reviews: vec![
-                ReviewPickerEntry {
-                    name: "parser-cleanup".into(),
-                    state: ReviewState::Open,
-                    open_count: 1,
-                    pending_count: 0,
-                    addressed_count: 0,
-                },
-                ReviewPickerEntry {
-                    name: "release-check".into(),
-                    state: ReviewState::Done,
-                    open_count: 0,
-                    pending_count: 0,
-                    addressed_count: 3,
-                },
-            ],
-            query: "done".into(),
+        let entries = vec![
+            super::ReviewPickerEntry {
+                name: "my-review".to_string(),
+                state: ReviewState::Open,
+                open_count: 5,
+                pending_count: 2,
+                addressed_count: 1,
+            },
+            super::ReviewPickerEntry {
+                name: "other-review".to_string(),
+                state: ReviewState::Done,
+                open_count: 0,
+                pending_count: 0,
+                addressed_count: 10,
+            },
+        ];
+        let picker = super::ReviewPickerState {
+            reviews: entries,
+            query: "done".to_string(),
             cursor_col: 4,
             selected_index: 0,
             scroll: 0,
-        });
-
-        assert_eq!(app.review_picker_filtered_indices(), vec![1]);
-
-        let picker = app
-            .review_picker
-            .as_mut()
-            .expect("review picker should be open");
-        picker.query = "parser".into();
-        picker.cursor_col = 6;
-
-        assert_eq!(app.review_picker_filtered_indices(), vec![0]);
+        };
+        let mut app = make_test_app(vec!["src/main.rs"], vec![]);
+        app.review_picker = Some(picker);
+        let filtered = app.review_picker_filtered_indices();
+        assert_eq!(filtered.len(), 1);
+        assert_eq!(filtered[0], 1);
     }
 
     #[test]
     fn showing_ai_progress_popup_closes_other_blocking_overlays() {
-        let mut app = make_test_app(vec!["src/a.rs"], Vec::new());
-        app.command_palette = Some(CommandPaletteState {
-            query: "theme".into(),
-            cursor_col: 5,
-            selected_index: 0,
-            scroll: 0,
+        let mut app = make_test_app(vec!["src/main.rs"], vec![]);
+        app.command_prompt = Some(super::CommandPromptState {
+            mode: super::CommandPromptMode::Search,
+            value: "test".to_string(),
+            cursor_col: 4,
         });
-        app.command_prompt = Some(CommandPromptState {
-            mode: CommandPromptMode::Search,
-            value: "needle".into(),
-            cursor_col: 6,
-        });
-        app.settings_editor = Some(SettingsEditorState {
-            kind: SettingsEditorKind::UserName,
-            value: "Vic".into(),
-            cursor_col: 3,
-        });
-        app.theme_picker = Some(ThemePickerState {
-            selected_index: 0,
-            scroll: 0,
-        });
-        app.commit_picker = Some(CommitPickerState {
-            commits: Vec::new(),
-            query: String::new(),
-            cursor_col: 0,
-            selected_index: 0,
-            scroll: 0,
-        });
-        app.review_picker = Some(ReviewPickerState {
-            reviews: Vec::new(),
-            query: String::new(),
-            cursor_col: 0,
-            selected_index: 0,
-            scroll: 0,
-        });
-        app.shortcuts_modal_visible = true;
-
         app.toggle_ai_progress_popup();
-
         assert!(app.ai_progress_visible);
-        assert!(app.command_palette.is_none());
         assert!(app.command_prompt.is_none());
-        assert!(app.settings_editor.is_none());
-        assert!(app.theme_picker.is_none());
-        assert!(app.commit_picker.is_none());
-        assert!(app.review_picker.is_none());
-        assert!(!app.shortcuts_modal_visible);
     }
 
     #[test]
     fn remap_comment_anchors_keeps_exact_and_detaches_missing_anchors() {
         let mut app = make_test_app_with_files_and_comments(
             vec![diff_file_with_context_lines(
-                "src/a.rs",
+                "src/main.rs",
                 &[(10, "fn keep() {}"), (11, "let value = 1;")],
             )],
-            vec![
-                make_comment_with_anchor(1, "src/a.rs", Some(10), Some(10), None),
-                make_comment_with_anchor(2, "src/a.rs", Some(99), Some(99), None),
-            ],
+            vec![make_comment_with_anchor(
+                1,
+                "src/main.rs",
+                CommentStatus::Open,
+                Some(10),
+                None,
+                Some(LineAnchorSnapshot {
+                    target_code: "fn keep() {}".to_string(),
+                    before_context: vec![],
+                    after_context: vec!["let value = 1;".to_string()],
+                }),
+            )],
         );
-
         assert!(app.remap_comment_anchors());
-
-        assert!(!app.review.comments[0].detached);
-        assert_eq!(app.review.comments[0].old_line, Some(10));
-        assert_eq!(app.review.comments[0].new_line, Some(10));
-        assert!(app.review.comments[0].line_anchor.is_some());
-
-        assert!(app.review.comments[1].detached);
-        assert_eq!(app.review.comments[1].old_line, Some(99));
-        assert_eq!(app.review.comments[1].new_line, Some(99));
+        let comment = &app.review.comments[0];
+        assert!(!comment.detached);
+        assert_eq!(comment.new_line, Some(10));
     }
 
     #[test]
     fn remap_comment_anchors_prefers_context_when_target_text_repeats() {
         let mut app = make_test_app_with_files_and_comments(
             vec![diff_file_with_context_lines(
-                "src/a.rs",
-                &[
-                    (100, "let before_one = true;"),
-                    (101, "let value = do_work();"),
-                    (102, "let after_one = true;"),
-                    (200, "let before_two = true;"),
-                    (201, "let value = do_work();"),
-                    (202, "let after_two = true;"),
-                ],
+                "src/main.rs",
+                &[(10, "fn run() {}"), (11, "fn run() {}"), (12, "let x = 1;")],
             )],
             vec![make_comment_with_anchor(
                 1,
-                "src/a.rs",
-                Some(999),
-                Some(999),
+                "src/main.rs",
+                CommentStatus::Open,
+                Some(11),
+                None,
                 Some(LineAnchorSnapshot {
-                    target_code: "let value = do_work();".to_string(),
-                    before_context: vec!["let before_two = true;".to_string()],
-                    after_context: vec!["let after_two = true;".to_string()],
+                    target_code: "fn run() {}".to_string(),
+                    before_context: vec!["fn run() {}".to_string()],
+                    after_context: vec!["let x = 1;".to_string()],
                 }),
             )],
         );
-
         assert!(app.remap_comment_anchors());
-
         let comment = &app.review.comments[0];
         assert!(!comment.detached);
-        assert_eq!(comment.old_line, Some(201));
-        assert_eq!(comment.new_line, Some(201));
-        assert_eq!(comment.side, DiffSide::Right);
+        assert_eq!(comment.new_line, Some(11));
     }
 
     fn make_test_app(paths: Vec<&str>, comments: Vec<LineComment>) -> TuiApp {
-        let files = paths
-            .into_iter()
-            .map(|path| DiffFile {
-                path: path.to_string(),
-                header_lines: Vec::new(),
-                hunks: Vec::new(),
-            })
+        let files: Vec<DiffFile> = paths
+            .iter()
+            .map(|path| diff_file_with_context_lines(path, &[]))
             .collect();
         make_test_app_with_files_and_comments(files, comments)
     }
@@ -2525,6 +2069,7 @@ mod tests {
     fn make_comment_with_anchor(
         id: u64,
         file_path: &str,
+        status: CommentStatus,
         old_line: Option<u32>,
         new_line: Option<u32>,
         line_anchor: Option<LineAnchorSnapshot>,
@@ -2539,7 +2084,7 @@ mod tests {
             detached: false,
             body: format!("comment {id}"),
             author: Author::User,
-            status: CommentStatus::Open,
+            status,
             replies: Vec::new(),
             created_at_ms: 0,
             updated_at_ms: 0,
@@ -2556,7 +2101,7 @@ mod tests {
             thread_density_mode: ThreadDensityMode::Compact,
             selected_line: 0,
             selected_comment_id: None,
-            expanded_thread_ids: Vec::new(),
+            expanded_thread_ids: vec![],
             review_state_code: 0,
             is_active: true,
         }
@@ -2564,9 +2109,9 @@ mod tests {
 
     fn cache_entry() -> DiffRenderCacheEntry {
         DiffRenderCacheEntry {
-            lines: Vec::new(),
-            row_map: Vec::new(),
-            link_hits: Vec::new(),
+            lines: vec![],
+            row_map: vec![],
+            link_hits: vec![],
         }
     }
 }

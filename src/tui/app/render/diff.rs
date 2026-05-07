@@ -10,8 +10,8 @@ use crate::domain::diff::DiffLineKind;
 use crate::tui::theme::ThemeColors;
 
 use super::helpers::{
-    apply_search_highlighting, blank_line, pad_line_to_width,
-    styled_segments_line, wrap_styled_line, wrapped_content_lines,
+    apply_search_highlighting, blank_line, pad_line_to_width, styled_segments_line,
+    wrap_styled_line, wrapped_content_lines,
 };
 use super::{
     DiffPane, DiffRenderCacheEntry, DiffRenderCacheKey, DisplayRow,

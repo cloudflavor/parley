@@ -8,8 +8,9 @@ use crate::tui::theme::ThemeColors;
 
 use super::super::helpers::{format_line_reference, format_timestamp_utc};
 use super::helpers::{
-    CompactThreadRowSpec, compute_compact_thread_content_width, compute_thread_inner_width,
-    compact_preview, fit_to_width, line_plain_text, push_compact_thread_row, wrap_markdown_lines,
+    CompactThreadRowSpec, compact_preview, compute_compact_thread_content_width,
+    compute_thread_inner_width, fit_to_width, line_plain_text, push_compact_thread_row,
+    wrap_markdown_lines,
 };
 use super::status::{comment_status_label, comment_status_style};
 use super::{FileReferenceHit, TuiApp};

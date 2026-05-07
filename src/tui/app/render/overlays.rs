@@ -7,9 +7,9 @@ use ratatui::{
 };
 
 use super::super::helpers::{format_line_reference, slice_chars};
-use super::{CommandPromptMode, TuiApp};
 use super::helpers::{compute_scroll, fit_to_width, wrap_markdown_lines};
 use super::status::spinner_frame;
+use super::{CommandPromptMode, TuiApp};
 use crate::tui::app::help_docs::HELP_DOCS;
 use crate::tui::theme::ThemeColors;
 

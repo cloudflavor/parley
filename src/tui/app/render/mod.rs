@@ -16,11 +16,11 @@ use ratatui::{
 
 use crate::domain::diff::DiffLineKind;
 
+use super::ThreadDensityMode;
 use super::{
     CommandPromptMode, DiffPane, InlineDraftMode, InlineFileMentionState,
     InlineFileReferencePickerState, SettingsEditorKind, TuiApp,
 };
-use super::ThreadDensityMode;
 
 const INLINE_FILE_MENTION_MAX_VISIBLE_ROWS: usize = 6;
 
@@ -66,13 +66,13 @@ pub(crate) struct DiffRenderCacheEntry {
 }
 
 use diff::draw_diff_view_for_pane;
-use sidebar::draw_file_sidebar;
-use status::{compute_status_height, draw_status_panel, draw_status_toast};
 use modals::{draw_commit_picker, draw_review_picker, draw_settings_editor, draw_theme_picker};
 use overlays::{
     draw_ai_progress_popup, draw_command_palette, draw_command_prompt, draw_shortcuts_modal,
     draw_thread_navigator_overlay,
 };
+use sidebar::draw_file_sidebar;
+use status::{compute_status_height, draw_status_panel, draw_status_toast};
 
 pub(super) fn draw(frame: &mut Frame<'_>, app: &mut TuiApp) {
     app.refresh_status_toast();
@@ -195,13 +195,13 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &mut TuiApp) {
 
 #[cfg(test)]
 mod tests {
-    use super::status::{build_status_field_line, truncate_with_ellipsis};
-    use super::*;
-    use crate::tui::theme::{default_theme_name, load_themes, resolve_theme_index};
-    use crate::domain::diff::DiffLineKind;
     use super::diff::build_unified_row_lines;
     use super::diff::inline_comment_editor_area;
     use super::helpers::line_plain_text;
+    use super::status::{build_status_field_line, truncate_with_ellipsis};
+    use super::*;
+    use crate::domain::diff::DiffLineKind;
+    use crate::tui::theme::{default_theme_name, load_themes, resolve_theme_index};
 
     fn test_colors() -> crate::tui::theme::ThemeColors {
         let themes = load_themes().expect("embedded themes should load");

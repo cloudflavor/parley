@@ -192,7 +192,7 @@ mod state;
 use helpers::{
     MOUSE_WHEEL_FILE_SCROLL_FILES, MOUSE_WHEEL_SCROLL_LINES, comment_matches_display_row,
     format_line_reference, format_timestamp_utc, insert_char_at, open_log_in_less, point_in_rect,
-    remove_char_at, slice_chars, suspend_tui_process,
+    remove_char_at, suspend_tui_process,
 };
 use render::draw;
 pub(super) use render::{
