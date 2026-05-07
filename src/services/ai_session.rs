@@ -22,6 +22,7 @@ use crate::domain::reference::parse_file_references;
 use crate::domain::review::{Author, CommentStatus, LineComment, ReviewState};
 use crate::git::diff::{DiffSource, load_git_diff};
 use crate::services::review_service::{AddReplyInput, ReviewService};
+use crate::utils::time::now_ms;
 
 static AI_SESSION_PROMPTS_DIR: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/prompts/ai_session");
 
@@ -1104,13 +1105,6 @@ fn effective_timeout_seconds(config: &AppConfig, mode: AiSessionMode) -> u64 {
         // Refactor mode can involve tool execution and file edits; keep a higher floor.
         AiSessionMode::Refactor => configured.max(600),
     }
-}
-
-fn now_ms() -> Result<u64> {
-    let elapsed = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .context("system clock is before unix epoch")?;
-    Ok(elapsed.as_millis() as u64)
 }
 
 #[cfg(test)]

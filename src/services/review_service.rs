@@ -1,20 +1,14 @@
-use std::{
-    path::PathBuf,
-    time::{SystemTime, UNIX_EPOCH},
-};
+use std::path::PathBuf;
 
 use anyhow::{Context, Result, anyhow};
 
-use crate::{
-    domain::{
-        config::AppConfig,
-        review::{
-            Author, CommentStatus, DiffSide, LineAnchorSnapshot, NewLineComment,
-            ReanchorLineComment, ReviewSession, ReviewState,
-        },
-    },
-    persistence::store::Store,
+use crate::domain::config::AppConfig;
+use crate::domain::review::{
+    Author, CommentStatus, DiffSide, LineAnchorSnapshot, NewLineComment, ReanchorLineComment,
+    ReviewSession, ReviewState,
 };
+use crate::persistence::store::Store;
+use crate::utils::time::now_ms;
 
 #[derive(Debug, Clone)]
 pub struct ReviewService {
@@ -236,11 +230,4 @@ impl ReviewService {
             .context("failed to persist comment status")?;
         Ok(session)
     }
-}
-
-fn now_ms() -> Result<u64> {
-    let elapsed = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .context("system clock is before unix epoch")?;
-    Ok(elapsed.as_millis() as u64)
 }

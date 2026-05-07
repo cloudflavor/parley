@@ -148,9 +148,4 @@ pub(crate) fn row_to_comment_anchor(row: &DisplayRow) -> (DiffSide, Option<u32>,
     }
 }
 
-pub(crate) fn now_ms_utc() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|elapsed| elapsed.as_millis() as u64)
-        .unwrap_or(0)
-}
+pub(crate) use crate::utils::time::now_ms_utc;
