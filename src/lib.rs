@@ -1,39 +1,36 @@
 pub mod cli;
 pub mod docs;
 pub mod domain;
+pub mod error;
 pub mod git;
 pub mod mcp;
 pub mod persistence;
 pub mod services;
 pub mod tui;
 
-use anyhow::{Context, Result, anyhow};
 use std::ffi::OsString;
 use std::io::IsTerminal;
-use structopt::StructOpt;
 
-use crate::{
-    cli::{Cli, Command, ReviewCommand},
-    domain::review::ReviewState,
-    git::diff::DiffSource,
-    persistence::store::Store,
-    services::{
-        ai_session::{RunAiSessionInput, default_ai_session_mode, run_ai_session},
-        review_service::{AddCommentInput, AddReplyInput, ReviewService},
-    },
-};
+use anyhow::{Context, Result, anyhow};
+use clap::Parser;
+
+use crate::cli::{Cli, Command, ReviewCommand};
+use crate::domain::review::ReviewState;
+use crate::git::diff::DiffSource;
+use crate::services::ai_session::{RunAiSessionInput, default_ai_session_mode, run_ai_session};
+use crate::services::review_service::{AddCommentInput, AddReplyInput, ReviewService};
 
 pub async fn run() -> Result<()> {
     let args: Vec<OsString> = std::env::args_os().collect();
     let command = if should_run_mcp(&args) {
         Command::Mcp
     } else {
-        Cli::from_args().command
+        Cli::parse().command
     };
 
     let project_root =
         std::env::current_dir().context("failed to read current working directory")?;
-    let store = Store::from_project_root(&project_root);
+    let store = crate::persistence::store::Store::from_project_root(&project_root);
     let service = ReviewService::new(store);
 
     match command {

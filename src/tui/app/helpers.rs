@@ -62,8 +62,10 @@ pub(super) fn format_line_reference(old_line: Option<u32>, new_line: Option<u32>
 
 pub(super) fn format_timestamp_utc(timestamp_ms: u64) -> String {
     let nanos_since_epoch = (timestamp_ms as i128).saturating_mul(1_000_000);
-    let utc_dt = OffsetDateTime::from_unix_timestamp_nanos(nanos_since_epoch)
-        .expect("timestamp ms should be representable as UTC date-time");
+    let utc_dt = match OffsetDateTime::from_unix_timestamp_nanos(nanos_since_epoch) {
+        Ok(dt) => dt,
+        Err(_) => return "invalid timestamp".to_string(),
+    };
     let local_dt = local_utc_offset()
         .map(|offset| utc_dt.to_offset(offset))
         .unwrap_or(utc_dt);

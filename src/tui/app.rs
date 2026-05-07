@@ -6,7 +6,7 @@ use std::{
     time::{Duration, Instant},
 };
 
-use anyhow::{Context, Result};
+use anyhow::{Context, Result, anyhow};
 use crossterm::event::{self, Event};
 use ratatui::{Terminal, backend::CrosstermBackend, layout::Rect, style::Style, text::Line};
 use tokio::task::JoinHandle;

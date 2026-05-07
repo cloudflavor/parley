@@ -808,7 +808,7 @@ impl TuiApp {
                         || (anchor.row_index == current_row
                             && anchor.comment_index < current_comment)
                 })
-                .unwrap_or(*anchors.last().expect("anchors checked as non-empty"))
+                .unwrap_or_else(|| *anchors.last().unwrap_or(&anchors[0]))
         };
 
         self.selected_comment = target.comment_index;

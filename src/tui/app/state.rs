@@ -1516,7 +1516,10 @@ impl TuiApp {
             return Ok(changed);
         }
 
-        let task = self.ai_task.take().expect("checked as some");
+        let task = self
+            .ai_task
+            .take()
+            .ok_or_else(|| anyhow!("ai task vanished after check"))?;
         while let Ok(event) = task.progress_rx.try_recv() {
             self.record_ai_progress(event);
         }
