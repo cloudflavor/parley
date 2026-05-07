@@ -101,26 +101,11 @@
 ## Priority 4: Architecture
 
 ### 4.1 Create Error Type Hierarchy
-**Current**: Mixed use of `String`, `anyhow::Error`, and `StoreError`
-**Proposed**:
-```rust
-// src/errors.rs
-#[derive(Debug, thiserror::Error)]
-pub enum ParleyError {
-    #[error("store error: {0}")]
-    Store(#[from] StoreError),
-    
-    #[error("ai session error: {0}")]
-    AiSession(String),
-    
-    #[error("cli error: {0}")]
-    Cli(String),
-    
-    #[error("io error: {0}")]
-    Io(#[from] std::io::Error),
-}
-```
-**Status**: ⏳ **PENDING**
+**Current**: `src/error.rs` exists with comprehensive `Error` enum using `thiserror`
+**Status**: ✅ **COMPLETED** - Error hierarchy already exists and is used appropriately:
+- `crate::error::Error` for domain/persistence layer
+- `anyhow::Result` for application layer (idiomatic for CLI apps)
+- `StoreResult<T>` for persistence operations
 
 ### 4.2 Extract Common Utilities
 **Create**: `src/utils/mod.rs`
@@ -166,7 +151,7 @@ pub enum ParleyError {
 3. ✅ Consolidate duplicate now_ms() functions (Priority 2.1) - **COMPLETED**
 4. ✅ Improve CLI error types (Priority 2.2) - **COMPLETED**
 5. ✅ Migrate structopt → clap (Priority 3.1) - **COMPLETED**
-6. ⏳ Create error type hierarchy (Priority 4.1) - **PENDING**
+6. ✅ Create error type hierarchy (Priority 4.1) - **COMPLETED** (already existed)
 7. ✅ Extract render module (Priority 5.1) - **COMPLETED**
 8. ✅ Extract state module (Priority 5.2) - **COMPLETED**
 9. ✅ Extract time utilities (Priority 4.2) - **COMPLETED**
@@ -200,6 +185,5 @@ pub enum ParleyError {
 
 ## Remaining Work (refactor-002 candidates)
 
-1. ⏳ Create error type hierarchy (`src/errors.rs`)
-2. ⏳ Complete utilities extraction (`src/utils/fs.rs`, `src/utils/validation.rs`)
-3. ⏳ (Low priority) Clean up MCP runtime `unwrap_or(Value::Null)` patterns
+1. ⏳ Complete utilities extraction (`src/utils/fs.rs`, `src/utils/validation.rs`)
+2. ⏳ (Low priority) Clean up MCP runtime `unwrap_or(Value::Null)` patterns
