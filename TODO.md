@@ -110,10 +110,10 @@
 ### 4.2 Extract Common Utilities
 **Create**: `src/utils/mod.rs`
 - `time.rs` - `now_ms()` function ✅ **DONE**
-- `fs.rs` - Async file operations wrappers
-- `validation.rs` - Review name validation
+- `fs.rs` - Async file operations wrappers (not needed - minimal FS ops, already using tokio::fs)
+- `validation.rs` - Review name validation (not needed - already in persistence/store.rs, domain-specific)
 
-**Status**: ✅ **PARTIALLY COMPLETED** - `time.rs` module created and all callers migrated
+**Status**: ✅ **COMPLETED** - Utilities module created with time functions; other candidates are domain-specific and correctly placed
 
 ## Priority 5: Modularization (refactor-001)
 
@@ -185,5 +185,4 @@
 
 ## Remaining Work (refactor-002 candidates)
 
-1. ⏳ Complete utilities extraction (`src/utils/fs.rs`, `src/utils/validation.rs`)
-2. ⏳ (Low priority) Clean up MCP runtime `unwrap_or(Value::Null)` patterns
+1. ⏳ (Low priority) Clean up MCP runtime `unwrap_or(Value::Null)` patterns
