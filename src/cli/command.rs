@@ -1,148 +1,146 @@
-use structopt::StructOpt;
+use clap::Parser;
 
 use super::args::{AiProviderArg, AiSessionModeArg, AuthorArg, SideArg, StateArg};
 
-#[derive(Debug, StructOpt)]
-#[structopt(
+#[derive(Debug, Parser)]
+#[command(
     name = "parley",
     about = "Local AI code review sessions for git changes"
 )]
 pub struct Cli {
-    #[structopt(subcommand)]
+    #[command(subcommand)]
     pub command: Command,
 }
 
-#[derive(Debug, StructOpt)]
+#[derive(Debug, Parser)]
 pub enum Command {
-    #[structopt(name = "tui")]
+    #[command(name = "tui")]
     Tui {
         /// Review name to open in the TUI.
-        #[structopt(long)]
+        #[arg(long)]
         review: String,
         /// Disable mouse capture and mouse interaction in the TUI.
-        #[structopt(long)]
+        #[arg(long)]
         no_mouse: bool,
         /// Show diff for a single commit (against its first parent).
-        #[structopt(long, conflicts_with_all = &["base", "head"])]
+        #[arg(long, conflicts_with_all = &["base", "head"])]
         commit: Option<String>,
         /// Base revision for an explicit diff range.
-        #[structopt(long, conflicts_with = "commit")]
+        #[arg(long, conflicts_with = "commit")]
         base: Option<String>,
         /// Head revision for an explicit diff range (defaults to HEAD).
-        #[structopt(long, requires = "base", conflicts_with = "commit")]
+        #[arg(long, requires = "base", conflicts_with = "commit")]
         head: Option<String>,
     },
-    #[structopt(name = "review")]
+    #[command(name = "review")]
     Review {
-        #[structopt(subcommand)]
+        #[command(subcommand)]
         command: ReviewCommand,
     },
-    #[structopt(name = "mcp")]
+    #[command(name = "mcp")]
     Mcp,
 }
 
-#[derive(Debug, StructOpt)]
+#[derive(Debug, Parser)]
 pub enum ReviewCommand {
-    #[structopt(name = "create")]
+    #[command(name = "create")]
     Create { name: String },
-    #[structopt(name = "start")]
+    #[command(name = "start")]
     Start { name: String },
-    #[structopt(name = "list")]
+    #[command(name = "list")]
     List,
-    #[structopt(name = "show")]
+    #[command(name = "show")]
     Show {
         name: String,
         /// Print review details as pretty JSON.
-        #[structopt(long)]
+        #[arg(long)]
         json: bool,
     },
-    #[structopt(name = "set-state")]
+    #[command(name = "set-state")]
     SetState { name: String, state: StateArg },
-    #[structopt(name = "add-comment")]
+    #[command(name = "add-comment")]
     AddComment {
         name: String,
         /// File path for the comment location.
-        #[structopt(long)]
+        #[arg(long)]
         file: String,
         /// Diff side for the comment location (`left` or `right`).
-        #[structopt(long)]
+        #[arg(long)]
         side: SideArg,
         /// Line number on the old (left) side of the diff.
-        #[structopt(long)]
+        #[arg(long)]
         old_line: Option<u32>,
         /// Line number on the new (right) side of the diff.
-        #[structopt(long)]
+        #[arg(long)]
         new_line: Option<u32>,
         /// Comment text body.
-        #[structopt(long)]
+        #[arg(long)]
         body: String,
         /// Comment author (`user` or `ai`, default: `user`).
-        #[structopt(long, default_value = "user")]
+        #[arg(long, default_value = "user")]
         author: AuthorArg,
     },
-    #[structopt(name = "add-reply")]
+    #[command(name = "add-reply")]
     AddReply {
         name: String,
         /// Target comment id to reply to.
-        #[structopt(long)]
+        #[arg(long)]
         comment_id: u64,
         /// Reply text body.
-        #[structopt(long)]
+        #[arg(long)]
         body: String,
         /// Reply author (`user` or `ai`, default: `ai`).
-        #[structopt(long, default_value = "ai")]
+        #[arg(long, default_value = "ai")]
         author: AuthorArg,
     },
-    #[structopt(name = "mark-addressed")]
+    #[command(name = "mark-addressed")]
     MarkAddressed {
         name: String,
         /// Target comment id to mark as addressed.
-        #[structopt(long)]
+        #[arg(long)]
         comment_id: u64,
         /// Actor marking the comment (`user` or `ai`, default: `user`).
-        #[structopt(long, default_value = "user")]
+        #[arg(long, default_value = "user")]
         author: AuthorArg,
     },
-    #[structopt(name = "mark-open")]
+    #[command(name = "mark-open")]
     MarkOpen {
         name: String,
         /// Target comment id to mark as open.
-        #[structopt(long)]
+        #[arg(long)]
         comment_id: u64,
         /// Actor reopening the comment (`user` or `ai`, default: `user`).
-        #[structopt(long, default_value = "user")]
+        #[arg(long, default_value = "user")]
         author: AuthorArg,
     },
-    #[structopt(name = "run-ai-session")]
+    #[command(name = "run-ai-session")]
     RunAiSession {
         name: String,
         /// AI provider to run for the session.
-        #[structopt(long)]
+        #[arg(long)]
         provider: AiProviderArg,
         /// Session mode override (for example `reply` or `refactor`).
-        #[structopt(long)]
+        #[arg(long)]
         mode: Option<AiSessionModeArg>,
         /// One or more comment ids to target (repeat `--comment-id`).
-        #[structopt(long = "comment-id")]
+        #[arg(long = "comment-id")]
         comment_ids: Vec<u64>,
     },
-    #[structopt(name = "done")]
+    #[command(name = "done")]
     Done { name: String },
-    #[structopt(name = "resolve")]
+    #[command(name = "resolve")]
     Resolve { name: String },
 }
 
 #[cfg(test)]
 mod tests {
-    use structopt::StructOpt;
+    use clap::Parser;
 
     use super::{Cli, Command};
 
     #[test]
     fn tui_command_parses_no_mouse_flag() {
-        let cli =
-            Cli::from_iter_safe(["parley", "tui", "--review", "parser-cleanup", "--no-mouse"])
-                .expect("cli should parse");
+        let cli = Cli::parse_from(["parley", "tui", "--review", "parser-cleanup", "--no-mouse"]);
 
         match cli.command {
             Command::Tui {
@@ -164,15 +162,14 @@ mod tests {
 
     #[test]
     fn tui_command_parses_commit_source() {
-        let cli = Cli::from_iter_safe([
+        let cli = Cli::parse_from([
             "parley",
             "tui",
             "--review",
             "parser-cleanup",
             "--commit",
             "HEAD~2",
-        ])
-        .expect("cli should parse");
+        ]);
 
         match cli.command {
             Command::Tui {
@@ -188,7 +185,7 @@ mod tests {
 
     #[test]
     fn tui_command_requires_review_name() {
-        let error = Cli::from_iter_safe(["parley", "tui", "--commit", "HEAD~2"])
+        let error = Cli::try_parse_from(["parley", "tui", "--commit", "HEAD~2"])
             .expect_err("cli should require review name");
 
         let message = error.to_string();
@@ -197,7 +194,7 @@ mod tests {
 
     #[test]
     fn tui_command_rejects_head_without_base() {
-        let error = Cli::from_iter_safe(["parley", "tui", "--head", "HEAD~1"])
+        let error = Cli::try_parse_from(["parley", "tui", "--head", "HEAD~1"])
             .expect_err("cli should reject head without base");
 
         let message = error.to_string();
@@ -206,7 +203,7 @@ mod tests {
 
     #[test]
     fn tui_command_rejects_commit_and_base_combination() {
-        let error = Cli::from_iter_safe(["parley", "tui", "--commit", "HEAD", "--base", "HEAD~1"])
+        let error = Cli::try_parse_from(["parley", "tui", "--commit", "HEAD", "--base", "HEAD~1"])
             .expect_err("cli should reject conflicting diff sources");
 
         let message = error.to_string();

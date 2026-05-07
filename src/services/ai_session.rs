@@ -818,7 +818,7 @@ async fn invoke_provider(
             }
         ));
     }
-    let status = status.expect("status is present when not timed out");
+    let status = status.ok_or_else(|| anyhow!("provider status unavailable"))?;
 
     if !status.success() {
         warn!(
