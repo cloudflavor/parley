@@ -70,7 +70,7 @@
 **Issue**: `request.id.unwrap_or(Value::Null)` and `request.params.unwrap_or(Value::Null)`
 **Fix**: Use `unwrap_or_default()` or explicit `match` statements
 **Impact**: LOW - These are acceptable for JSON-RPC null handling, but could be cleaner
-**Status**: ⏳ **PENDING** (low priority, acceptable as-is)
+**Status**: ✅ **WONTFIX** - Pattern is idiomatic for JSON-RPC servers where null is a valid/expected value
 
 ## Priority 3: Modernization
 
@@ -155,6 +155,7 @@
 7. ✅ Extract render module (Priority 5.1) - **COMPLETED**
 8. ✅ Extract state module (Priority 5.2) - **COMPLETED**
 9. ✅ Extract time utilities (Priority 4.2) - **COMPLETED**
+10. ✅ MCP runtime error handling (Priority 2.4) - **WONTFIX** (idiomatic JSON-RPC pattern)
 
 ## Testing Strategy
 
@@ -185,4 +186,4 @@
 
 ## Remaining Work (refactor-002 candidates)
 
-1. ⏳ (Low priority) Clean up MCP runtime `unwrap_or(Value::Null)` patterns
+**None** - All identified refactor items completed or marked wontfix
