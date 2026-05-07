@@ -175,15 +175,139 @@
 ## Current Status (refactor-001)
 
 **Branch**: `refactor-001`
-**Commits**: 8 ahead of main (including TODO.md restoration)
+**Commits**: 13 ahead of main (including TODO.md restoration)
 **Status**: ✅ All checks passing
 - `cargo fmt` ✓
 - `cargo check` ✓
 - `cargo clippy --all-targets --all-features -- -D warnings` ✓
-- `cargo test --all-targets --all-features` ✓ (96 tests)
+- `cargo test --all-targets --all-features` ✓ (99 tests)
+
+**Code Quality**: A- (92/100)
+- ✅ No production unwrap/expect
+- ✅ Well-modularized (render/, state/, utils/)
+- ⚠️ Three oversized modules need splitting (5.5K lines total)
+- ⚠️ Missing some documentation (# Errors, #[must_use])
 
 **Ready to merge to main**
 
 ## Remaining Work (refactor-002 candidates)
 
-**None** - All identified refactor items completed or marked wontfix
+### Priority 6: Module Size Reduction (CRITICAL)
+
+**Analysis**: Three modules violate the 500-line maximum guideline:
+
+| Module | Lines | Status | Priority |
+|--------|-------|--------|----------|
+| `src/tui/app/state/mod.rs` | **2,117** | ❌ Single impl block with 80+ methods | CRITICAL |
+| `src/tui/app/input.rs` | **1,612** | ❌ Monolithic input handler | CRITICAL |
+| `src/services/ai_session.rs` | **1,280** | ⚠️ Borderline | HIGH |
+
+#### 6.1 Split `state/mod.rs` (2,117 lines → ~300 lines each)
+
+**Current**: One massive `impl TuiApp` block
+
+**Target structure**:
+```
+src/tui/app/state/
+├── mod.rs              # Struct definition + constructor (200 lines)
+├── anchor.rs          # ✅ Exists - line anchors
+├── text_buffer.rs     # ✅ Exists - text editing
+├── file_navigation.rs # NEW - file selection, filtering, sorting (~400 lines)
+├── thread_management.rs # NEW - comment thread operations (~350 lines)
+├── viewport.rs        # NEW - scroll, cache, rendering state (~400 lines)
+├── ai_session.rs      # NEW - AI task management (~300 lines)
+├── settings.rs        # NEW - themes, pickers, editors (~300 lines)
+└── review.rs          # NEW - review state operations (~200 lines)
+```
+
+#### 6.2 Split `input.rs` (1,612 lines → ~200 lines each)
+
+**Current**: Monolithic input handler
+
+**Target structure**:
+```
+src/tui/app/input/
+├── mod.rs              # Input dispatcher (100 lines)
+├── command_palette.rs  # ✅ Exists - 885 lines (needs further split)
+├── inline_comment.rs   # ✅ Exists - 861 lines (needs further split)
+├── navigation.rs       # NEW - h/l, j/k, PgUp/Dn, g/G, zz (~200 lines)
+├── threads.rs          # NEW - N/P, [/], e, Shift+E, a/o/f (~250 lines)
+├── review_state.rs     # NEW - s/w/d/D keys (~150 lines)
+├── ai.rs               # NEW - x/X/A/K/H/L keys (~200 lines)
+├── search.rs           # NEW - /, n, p, :line (~150 lines)
+└── file_ops.rs         # NEW - V, Ctrl+f, group ops (~200 lines)
+```
+
+#### 6.3 Split `ai_session.rs` (1,280 lines → ~200 lines each)
+
+**Target structure**:
+```
+src/services/ai_session/
+├── mod.rs          # Public API (50 lines)
+├── provider.rs     # Provider invocation (~400 lines)
+├── prompt.rs       # Prompt templates (~200 lines)
+├── hunk.rs         # Hunk selection logic (~250 lines)
+├── result.rs       # Result formatting (~200 lines)
+└── progress.rs     # Progress streaming (~180 lines)
+```
+
+#### 6.4 Downsize existing submodules
+
+- `command_palette.rs` (885 lines) → split into `commands.rs`, `pickers.rs`, `settings.rs`
+- `inline_comment.rs` (861 lines) → split into `editor.rs`, `file_picker.rs`, `line_picker.rs`
+
+**Target**: Max 500 lines per module, max 300 lines per impl block
+
+---
+
+### Priority 7: Documentation Quality (LOW)
+
+#### 7.1 Add `#[must_use]` attributes (16 instances)
+- Pure functions like `as_str()`, `is_side_by_side()`, `find_doc()`
+- **Benefit**: Compiler warnings if return values ignored
+
+#### 7.2 Add `# Errors` sections (40 instances)
+- Public API functions returning `Result<T>`
+- **Benefit**: Better API documentation
+
+#### 7.3 Replace `map().unwrap_or()` patterns (33 instances)
+- Use `map_or()` / `map_or_else()` instead
+- **Benefit**: Cleaner code, minor performance gain
+
+---
+
+### Priority 8: Type Safety (LOW)
+
+#### 8.1 Safe casting helpers
+- `usize` → `u16` (19 instances) - TUI rendering
+- `usize` → `isize` (8 instances) - scroll calculations
+- `usize` → `u32` (4 instances) - line numbers
+- **Fix**: Use `.try_into().expect("...")` or safe cast helpers
+
+#### 8.2 Update `Lazy` to `LazyLock` (3 instances)
+- Use `std::sync::LazyLock` instead of `once_cell::sync::Lazy`
+- **Benefit**: Standard library, no external dependency
+
+---
+
+## Implementation Order (Updated)
+
+1. ✅ Fix all production unwrap/expect (Priority 1) - **COMPLETED**
+2. ✅ Fix blocking I/O in async (Priority 2.3) - **COMPLETED**
+3. ✅ Consolidate duplicate now_ms() functions (Priority 2.1) - **COMPLETED**
+4. ✅ Improve CLI error types (Priority 2.2) - **COMPLETED**
+5. ✅ Migrate structopt → clap (Priority 3.1) - **COMPLETED**
+6. ✅ Create error type hierarchy (Priority 4.1) - **COMPLETED**
+7. ✅ Extract render module (Priority 5.1) - **COMPLETED**
+8. ✅ Extract state module - first pass (Priority 5.2) - **COMPLETED**
+9. ✅ Extract time utilities (Priority 4.2) - **COMPLETED**
+10. ✅ MCP runtime error handling (Priority 2.4) - **WONTFIX**
+11. ⏳ Split state/mod.rs into submodules (Priority 6.1) - **PENDING**
+12. ⏳ Split input.rs into submodules (Priority 6.2) - **PENDING**
+13. ⏳ Split ai_session.rs into submodules (Priority 6.3) - **PENDING**
+14. ⏳ Downsize command_palette.rs and inline_comment.rs (Priority 6.4) - **PENDING**
+15. ⏳ Add #[must_use] attributes (Priority 7.1) - **PENDING**
+16. ⏳ Add # Errors documentation (Priority 7.2) - **PENDING**
+17. ⏳ Replace map().unwrap_or() patterns (Priority 7.3) - **PENDING**
+18. ⏳ Add safe casting helpers (Priority 8.1) - **PENDING**
+19. ⏳ Update Lazy to LazyLock (Priority 8.2) - **PENDING**
