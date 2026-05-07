@@ -1,0 +1,361 @@
+//! File navigation state and operations.
+//!
+//! Handles file selection, filtering, sorting, and group management.
+
+use std::collections::HashSet;
+
+use super::*;
+
+impl TuiApp {
+    pub(super) fn active_file_index(&self) -> usize {
+        if self.split_diff_view && matches!(self.active_diff_pane, DiffPane::Secondary) {
+            self.secondary_selected_file
+        } else {
+            self.selected_file
+        }
+    }
+
+    pub(super) fn set_active_file_index(&mut self, index: usize) {
+        if self.split_diff_view && matches!(self.active_diff_pane, DiffPane::Secondary) {
+            if self.secondary_selected_file != index {
+                self.pending_scroll_anchor_row_secondary = None;
+                self.secondary_viewport_top_row = 0;
+            }
+            self.secondary_selected_file = index;
+        } else {
+            if self.selected_file != index {
+                self.pending_scroll_anchor_row = None;
+                self.primary_viewport_top_row = 0;
+            }
+            self.selected_file = index;
+        }
+    }
+
+    pub(super) fn file_for_pane(&self, pane: DiffPane) -> Option<&DiffFile> {
+        let idx = match pane {
+            DiffPane::Primary => self.selected_file,
+            DiffPane::Secondary => self.secondary_selected_file,
+        };
+        self.diff.files.get(idx)
+    }
+
+    pub(super) fn select_file(&mut self, index: usize) {
+        if self.diff.files.is_empty() {
+            self.set_active_file_index(0);
+            return;
+        }
+
+        let clamped = index.min(self.diff.files.len().saturating_sub(1));
+        if clamped == self.active_file_index() {
+            return;
+        }
+
+        self.set_active_file_index(clamped);
+        self.set_active_line_index(0);
+        self.selected_comment = 0;
+        self.inline_comment = None;
+    }
+
+    pub(super) fn move_file_selection(&mut self, delta: isize) {
+        let ordered_files = self.ordered_file_selection_indices();
+        if ordered_files.is_empty() {
+            self.set_active_file_index(0);
+            return;
+        }
+
+        let current_pos = ordered_files
+            .iter()
+            .position(|index| *index == self.active_file_index())
+            .unwrap_or(0);
+        let max = ordered_files.len().saturating_sub(1) as isize;
+        let next_pos = (current_pos as isize + delta).clamp(0, max) as usize;
+        self.select_file(ordered_files[next_pos]);
+    }
+
+    fn ordered_file_selection_indices(&self) -> Vec<usize> {
+        let rendered_rows = self
+            .last_file_row_map
+            .iter()
+            .filter_map(|entry| *entry)
+            .collect::<Vec<_>>();
+        if !rendered_rows.is_empty() {
+            return rendered_rows;
+        }
+        self.visible_file_indices()
+    }
+
+    pub(super) fn current_file(&self) -> Option<&DiffFile> {
+        self.diff.files.get(self.active_file_index())
+    }
+
+    pub(super) fn comments_for_file(&self, file_path: &str) -> Vec<&LineComment> {
+        self.review
+            .comments
+            .iter()
+            .filter(|comment| comment.file_path == file_path)
+            .collect()
+    }
+
+    pub(super) fn file_comment_stats(&self) -> HashMap<String, (usize, usize, usize)> {
+        let mut stats = HashMap::new();
+        for comment in &self.review.comments {
+            let entry = stats.entry(comment.file_path.clone()).or_insert((0, 0, 0));
+            entry.0 += 1;
+            if matches!(comment.status, CommentStatus::Open) {
+                entry.1 += 1;
+            }
+            if matches!(comment.status, CommentStatus::Pending) {
+                entry.2 += 1;
+            }
+        }
+        stats
+    }
+
+    pub(super) fn visible_file_indices(&self) -> Vec<usize> {
+        let stats = self.file_comment_stats();
+        let file_query = self.file_search_query().map(str::to_lowercase);
+        let mut indices: Vec<usize> = self
+            .diff
+            .files
+            .iter()
+            .enumerate()
+            .filter_map(|(idx, file)| {
+                let (_total, open, pending) = stats.get(&file.path).copied().unwrap_or((0, 0, 0));
+                let visible = match self.file_filter_mode {
+                    FileFilterMode::All => true,
+                    FileFilterMode::Open => open > 0,
+                    FileFilterMode::Pending => pending > 0,
+                };
+                if !visible {
+                    return None;
+                }
+                if let Some(query) = file_query.as_ref() {
+                    let path = file.path.to_lowercase();
+                    if !path.contains(query) {
+                        return None;
+                    }
+                }
+                Some(idx)
+            })
+            .collect();
+
+        indices.sort_by(|left, right| {
+            let left_file = &self.diff.files[*left];
+            let right_file = &self.diff.files[*right];
+            let left_stats = stats.get(&left_file.path).copied().unwrap_or((0, 0, 0));
+            let right_stats = stats.get(&right_file.path).copied().unwrap_or((0, 0, 0));
+            match self.file_sort_mode {
+                FileSortMode::Path => left_file.path.cmp(&right_file.path),
+                FileSortMode::OpenCountDesc => right_stats
+                    .1
+                    .cmp(&left_stats.1)
+                    .then_with(|| left_file.path.cmp(&right_file.path)),
+                FileSortMode::TotalCountDesc => right_stats
+                    .0
+                    .cmp(&left_stats.0)
+                    .then_with(|| left_file.path.cmp(&right_file.path)),
+            }
+        });
+        indices
+    }
+
+    pub(super) fn constrain_active_file_to_visible_list(&mut self) {
+        let visible = self.visible_file_indices();
+        if visible.is_empty() {
+            self.selected_file = self.diff.files.len().saturating_sub(1);
+            if self.secondary_selected_file >= self.diff.files.len() {
+                self.secondary_selected_file = self.diff.files.len().saturating_sub(1);
+            }
+            return;
+        }
+
+        if !visible.contains(&self.selected_file) {
+            self.selected_file = visible[0];
+            self.selected_line = 0;
+            self.selected_comment = 0;
+        }
+        if !visible.contains(&self.secondary_selected_file) {
+            self.secondary_selected_file = self.selected_file;
+            self.secondary_selected_line = 0;
+        }
+    }
+
+    pub(super) fn cycle_file_filter_mode(&mut self) {
+        let next = match self.file_filter_mode {
+            FileFilterMode::All => FileFilterMode::Open,
+            FileFilterMode::Open => FileFilterMode::Pending,
+            FileFilterMode::Pending => FileFilterMode::All,
+        };
+        self.set_file_filter_mode(next);
+    }
+
+    pub(super) fn set_file_filter_mode(&mut self, mode: FileFilterMode) {
+        self.file_filter_mode = mode;
+        self.constrain_active_file_to_visible_list();
+        self.status_line = format!("file filter: {}", self.file_filter_mode_label());
+    }
+
+    pub(super) fn cycle_file_sort_mode(&mut self) {
+        let next = match self.file_sort_mode {
+            FileSortMode::Path => FileSortMode::OpenCountDesc,
+            FileSortMode::OpenCountDesc => FileSortMode::TotalCountDesc,
+            FileSortMode::TotalCountDesc => FileSortMode::Path,
+        };
+        self.set_file_sort_mode(next);
+    }
+
+    pub(super) fn set_file_sort_mode(&mut self, mode: FileSortMode) {
+        self.file_sort_mode = mode;
+        self.constrain_active_file_to_visible_list();
+        self.status_line = format!("file sort: {}", self.file_sort_mode_label());
+    }
+
+    pub(super) fn file_filter_mode_label(&self) -> &'static str {
+        match self.file_filter_mode {
+            FileFilterMode::All => "all",
+            FileFilterMode::Open => "open",
+            FileFilterMode::Pending => "pending",
+        }
+    }
+
+    pub(super) fn file_sort_mode_label(&self) -> &'static str {
+        match self.file_sort_mode {
+            FileSortMode::Path => "path",
+            FileSortMode::OpenCountDesc => "open_count",
+            FileSortMode::TotalCountDesc => "total_count",
+        }
+    }
+
+    pub(super) fn file_group_name_for_index(&self, file_index: usize) -> String {
+        let Some(file) = self.diff.files.get(file_index) else {
+            return ".".to_string();
+        };
+        let path = file.path.as_str();
+        path.rsplit_once('/')
+            .map(|(group, _)| {
+                if group.is_empty() {
+                    ".".to_string()
+                } else {
+                    group.to_string()
+                }
+            })
+            .unwrap_or_else(|| ".".to_string())
+    }
+
+    pub(super) fn file_search_query(&self) -> Option<&str> {
+        let trimmed = self.file_search.query.trim();
+        if trimmed.is_empty() {
+            None
+        } else {
+            Some(trimmed)
+        }
+    }
+
+    pub(super) fn toggle_file_group_collapsed(&mut self, group: &str) {
+        if self.collapsed_file_groups.contains(group) {
+            self.collapsed_file_groups.remove(group);
+            self.status_line = format!("expanded group: {group}");
+        } else {
+            self.collapsed_file_groups.insert(group.to_string());
+            self.status_line = format!("collapsed group: {group}");
+            self.constrain_active_file_to_visible_list();
+        }
+    }
+
+    pub(super) fn toggle_active_file_group_collapsed(&mut self) {
+        let group = self.file_group_name_for_index(self.active_file_index());
+        self.toggle_file_group_collapsed(&group);
+    }
+
+    pub(super) fn collapse_all_visible_file_groups(&mut self) {
+        let visible = self.visible_file_indices();
+        if visible.is_empty() {
+            self.status_line = "no file groups to collapse".into();
+            return;
+        }
+        let mut groups: HashSet<String> = HashSet::new();
+        for file_index in visible {
+            groups.insert(self.file_group_name_for_index(file_index));
+        }
+        let before = self.collapsed_file_groups.len();
+        self.collapsed_file_groups.extend(groups);
+        let added = self.collapsed_file_groups.len().saturating_sub(before);
+        self.constrain_active_file_to_visible_list();
+        self.status_line = if added == 0 {
+            "all visible groups already collapsed".into()
+        } else {
+            format!("collapsed {added} file group(s)")
+        };
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::domain::review::CommentStatus;
+
+    #[test]
+    fn visible_file_indices_respects_filter_sort_and_search_query() {
+        let comments = vec![
+            make_comment_with_anchor(1, "src/a.rs", CommentStatus::Open, 1, 1),
+            make_comment_with_anchor(2, "src/b.rs", CommentStatus::Pending, 2, 2),
+            make_comment_with_anchor(3, "src/c.rs", CommentStatus::Addressed, 3, 3),
+        ];
+        let mut app = make_test_app(vec!["src/a.rs", "src/b.rs", "src/c.rs"], comments);
+
+        let visible = app.visible_file_indices();
+        assert_eq!(visible.len(), 3);
+
+        app.set_file_filter_mode(FileFilterMode::Open);
+        let visible_open = app.visible_file_indices();
+        assert_eq!(visible_open.len(), 1);
+
+        app.set_file_filter_mode(FileFilterMode::Pending);
+        let visible_pending = app.visible_file_indices();
+        assert_eq!(visible_pending.len(), 1);
+    }
+
+    #[test]
+    fn file_filter_constrains_selection_to_visible_files() {
+        let comments = vec![
+            make_comment_with_anchor(1, "src/a.rs", CommentStatus::Open, 1, 1),
+            make_comment_with_anchor(2, "src/b.rs", CommentStatus::Pending, 2, 2),
+        ];
+        let mut app = make_test_app(vec!["src/a.rs", "src/b.rs"], comments);
+        app.select_file(1);
+
+        app.set_file_filter_mode(FileFilterMode::Open);
+        assert_eq!(app.selected_file, 0);
+    }
+
+    #[test]
+    fn collapse_all_visible_file_groups_only_collapses_current_filter_scope() {
+        let comments = vec![
+            make_comment_with_anchor(1, "src/a.rs", CommentStatus::Open, 1, 1),
+            make_comment_with_anchor(2, "src/b.rs", CommentStatus::Pending, 2, 2),
+        ];
+        let mut app = make_test_app(vec!["src/a.rs", "src/b.rs"], comments);
+
+        app.collapse_all_visible_file_groups();
+        assert_eq!(app.collapsed_file_groups.len(), 1);
+    }
+
+    #[test]
+    fn move_file_selection_follows_rendered_sidebar_order() {
+        let comments = vec![
+            make_comment_with_anchor(1, "src/a.rs", CommentStatus::Open, 1, 1),
+            make_comment_with_anchor(2, "src/b.rs", CommentStatus::Open, 2, 2),
+            make_comment_with_anchor(3, "src/c.rs", CommentStatus::Open, 3, 3),
+        ];
+        let mut app = make_test_app(vec!["src/a.rs", "src/b.rs", "src/c.rs"], comments);
+
+        app.move_file_selection(1);
+        assert_eq!(app.active_file_index(), 1);
+
+        app.move_file_selection(1);
+        assert_eq!(app.active_file_index(), 2);
+
+        app.move_file_selection(1);
+        assert_eq!(app.active_file_index(), 2);
+    }
+}
