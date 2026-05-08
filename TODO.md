@@ -180,12 +180,12 @@
 - `cargo fmt` ✓
 - `cargo check` ✓
 - `cargo clippy --all-targets --all-features -- -D warnings` ✓
-- `cargo test --all-targets --all-features` ✓ (99 tests)
+- `cargo test --all-targets --all-features` ✓ (94 tests)
 
 **Code Quality**: A- (92/100)
 - ✅ No production unwrap/expect
 - ✅ Well-modularized (render/, state/, utils/)
-- ⚠️ Three oversized modules need splitting (5.5K lines total)
+- ⚠️ Remaining oversized modules need splitting (`services/ai_session.rs`, command palette/comment editor)
 - ⚠️ Missing some documentation (# Errors, #[must_use])
 
 **Ready to merge to main**
@@ -194,48 +194,60 @@
 
 ### Priority 6: Module Size Reduction (CRITICAL)
 
-**Analysis**: Three modules violate the 500-line maximum guideline:
+**Analysis**: Remaining modules above the 500-line guideline:
 
 | Module | Lines | Status | Priority |
 |--------|-------|--------|----------|
-| `src/tui/app/state/mod.rs` | **2,117** | ❌ Single impl block with 80+ methods | CRITICAL |
-| `src/tui/app/input.rs` | **1,612** | ❌ Monolithic input handler | CRITICAL |
+| `src/tui/app/state/mod.rs` | **426** | ✅ Split into focused submodules | DONE |
+| `src/tui/app/input.rs` | **485** | ✅ Split into focused submodules | DONE |
+| `src/tui/app/input/command_palette.rs` | **885** | ❌ Oversized command handling | CRITICAL |
+| `src/tui/app/input/inline_comment.rs` | **861** | ❌ Oversized inline editor | CRITICAL |
 | `src/services/ai_session.rs` | **1,280** | ⚠️ Borderline | HIGH |
 
-#### 6.1 Split `state/mod.rs` (2,117 lines → ~300 lines each)
+#### 6.1 Split `state/mod.rs` (2,117 lines → <500 lines each)
 
-**Current**: One massive `impl TuiApp` block
+**Status**: ✅ **COMPLETED**
 
-**Target structure**:
+**Current**: Split into focused state submodules; all files are below the 500-line target.
+
+**Final structure**:
 ```
 src/tui/app/state/
-├── mod.rs              # Struct definition + constructor (200 lines)
-├── anchor.rs          # ✅ Exists - line anchors
-├── text_buffer.rs     # ✅ Exists - text editing
-├── file_navigation.rs # NEW - file selection, filtering, sorting (~400 lines)
-├── thread_management.rs # NEW - comment thread operations (~350 lines)
-├── viewport.rs        # NEW - scroll, cache, rendering state (~400 lines)
-├── ai_session.rs      # NEW - AI task management (~300 lines)
-├── settings.rs        # NEW - themes, pickers, editors (~300 lines)
-└── review.rs          # NEW - review state operations (~200 lines)
+├── mod.rs              # Constructor, small shared helpers (426 lines)
+├── anchor.rs           # Line anchor utilities (151 lines)
+├── text_buffer.rs      # Text editing buffer (236 lines)
+├── file_navigation.rs  # File selection, filtering, sorting (362 lines)
+├── thread_management.rs # Comment thread operations (91 lines)
+├── viewport.rs         # Scroll, cache, rendering state (263 lines)
+├── ai_session.rs       # AI task management (313 lines)
+├── settings.rs         # Themes, pickers, editors (389 lines)
+└── review.rs           # Review state operations (218 lines)
 ```
+
+**Verified**:
+- `cargo fmt` ✓
+- `cargo check` ✓
+- `cargo clippy --all-targets --all-features -- -D warnings` ✓
+- `cargo test --all-targets --all-features` ✓ (94 tests)
 
 #### 6.2 Split `input.rs` (1,612 lines → ~200 lines each)
 
-**Current**: Monolithic input handler
+**Status**: ✅ **COMPLETED**
 
-**Target structure**:
+**Current**: Dispatcher is below the 500-line target; larger command palette and inline comment submodules remain tracked under 6.4.
+
+**Final structure**:
 ```
 src/tui/app/input/
-├── mod.rs              # Input dispatcher (100 lines)
+├── mod.rs              # Input dispatcher, test helpers (485 lines)
 ├── command_palette.rs  # ✅ Exists - 885 lines (needs further split)
 ├── inline_comment.rs   # ✅ Exists - 861 lines (needs further split)
-├── navigation.rs       # NEW - h/l, j/k, PgUp/Dn, g/G, zz (~200 lines)
-├── threads.rs          # NEW - N/P, [/], e, Shift+E, a/o/f (~250 lines)
-├── review_state.rs     # NEW - s/w/d/D keys (~150 lines)
-├── ai.rs               # NEW - x/X/A/K/H/L keys (~200 lines)
-├── search.rs           # NEW - /, n, p, :line (~150 lines)
-└── file_ops.rs         # NEW - V, Ctrl+f, group ops (~200 lines)
+├── mouse.rs            # Mouse hit-testing and scroll handling (328 lines)
+├── pickers.rs          # Settings, theme, commit, review pickers (344 lines)
+├── search.rs           # File search, command prompt, goto/search (273 lines)
+├── navigation.rs       # Fullscreen, page scroll, viewport centering (71 lines)
+├── threads.rs          # Thread jump navigation (69 lines)
+└── file_reference.rs   # Diff file reference resolution/following (72 lines)
 ```
 
 #### 6.3 Split `ai_session.rs` (1,280 lines → ~200 lines each)
@@ -302,8 +314,8 @@ src/services/ai_session/
 8. ✅ Extract state module - first pass (Priority 5.2) - **COMPLETED**
 9. ✅ Extract time utilities (Priority 4.2) - **COMPLETED**
 10. ✅ MCP runtime error handling (Priority 2.4) - **WONTFIX**
-11. ⏳ Split state/mod.rs into submodules (Priority 6.1) - **PENDING**
-12. ⏳ Split input.rs into submodules (Priority 6.2) - **PENDING**
+11. ✅ Split state/mod.rs into submodules (Priority 6.1) - **COMPLETED**
+12. ✅ Split input.rs into submodules (Priority 6.2) - **COMPLETED**
 13. ⏳ Split ai_session.rs into submodules (Priority 6.3) - **PENDING**
 14. ⏳ Downsize command_palette.rs and inline_comment.rs (Priority 6.4) - **PENDING**
 15. ⏳ Add #[must_use] attributes (Priority 7.1) - **PENDING**
