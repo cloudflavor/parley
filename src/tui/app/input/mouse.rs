@@ -1,0 +1,328 @@
+use super::*;
+
+impl TuiApp {
+    pub(in crate::tui::app) fn handle_mouse(&mut self, mouse: MouseEvent) -> Result<()> {
+        if self.shortcuts_modal_visible {
+            match mouse.kind {
+                MouseEventKind::ScrollUp => {
+                    self.shortcuts_modal_scroll = self.shortcuts_modal_scroll.saturating_sub(2);
+                }
+                MouseEventKind::ScrollDown => {
+                    self.shortcuts_modal_scroll = self.shortcuts_modal_scroll.saturating_add(2);
+                }
+                _ => {}
+            }
+            return Ok(());
+        }
+
+        if self.inline_file_reference_picker_active() {
+            self.handle_inline_file_reference_picker_mouse(mouse);
+            self.constrain_selection();
+            return Ok(());
+        }
+
+        if self.command_palette.is_some()
+            || self.theme_picker.is_some()
+            || self.commit_picker.is_some()
+            || self.settings_editor.is_some()
+            || self.command_prompt.is_some()
+        {
+            return Ok(());
+        }
+
+        if let Some(ai_area) = self.last_ai_progress_area
+            && point_in_rect(mouse.column, mouse.row, ai_area)
+        {
+            match mouse.kind {
+                MouseEventKind::ScrollUp => {
+                    self.ai_progress_scroll_up(2);
+                }
+                MouseEventKind::ScrollDown => {
+                    self.ai_progress_scroll_down(2);
+                }
+                _ => {}
+            }
+            return Ok(());
+        }
+
+        if let Some(thread_area) = self.last_thread_nav_area
+            && point_in_rect(mouse.column, mouse.row, thread_area)
+        {
+            match mouse.kind {
+                MouseEventKind::Down(MouseButton::Left)
+                    if mouse.row > thread_area.y
+                        && mouse.row < thread_area.y + thread_area.height.saturating_sub(1) =>
+                {
+                    let view_row = usize::from(mouse.row.saturating_sub(thread_area.y + 1));
+                    let row_index = self.last_thread_nav_scroll + view_row;
+                    if let Some(&comment_index) = self.last_thread_nav_row_map.get(row_index)
+                        && comment_index != usize::MAX
+                    {
+                        self.selected_comment = comment_index;
+                        self.focus_selected_comment_line();
+                        if let Some(comment) = self.selected_comment_details() {
+                            self.status_line = format!(
+                                "selected thread #{} at {}",
+                                comment.id,
+                                format_line_reference(comment.old_line, comment.new_line)
+                            );
+                        }
+                    }
+                }
+                MouseEventKind::ScrollUp => {
+                    self.selected_comment = self.selected_comment.saturating_sub(1);
+                    self.focus_selected_comment_line();
+                }
+                MouseEventKind::ScrollDown => {
+                    let max = self.comments_for_selected_file().len().saturating_sub(1);
+                    self.selected_comment = (self.selected_comment + 1).min(max);
+                    self.focus_selected_comment_line();
+                }
+                _ => {}
+            }
+            self.constrain_selection();
+            return Ok(());
+        }
+
+        if let Some(file_area) = self.last_file_area
+            && point_in_rect(mouse.column, mouse.row, file_area)
+        {
+            match mouse.kind {
+                MouseEventKind::Down(MouseButton::Left)
+                    if mouse.row > file_area.y
+                        && mouse.row < file_area.y + file_area.height.saturating_sub(1) =>
+                {
+                    let visual_row = self.last_file_scroll
+                        + usize::from(mouse.row.saturating_sub(file_area.y + 1));
+                    if let Some(Some(file_index)) = self.last_file_row_map.get(visual_row) {
+                        self.select_file(*file_index);
+                        if self.active_file_index() < self.diff.files.len() {
+                            self.status_line = format!(
+                                "selected file {}",
+                                self.diff.files[self.active_file_index()].path
+                            );
+                        }
+                    } else if let Some(Some(group)) =
+                        self.last_file_group_map.get(visual_row).cloned()
+                    {
+                        self.toggle_file_group_collapsed(&group);
+                    }
+                }
+                MouseEventKind::ScrollUp => {
+                    self.move_file_selection(-(MOUSE_WHEEL_FILE_SCROLL_FILES as isize));
+                }
+                MouseEventKind::ScrollDown => {
+                    self.move_file_selection(MOUSE_WHEEL_FILE_SCROLL_FILES as isize);
+                }
+                _ => {}
+            }
+            self.constrain_selection();
+            return Ok(());
+        }
+
+        if let Some(search_area) = self.last_file_search_area
+            && point_in_rect(mouse.column, mouse.row, search_area)
+        {
+            if let MouseEventKind::Down(MouseButton::Left) = mouse.kind
+                && mouse.row > search_area.y
+                && mouse.row < search_area.y + search_area.height.saturating_sub(1)
+            {
+                const SEARCH_PREFIX: &str = "search> ";
+                let inner_width = usize::from(search_area.width.saturating_sub(2)).max(1);
+                let query_width = inner_width.saturating_sub(SEARCH_PREFIX.chars().count());
+                let horizontal_scroll = self
+                    .file_search
+                    .cursor_col
+                    .saturating_sub(query_width.saturating_sub(1));
+                let content_start = search_area
+                    .x
+                    .saturating_add(1)
+                    .saturating_add(SEARCH_PREFIX.chars().count() as u16);
+                let clicked_col = usize::from(mouse.column.saturating_sub(content_start));
+                let target_col = horizontal_scroll.saturating_add(clicked_col);
+                self.file_search.focused = true;
+                self.file_search.cursor_col =
+                    target_col.min(self.file_search.query.chars().count());
+                self.status_line = "file filter input focused".into();
+            }
+            return Ok(());
+        }
+
+        if let Some(diff_area) = self.last_diff_area
+            && point_in_rect(mouse.column, mouse.row, diff_area)
+        {
+            self.activate_pane(DiffPane::Primary);
+            self.ensure_row_cache();
+            match mouse.kind {
+                MouseEventKind::Down(MouseButton::Left)
+                    if mouse.row > diff_area.y
+                        && mouse.row < diff_area.y + diff_area.height.saturating_sub(1) =>
+                {
+                    let view_row = usize::from(mouse.row.saturating_sub(diff_area.y + 1));
+                    let visible_row_index = self.last_diff_scroll + view_row;
+                    let content_col =
+                        usize::from(mouse.column.saturating_sub(diff_area.x.saturating_add(1)));
+                    if let Some((path, line)) = self.resolve_file_reference_hit(
+                        DiffPane::Primary,
+                        visible_row_index,
+                        content_col,
+                    ) {
+                        self.follow_file_reference(DiffPane::Primary, &path, line);
+                        return Ok(());
+                    }
+                    if let Some(row_index) = self.last_diff_row_map.get(visible_row_index).copied()
+                    {
+                        self.set_active_line_index(row_index);
+                    }
+                }
+                MouseEventKind::ScrollUp => {
+                    self.set_active_line_index(
+                        self.active_line_index()
+                            .saturating_sub(MOUSE_WHEEL_SCROLL_LINES),
+                    );
+                }
+                MouseEventKind::ScrollDown => {
+                    let max = self.current_rows().len().saturating_sub(1);
+                    self.set_active_line_index(
+                        self.active_line_index()
+                            .saturating_add(MOUSE_WHEEL_SCROLL_LINES)
+                            .min(max),
+                    );
+                }
+                _ => {}
+            }
+            self.constrain_selection();
+            return Ok(());
+        }
+
+        if let Some(diff_area) = self.last_diff_area_secondary
+            && point_in_rect(mouse.column, mouse.row, diff_area)
+        {
+            self.activate_pane(DiffPane::Secondary);
+            self.ensure_row_cache();
+            match mouse.kind {
+                MouseEventKind::Down(MouseButton::Left)
+                    if mouse.row > diff_area.y
+                        && mouse.row < diff_area.y + diff_area.height.saturating_sub(1) =>
+                {
+                    let view_row = usize::from(mouse.row.saturating_sub(diff_area.y + 1));
+                    let visible_row_index = self.last_diff_scroll_secondary + view_row;
+                    let content_col =
+                        usize::from(mouse.column.saturating_sub(diff_area.x.saturating_add(1)));
+                    if let Some((path, line)) = self.resolve_file_reference_hit(
+                        DiffPane::Secondary,
+                        visible_row_index,
+                        content_col,
+                    ) {
+                        self.follow_file_reference(DiffPane::Secondary, &path, line);
+                        return Ok(());
+                    }
+                    if let Some(row_index) = self
+                        .last_diff_row_map_secondary
+                        .get(visible_row_index)
+                        .copied()
+                    {
+                        self.set_active_line_index(row_index);
+                    }
+                }
+                MouseEventKind::ScrollUp => {
+                    self.set_active_line_index(
+                        self.active_line_index()
+                            .saturating_sub(MOUSE_WHEEL_SCROLL_LINES),
+                    );
+                }
+                MouseEventKind::ScrollDown => {
+                    let max = self.current_rows().len().saturating_sub(1);
+                    self.set_active_line_index(
+                        self.active_line_index()
+                            .saturating_add(MOUSE_WHEEL_SCROLL_LINES)
+                            .min(max),
+                    );
+                }
+                _ => {}
+            }
+            self.constrain_selection();
+            return Ok(());
+        }
+
+        Ok(())
+    }
+
+    fn handle_inline_file_reference_picker_mouse(&mut self, mouse: MouseEvent) {
+        if let Some(diff_area) = self.last_diff_area
+            && point_in_rect(mouse.column, mouse.row, diff_area)
+        {
+            self.activate_pane(DiffPane::Primary);
+            self.ensure_row_cache();
+            match mouse.kind {
+                MouseEventKind::Down(MouseButton::Left)
+                    if mouse.row > diff_area.y
+                        && mouse.row < diff_area.y + diff_area.height.saturating_sub(1) =>
+                {
+                    let view_row = usize::from(mouse.row.saturating_sub(diff_area.y + 1));
+                    let visible_row_index = self.last_diff_scroll + view_row;
+                    if let Some(row_index) = self.last_diff_row_map.get(visible_row_index).copied()
+                    {
+                        self.set_active_line_index(row_index);
+                        let _ = self.accept_inline_file_reference_line_selection();
+                    }
+                }
+                MouseEventKind::ScrollUp => {
+                    self.set_active_line_index(
+                        self.active_line_index()
+                            .saturating_sub(MOUSE_WHEEL_SCROLL_LINES),
+                    );
+                }
+                MouseEventKind::ScrollDown => {
+                    let max = self.current_rows().len().saturating_sub(1);
+                    self.set_active_line_index(
+                        self.active_line_index()
+                            .saturating_add(MOUSE_WHEEL_SCROLL_LINES)
+                            .min(max),
+                    );
+                }
+                _ => {}
+            }
+            return;
+        }
+
+        if let Some(diff_area) = self.last_diff_area_secondary
+            && point_in_rect(mouse.column, mouse.row, diff_area)
+        {
+            self.activate_pane(DiffPane::Secondary);
+            self.ensure_row_cache();
+            match mouse.kind {
+                MouseEventKind::Down(MouseButton::Left)
+                    if mouse.row > diff_area.y
+                        && mouse.row < diff_area.y + diff_area.height.saturating_sub(1) =>
+                {
+                    let view_row = usize::from(mouse.row.saturating_sub(diff_area.y + 1));
+                    let visible_row_index = self.last_diff_scroll_secondary + view_row;
+                    if let Some(row_index) = self
+                        .last_diff_row_map_secondary
+                        .get(visible_row_index)
+                        .copied()
+                    {
+                        self.set_active_line_index(row_index);
+                        let _ = self.accept_inline_file_reference_line_selection();
+                    }
+                }
+                MouseEventKind::ScrollUp => {
+                    self.set_active_line_index(
+                        self.active_line_index()
+                            .saturating_sub(MOUSE_WHEEL_SCROLL_LINES),
+                    );
+                }
+                MouseEventKind::ScrollDown => {
+                    let max = self.current_rows().len().saturating_sub(1);
+                    self.set_active_line_index(
+                        self.active_line_index()
+                            .saturating_add(MOUSE_WHEEL_SCROLL_LINES)
+                            .min(max),
+                    );
+                }
+                _ => {}
+            }
+        }
+    }
+}
