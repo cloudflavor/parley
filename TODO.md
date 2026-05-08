@@ -194,15 +194,15 @@
 
 ### Priority 6: Module Size Reduction (CRITICAL)
 
-**Analysis**: Remaining modules above the 500-line guideline:
+**Analysis**: All Priority 6 modules are now below the 500-line guideline:
 
 | Module | Lines | Status | Priority |
 |--------|-------|--------|----------|
 | `src/tui/app/state/mod.rs` | **426** | ✅ Split into focused submodules | DONE |
-| `src/tui/app/input.rs` | **485** | ✅ Split into focused submodules | DONE |
-| `src/tui/app/input/command_palette.rs` | **885** | ❌ Oversized command handling | CRITICAL |
-| `src/tui/app/input/inline_comment.rs` | **861** | ❌ Oversized inline editor | CRITICAL |
-| `src/services/ai_session.rs` | **1,280** | ⚠️ Borderline | HIGH |
+| `src/tui/app/input.rs` | **489** | ✅ Split into focused submodules | DONE |
+| `src/tui/app/input/command_palette.rs` | **292** | ✅ Split into focused submodules | DONE |
+| `src/tui/app/input/inline_comment.rs` | **421** | ✅ Split into focused submodules | DONE |
+| `src/services/ai_session.rs` | **370** | ✅ Split into focused submodules | DONE |
 
 #### 6.1 Split `state/mod.rs` (2,117 lines → <500 lines each)
 
@@ -234,14 +234,18 @@ src/tui/app/state/
 
 **Status**: ✅ **COMPLETED**
 
-**Current**: Dispatcher is below the 500-line target; larger command palette and inline comment submodules remain tracked under 6.4.
+**Current**: Input dispatcher and all input submodules are below the 500-line target.
 
 **Final structure**:
 ```
 src/tui/app/input/
-├── mod.rs              # Input dispatcher, test helpers (485 lines)
-├── command_palette.rs  # ✅ Exists - 885 lines (needs further split)
-├── inline_comment.rs   # ✅ Exists - 861 lines (needs further split)
+├── mod.rs              # Input dispatcher, test helpers (489 lines)
+├── command_palette.rs  # Palette open/filter/key handling (292 lines)
+├── command_actions.rs  # Command palette action dispatch (134 lines)
+├── normal.rs           # Normal-mode key handling (403 lines)
+├── help.rs             # Help modal key handling (65 lines)
+├── inline_comment.rs   # Inline draft editing/submission (421 lines)
+├── inline_file_picker.rs # Inline @file picker and line picker (443 lines)
 ├── mouse.rs            # Mouse hit-testing and scroll handling (328 lines)
 ├── pickers.rs          # Settings, theme, commit, review pickers (344 lines)
 ├── search.rs           # File search, command prompt, goto/search (273 lines)
@@ -252,21 +256,27 @@ src/tui/app/input/
 
 #### 6.3 Split `ai_session.rs` (1,280 lines → ~200 lines each)
 
-**Target structure**:
+**Status**: ✅ **COMPLETED**
+
+**Current**: Public API and orchestration remain in `ai_session.rs`; provider invocation, prompt building, progress emission, and tests are split into focused child modules.
+
+**Final structure**:
 ```
-src/services/ai_session/
-├── mod.rs          # Public API (50 lines)
-├── provider.rs     # Provider invocation (~400 lines)
-├── prompt.rs       # Prompt templates (~200 lines)
-├── hunk.rs         # Hunk selection logic (~250 lines)
-├── result.rs       # Result formatting (~200 lines)
-└── progress.rs     # Progress streaming (~180 lines)
+src/services/
+├── ai_session.rs              # Public API and session orchestration (370 lines)
+└── ai_session/
+    ├── provider.rs            # Provider invocation/model detection (452 lines)
+    ├── prompt.rs              # Prompt templates and diff context (294 lines)
+    ├── progress.rs            # Progress event emission (26 lines)
+    └── tests.rs               # AI session unit tests (164 lines)
 ```
 
 #### 6.4 Downsize existing submodules
 
-- `command_palette.rs` (885 lines) → split into `commands.rs`, `pickers.rs`, `settings.rs`
-- `inline_comment.rs` (861 lines) → split into `editor.rs`, `file_picker.rs`, `line_picker.rs`
+**Status**: ✅ **COMPLETED**
+
+- `command_palette.rs` (885 lines) → split into palette, action, normal-mode, and help modules
+- `inline_comment.rs` (861 lines) → split into inline draft and inline file picker modules
 
 **Target**: Max 500 lines per module, max 300 lines per impl block
 
@@ -316,8 +326,8 @@ src/services/ai_session/
 10. ✅ MCP runtime error handling (Priority 2.4) - **WONTFIX**
 11. ✅ Split state/mod.rs into submodules (Priority 6.1) - **COMPLETED**
 12. ✅ Split input.rs into submodules (Priority 6.2) - **COMPLETED**
-13. ⏳ Split ai_session.rs into submodules (Priority 6.3) - **PENDING**
-14. ⏳ Downsize command_palette.rs and inline_comment.rs (Priority 6.4) - **PENDING**
+13. ✅ Split ai_session.rs into submodules (Priority 6.3) - **COMPLETED**
+14. ✅ Downsize command_palette.rs and inline_comment.rs (Priority 6.4) - **COMPLETED**
 15. ⏳ Add #[must_use] attributes (Priority 7.1) - **PENDING**
 16. ⏳ Add # Errors documentation (Priority 7.2) - **PENDING**
 17. ⏳ Replace map().unwrap_or() patterns (Priority 7.3) - **PENDING**
