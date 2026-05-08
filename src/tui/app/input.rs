@@ -142,7 +142,7 @@ impl TuiApp {
     fn scroll_active_pane_page(&mut self, forward: bool, half_page: bool) {
         self.ensure_row_cache();
         let pane = self.active_diff_pane;
-        let viewport_height = self.viewport_height_for_pane(pane);
+        let viewport_height = self.effective_viewport_height_for_pane(pane);
         let step = if half_page {
             (viewport_height / 2).max(1)
         } else {
@@ -186,7 +186,7 @@ impl TuiApp {
 
     fn center_active_cursor_in_viewport(&mut self) {
         let pane = self.active_diff_pane;
-        let viewport_height = self.viewport_height_for_pane(pane);
+        let viewport_height = self.effective_viewport_height_for_pane(pane);
         let cursor_source_row = self.line_for_pane(pane);
         let cursor_visual_row = self
             .row_map_for_pane(pane)
@@ -1515,6 +1515,139 @@ mod tests {
         assert!(!comment.detached);
         assert!(comment.line_anchor.is_some());
         assert!(app.status_line.contains("re-anchored"));
+    }
+
+    #[tokio::test]
+    async fn saving_new_thread_preserves_current_thread_selection() {
+        let tempdir = tempdir().expect("tempdir should exist");
+        let service = ReviewService::new(Store::from_project_root(tempdir.path()));
+        service
+            .create_review("test-review")
+            .await
+            .expect("review should be created");
+        service
+            .add_comment(
+                "test-review",
+                AddCommentInput {
+                    file_path: "src/a.rs".into(),
+                    old_line: Some(1),
+                    new_line: Some(1),
+                    side: DiffSide::Right,
+                    line_anchor: None,
+                    body: "first".into(),
+                    author: Author::User,
+                },
+            )
+            .await
+            .expect("first comment should be added");
+        let review = service
+            .load_review("test-review")
+            .await
+            .expect("review should load");
+        let mut app = make_test_app_with_review_and_files(
+            review,
+            vec![diff_file_with_lines(
+                "src/a.rs",
+                &[(1, "fn first() {}"), (2, "fn second() {}")],
+            )],
+        );
+        app.selected_comment = 0;
+        app.inline_comment = Some(InlineCommentState {
+            row_index: 0,
+            mode: InlineDraftMode::Comment(CommentTarget {
+                side: DiffSide::Right,
+                old_line: Some(2),
+                new_line: Some(2),
+                file_path: "src/a.rs".into(),
+                line_anchor: LineAnchorSnapshot::default(),
+            }),
+            buffer: text_buffer_with_line("second"),
+            preview_mode: false,
+            file_mention: None,
+            file_reference_picker: None,
+        });
+
+        app.handle_inline_comment_key(
+            KeyEvent::new(KeyCode::Char('s'), KeyModifiers::CONTROL),
+            &service,
+        )
+        .await
+        .expect("comment save should succeed");
+
+        assert_eq!(
+            app.selected_comment_details().map(|comment| comment.id),
+            Some(1)
+        );
+    }
+
+    #[tokio::test]
+    async fn saving_reply_restores_replied_thread_selection() {
+        let tempdir = tempdir().expect("tempdir should exist");
+        let service = ReviewService::new(Store::from_project_root(tempdir.path()));
+        service
+            .create_review("test-review")
+            .await
+            .expect("review should be created");
+        for (line, body) in [(1, "first"), (2, "second")] {
+            service
+                .add_comment(
+                    "test-review",
+                    AddCommentInput {
+                        file_path: "src/a.rs".into(),
+                        old_line: Some(line),
+                        new_line: Some(line),
+                        side: DiffSide::Right,
+                        line_anchor: None,
+                        body: body.into(),
+                        author: Author::User,
+                    },
+                )
+                .await
+                .expect("comment should be added");
+        }
+        let review = service
+            .load_review("test-review")
+            .await
+            .expect("review should load");
+        let mut app = make_test_app_with_review_and_files(
+            review,
+            vec![diff_file_with_lines(
+                "src/a.rs",
+                &[(1, "fn first() {}"), (2, "fn second() {}")],
+            )],
+        );
+        app.selected_comment = 1;
+        app.inline_comment = Some(InlineCommentState {
+            row_index: 0,
+            mode: InlineDraftMode::Reply {
+                comment_id: 1,
+                old_line: Some(1),
+                new_line: Some(1),
+            },
+            buffer: text_buffer_with_line("reply to first"),
+            preview_mode: false,
+            file_mention: None,
+            file_reference_picker: None,
+        });
+
+        app.handle_inline_comment_key(
+            KeyEvent::new(KeyCode::Char('s'), KeyModifiers::CONTROL),
+            &service,
+        )
+        .await
+        .expect("reply save should succeed");
+
+        assert_eq!(
+            app.selected_comment_details().map(|comment| comment.id),
+            Some(1)
+        );
+        let first = app
+            .review
+            .comments
+            .iter()
+            .find(|comment| comment.id == 1)
+            .expect("first comment should exist");
+        assert_eq!(first.replies.len(), 1);
     }
 
     fn make_test_app(paths: Vec<&str>) -> TuiApp {

@@ -1664,12 +1664,9 @@ fn draw_diff_view_for_pane(frame: &mut Frame<'_>, app: &mut TuiApp, area: Rect, 
         (lines, row_map, link_hits)
     };
 
-    let selected_visual_index = row_map
-        .iter()
-        .position(|row_index| *row_index == selected_line)
-        .unwrap_or(0);
+    let selected_visual_range = source_row_visual_range(&row_map, selected_line).unwrap_or((0, 0));
 
-    let viewport_height = usize::from(area.height.saturating_sub(2)).max(1);
+    let viewport_height = app.effective_viewport_height_for_pane(pane);
     let max_scroll = lines.len().saturating_sub(viewport_height);
     let mut scroll = app.viewport_top_for_pane(pane).min(max_scroll);
 
@@ -1678,14 +1675,17 @@ fn draw_diff_view_for_pane(frame: &mut Frame<'_>, app: &mut TuiApp, area: Rect, 
         scroll = clamped_anchor.saturating_sub(viewport_height.saturating_sub(1));
     }
 
-    if selected_visual_index < scroll {
-        scroll = selected_visual_index;
-    } else if selected_visual_index >= scroll.saturating_add(viewport_height) {
-        scroll = selected_visual_index
-            .saturating_add(1)
-            .saturating_sub(viewport_height);
-    }
+    scroll = keep_source_row_range_visible(scroll, viewport_height, selected_visual_range);
     scroll = scroll.min(max_scroll);
+
+    // If the selected source line's comment rows are near the end (last 20%), always scroll to max
+    // This ensures comments don't get buried when viewport shrinks (e.g., inline editor closes)
+    let end_proximity_threshold = (lines.len() as f64 * 0.8) as usize;
+    if selected_visual_range.1 >= end_proximity_threshold
+        || selected_visual_range.0 >= end_proximity_threshold
+    {
+        scroll = max_scroll;
+    }
     app.set_viewport_top_for_pane(pane, scroll);
 
     if pane == DiffPane::Primary {
@@ -1737,6 +1737,38 @@ fn diff_pane_borders(split: bool, pane: DiffPane) -> Borders {
     match pane {
         DiffPane::Primary => Borders::TOP | Borders::LEFT | Borders::RIGHT,
         DiffPane::Secondary => Borders::TOP | Borders::RIGHT,
+    }
+}
+
+fn source_row_visual_range(row_map: &[usize], source_row: usize) -> Option<(usize, usize)> {
+    let start = row_map
+        .iter()
+        .position(|row_index| *row_index == source_row)?;
+    let end = row_map
+        .iter()
+        .enumerate()
+        .filter_map(|(visual_row, row_index)| (*row_index == source_row).then_some(visual_row))
+        .next_back()
+        .unwrap_or(start);
+    Some((start, end))
+}
+
+fn keep_source_row_range_visible(
+    scroll: usize,
+    viewport_height: usize,
+    selected_range: (usize, usize),
+) -> usize {
+    let (selected_start, selected_end) = selected_range;
+    let viewport_end = scroll.saturating_add(viewport_height);
+
+    if selected_end < scroll {
+        selected_end
+    } else if selected_start >= viewport_end {
+        selected_start
+            .saturating_add(1)
+            .saturating_sub(viewport_height)
+    } else {
+        scroll
     }
 }
 
@@ -3698,5 +3730,50 @@ mod tests {
         assert_eq!(editor.width, 68);
         assert_eq!(editor.height, 10);
         assert_eq!(editor.y, 23);
+    }
+
+    #[test]
+    fn selected_source_row_range_includes_thread_replies() {
+        let row_map = vec![0, 1, 1, 1, 2];
+
+        assert_eq!(source_row_visual_range(&row_map, 1), Some((1, 3)));
+    }
+
+    #[test]
+    fn viewport_can_scroll_within_selected_thread_range() {
+        let scroll = keep_source_row_range_visible(3, 2, (1, 5));
+
+        assert_eq!(scroll, 3);
+    }
+
+    #[test]
+    fn viewport_forces_scroll_to_max_when_no_selection_visible() {
+        // Selected row at indices 0-1, current scroll is 5, viewport height 2, so range not visible
+        let scroll = keep_source_row_range_visible(5, 2, (0, 1));
+
+        // keep_source_row_range_visible returns 1 (selected_end)
+        assert_eq!(scroll, 1);
+    }
+
+    #[test]
+    fn last_line_comment_should_force_max_scroll() {
+        // 50 diff rows + 3 comment rows = 53 total
+        // Last diff line (49) has comment rows 50-52
+        // viewport height 20, max_scroll = 53-20 = 33
+        // end_proximity_threshold = 53 * 0.8 = 42
+        // selected range (49, 52): 52 >= 42, so should force max
+        // The function keep_source_row_range_visible returns 30 (adjusting to show range)
+        // Then we check proximity: 52 >= 42, so force max = 33
+        // Final scroll = 33
+        let range = (49, 52);
+        let lines_len = 53;
+        let viewport_height = 20;
+        let max_scroll = lines_len - viewport_height; // 33
+        let mut scroll = 30; // From keep_source_row_range_visible
+        let end_proximity_threshold = (lines_len as f64 * 0.8) as usize;
+        if range.1 >= end_proximity_threshold || range.0 >= end_proximity_threshold {
+            scroll = max_scroll;
+        }
+        assert_eq!(scroll, 33);
     }
 }

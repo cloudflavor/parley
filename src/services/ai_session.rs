@@ -415,6 +415,7 @@ fn build_thread_prompt(
             thread.push_str(&format!("- {}: {}\n", author, reply.body));
         }
     }
+    append_current_human_request(&mut thread, comment);
     append_target_file_and_diff_context(&mut thread, comment, diff_document);
     append_referenced_files_context(&mut thread, comment);
 
@@ -427,6 +428,27 @@ fn build_thread_prompt(
         }
     }
     thread
+}
+
+fn append_current_human_request(prompt: &mut String, comment: &LineComment) {
+    prompt.push_str("\n\nCurrent human request to address:\n");
+    if let Some(reply) = comment
+        .replies
+        .iter()
+        .rev()
+        .find(|reply| matches!(reply.author, Author::User))
+    {
+        prompt.push_str("- latest human reply: ");
+        prompt.push_str(&reply.body);
+        prompt.push('\n');
+    } else {
+        prompt.push_str("- original comment: ");
+        prompt.push_str(&comment.body);
+        prompt.push('\n');
+    }
+    prompt.push_str(
+        "Use the full thread history above only as context; answer or act on this current human request, not an earlier AI reply or another thread.\n",
+    );
 }
 
 fn append_target_file_and_diff_context(
@@ -1116,12 +1138,15 @@ fn now_ms() -> Result<u64> {
 #[cfg(test)]
 mod tests {
     use super::{
-        choose_best_hunk, comment_is_targetable, detect_model_from_json_stream,
-        detect_model_from_text, format_ai_reply_body, format_hunk_excerpt, hunk_distance_to_anchor,
+        build_thread_prompt, choose_best_hunk, comment_is_targetable,
+        detect_model_from_json_stream, detect_model_from_text, format_ai_reply_body,
+        format_hunk_excerpt, hunk_distance_to_anchor,
     };
     use crate::domain::ai::AiSessionMode;
     use crate::domain::diff::{DiffFile, DiffHunk, DiffLine, DiffLineKind};
-    use crate::domain::review::CommentStatus;
+    use crate::domain::review::{
+        Author, CommentReply, CommentStatus, DiffSide, LineComment, ReviewSession, ReviewState,
+    };
 
     #[test]
     fn reply_mode_excludes_addressed_threads() {
@@ -1153,6 +1178,60 @@ mod tests {
             CommentStatus::Addressed,
             AiSessionMode::Refactor
         ));
+    }
+
+    #[test]
+    fn thread_prompt_marks_latest_human_reply_as_current_request() {
+        let review = ReviewSession {
+            name: "review".into(),
+            state: ReviewState::Open,
+            created_at_ms: 0,
+            updated_at_ms: 0,
+            done_at_ms: None,
+            comments: vec![LineComment {
+                id: 7,
+                file_path: "src/lib.rs".into(),
+                old_line: None,
+                new_line: Some(42),
+                side: DiffSide::Right,
+                line_anchor: None,
+                detached: false,
+                body: "original request".into(),
+                author: Author::User,
+                status: CommentStatus::Open,
+                replies: vec![
+                    CommentReply {
+                        id: 1,
+                        author: Author::Ai,
+                        body: "earlier ai answer".into(),
+                        created_at_ms: 1,
+                    },
+                    CommentReply {
+                        id: 2,
+                        author: Author::User,
+                        body: "first follow-up".into(),
+                        created_at_ms: 2,
+                    },
+                    CommentReply {
+                        id: 3,
+                        author: Author::User,
+                        body: "latest follow-up".into(),
+                        created_at_ms: 3,
+                    },
+                ],
+                created_at_ms: 0,
+                updated_at_ms: 3,
+                addressed_at_ms: None,
+            }],
+            next_comment_id: 8,
+            next_reply_id: 4,
+        };
+
+        let prompt = build_thread_prompt("review", 7, &review, None, AiSessionMode::Reply);
+
+        assert!(prompt.contains("- user: first follow-up"));
+        assert!(prompt.contains("- user: latest follow-up"));
+        assert!(prompt.contains("- latest human reply: latest follow-up"));
     }
 
     #[test]

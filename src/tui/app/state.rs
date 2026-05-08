@@ -450,6 +450,22 @@ impl TuiApp {
             .max(1)
     }
 
+    pub(super) fn effective_viewport_height_for_pane(&self, pane: DiffPane) -> usize {
+        let base = self.viewport_height_for_pane(pane);
+        if self.inline_comment.is_none() || pane != self.active_diff_pane {
+            return base;
+        }
+
+        let area = match pane {
+            DiffPane::Primary => self.last_diff_area,
+            DiffPane::Secondary => self.last_diff_area_secondary,
+        };
+        let reserved_rows = area
+            .map(inline_comment_editor_reserved_rows)
+            .unwrap_or_default();
+        base.saturating_sub(reserved_rows).max(1)
+    }
+
     pub(super) fn activate_pane(&mut self, pane: DiffPane) {
         if self.active_diff_pane == pane {
             return;
@@ -889,6 +905,23 @@ impl TuiApp {
         comments.get(self.selected_comment).copied()
     }
 
+    pub(super) fn selected_comment_id(&self) -> Option<u64> {
+        self.selected_comment_details().map(|comment| comment.id)
+    }
+
+    pub(super) fn select_comment_by_id(&mut self, comment_id: u64) -> bool {
+        let Some(index) = self
+            .comments_for_selected_file()
+            .iter()
+            .position(|comment| comment.id == comment_id)
+        else {
+            return false;
+        };
+
+        self.selected_comment = index;
+        true
+    }
+
     pub(super) fn unresolved_thread_ids(&self) -> Vec<u64> {
         self.review
             .comments
@@ -1044,7 +1077,7 @@ impl TuiApp {
     pub(super) async fn reload_review(&mut self, service: &ReviewService) -> Result<()> {
         let selected_line = self.selected_line;
         let secondary_selected_line = self.secondary_selected_line;
-        let selected_comment = self.selected_comment;
+        let selected_comment_id = self.selected_comment_id();
         self.review = service.load_review(&self.review_name).await?;
         self.expanded_threads
             .retain(|id| self.review.comments.iter().any(|comment| comment.id == *id));
@@ -1053,8 +1086,10 @@ impl TuiApp {
         self.clear_diff_render_cache();
         self.selected_line = selected_line;
         self.secondary_selected_line = secondary_selected_line;
-        self.selected_comment = selected_comment;
         self.constrain_selection();
+        if let Some(comment_id) = selected_comment_id {
+            self.select_comment_by_id(comment_id);
+        }
         Ok(())
     }
 
@@ -1931,7 +1966,7 @@ impl TuiApp {
             .map(|f| f.path.clone());
         let selected_line = self.selected_line;
         let secondary_selected_line = self.secondary_selected_line;
-        let selected_comment = self.selected_comment;
+        let selected_comment_id = self.selected_comment_id();
         self.review = service.load_review(&self.review_name).await?;
         self.expanded_threads
             .retain(|id| self.review.comments.iter().any(|comment| comment.id == *id));
@@ -1952,14 +1987,30 @@ impl TuiApp {
 
         self.selected_line = selected_line;
         self.secondary_selected_line = secondary_selected_line;
-        self.selected_comment = selected_comment;
         self.ensure_row_cache_for_file(self.selected_file);
         if self.split_diff_view {
             self.ensure_row_cache_for_file(self.secondary_selected_file);
         }
         self.constrain_selection();
+        if let Some(comment_id) = selected_comment_id {
+            self.select_comment_by_id(comment_id);
+        }
         Ok(())
     }
+}
+
+fn inline_comment_editor_reserved_rows(area: Rect) -> usize {
+    if area.height < 8 || area.width < 32 {
+        return 0;
+    }
+
+    let available_width = area.width.saturating_sub(2);
+    let available_height = area.height.saturating_sub(1);
+    if available_width < 30 || available_height < 6 {
+        return 0;
+    }
+
+    usize::from(available_height.min(10).saturating_sub(1))
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -2124,7 +2175,10 @@ mod tests {
         Author, CommentStatus, DiffSide, LineAnchorSnapshot, LineComment, ReviewSession,
         ReviewState,
     };
+    use crate::persistence::store::Store;
+    use crate::services::review_service::ReviewService;
     use crate::tui::theme::load_themes;
+    use tempfile::tempdir;
 
     use super::*;
 
@@ -2163,6 +2217,39 @@ mod tests {
         app.set_file_filter_mode(FileFilterMode::Open);
 
         assert_eq!(app.selected_file, 0);
+    }
+
+    #[tokio::test]
+    async fn reload_review_preserves_selected_thread_by_id_when_order_changes() {
+        let tempdir = tempdir().expect("tempdir should exist");
+        let service = ReviewService::new(Store::from_project_root(tempdir.path()));
+        let mut app = make_test_app(
+            vec!["src/a.rs"],
+            vec![
+                make_comment(1, "src/a.rs", CommentStatus::Open),
+                make_comment(2, "src/a.rs", CommentStatus::Pending),
+            ],
+        );
+        app.selected_comment = 1;
+
+        let mut stored = app.review.clone();
+        stored.comments = vec![
+            make_comment(2, "src/a.rs", CommentStatus::Pending),
+            make_comment(1, "src/a.rs", CommentStatus::Open),
+        ];
+        service
+            .save_review(&stored)
+            .await
+            .expect("review should save");
+
+        app.reload_review(&service)
+            .await
+            .expect("review should reload");
+
+        assert_eq!(
+            app.selected_comment_details().map(|comment| comment.id),
+            Some(2)
+        );
     }
 
     #[test]
