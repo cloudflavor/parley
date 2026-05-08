@@ -24,11 +24,15 @@ use super::{
     point_in_rect, remove_char_at,
 };
 
+mod command_actions;
 mod command_palette;
 mod file_reference;
+mod help;
 mod inline_comment;
+mod inline_file_picker;
 mod mouse;
 mod navigation;
+mod normal;
 mod pickers;
 mod search;
 mod threads;
