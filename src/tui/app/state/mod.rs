@@ -10,7 +10,7 @@ pub(crate) mod viewport;
 use super::*;
 
 impl TuiApp {
-    pub(super) fn new(init: TuiAppInit) -> Self {
+    pub(crate) fn new(init: TuiAppInit) -> Self {
         let TuiAppInit {
             review_name,
             review,
@@ -109,41 +109,58 @@ impl TuiApp {
         }
     }
 
-    pub(super) fn theme(&self) -> &UiTheme {
+    pub(crate) fn theme(&self) -> &UiTheme {
         &self.themes[self.theme_index]
     }
 
-    pub(super) fn author_label(&self, author: &Author) -> &str {
+    pub(crate) fn author_label(&self, author: &Author) -> &str {
         match author {
             Author::User => &self.config.user_name,
             Author::Ai => "AI",
         }
     }
 
-    pub(super) fn requires_periodic_redraw(&self) -> bool {
+    pub(crate) fn requires_periodic_redraw(&self) -> bool {
         self.ai_task.is_some()
+            || self.pending_z_prefix_at.is_some()
+            || self
+                .status_toast_until
+                .is_some_and(|deadline| std::time::Instant::now() < deadline)
     }
 
-    pub(super) fn refresh_status_toast(&mut self) {
-        if let Some(until) = self.status_toast_until {
-            if until <= anchor::now_ms_utc() {
+    pub(crate) fn refresh_status_toast(&mut self) {
+        let now = std::time::Instant::now();
+        if self.status_line != self.last_status_line_snapshot {
+            self.last_status_line_snapshot = self.status_line.clone();
+            if self.status_line.trim().is_empty() || self.status_line == "ready" {
                 self.status_toast_message = None;
                 self.status_toast_until = None;
+            } else {
+                self.status_toast_message = Some(self.status_line.clone());
+                self.status_toast_until = now.checked_add(std::time::Duration::from_secs(4));
             }
+        }
+
+        if self
+            .status_toast_until
+            .is_some_and(|deadline| now >= deadline)
+        {
+            self.status_toast_until = None;
+            self.status_toast_message = None;
         }
     }
 
-    pub(super) fn invalidate_redraw(&mut self) {
+    pub(crate) fn invalidate_redraw(&mut self) {
         self.redraw_invalidated = true;
     }
 
-    pub(super) fn take_redraw_invalidation(&mut self) -> bool {
+    pub(crate) fn take_redraw_invalidation(&mut self) -> bool {
         std::mem::replace(&mut self.redraw_invalidated, false)
     }
 
     fn normalized_ai_stream_message(stream: &str, message: &str) -> Option<String> {
-        if message.is_empty() {
-            return None;
+        if !matches!(stream, "stdout" | "stderr") {
+            return Some(message.to_string());
         }
 
         let trimmed = message.trim();
@@ -151,11 +168,26 @@ impl TuiApp {
             return None;
         }
 
-        if stream == "stderr" && trimmed.starts_with('+') {
-            return Some(trimmed[1..].trim().to_string());
+        let json_candidate = trimmed
+            .strip_prefix("data:")
+            .map(str::trim)
+            .unwrap_or(trimmed);
+        if let Ok(value) = serde_json::from_str::<serde_json::Value>(json_candidate) {
+            let parts = Self::collect_ai_text_fragments(&value, None);
+            let merged = parts.join("");
+            let normalized = merged.trim();
+            if !normalized.is_empty() {
+                return Some(normalized.to_string());
+            }
+
+            let tag = Self::extract_ai_activity_tag(&value).unwrap_or_else(|| "event".to_string());
+            if tag.ends_with(".started") || tag.ends_with(".completed") {
+                return None;
+            }
+            return Some(format!("[{tag}]"));
         }
 
-        Some(trimmed.to_string())
+        Some(message.to_string())
     }
 
     fn collect_ai_text_fragments(
@@ -194,15 +226,23 @@ impl TuiApp {
     }
 
     fn extract_ai_activity_tag(value: &serde_json::Value) -> Option<String> {
-        if let serde_json::Value::Object(map) = value {
-            if let Some(serde_json::Value::String(tag)) = map.get("tag") {
-                return Some(tag.clone());
+        let map = value.as_object()?;
+        for key in ["type", "event", "status", "phase", "kind", "name"] {
+            let Some(raw) = map.get(key) else {
+                continue;
+            };
+            let Some(text) = raw.as_str() else {
+                continue;
+            };
+            let normalized = text.trim();
+            if !normalized.is_empty() {
+                return Some(normalized.to_string());
             }
         }
         None
     }
 
-    pub(super) fn focus_selected_comment_line(&mut self) {
+    pub(crate) fn focus_selected_comment_line(&mut self) {
         let Some(comment) = self.selected_comment_details() else {
             return;
         };
@@ -219,57 +259,49 @@ impl TuiApp {
         self.set_active_line_index(target_row.0);
     }
 
-    pub(super) fn request_scroll_to_thread_tail(
+    pub(crate) fn request_scroll_to_thread_tail(
         &mut self,
-        comment_id: u64,
-        prefer_expansion: bool,
-    ) -> bool {
-        let Some(comment) = self.review.comments.iter().find(|c| c.id == comment_id) else {
-            return false;
+        pane: DiffPane,
+        source_row_index: usize,
+    ) {
+        let target = match pane {
+            DiffPane::Primary => self
+                .last_diff_row_map
+                .iter()
+                .enumerate()
+                .filter_map(|(visual_row, &row_index)| {
+                    (row_index == source_row_index).then_some(visual_row)
+                })
+                .next_back(),
+            DiffPane::Secondary => self
+                .last_diff_row_map_secondary
+                .iter()
+                .enumerate()
+                .filter_map(|(visual_row, &row_index)| {
+                    (row_index == source_row_index).then_some(visual_row)
+                })
+                .next_back(),
         };
 
-        let file_index = self
-            .diff
-            .files
-            .iter()
-            .position(|file| file.path == comment.file_path)?;
-
-        if self.active_file_index() != file_index {
-            self.select_file(file_index);
-        }
-
-        if prefer_expansion && !self.is_thread_expanded(comment_id, Some(comment_id)) {
-            self.expanded_threads.insert(comment_id);
-            self.collapsed_threads.remove(&comment_id);
-            self.clear_diff_render_cache_for_file(file_index);
-        }
-
-        let rows = self.current_rows();
-        let mut last_match_index = None;
-        for (idx, row) in rows.iter().enumerate() {
-            if anchor::row_matches_exact_anchor(comment, row) {
-                last_match_index = Some(idx);
+        match pane {
+            DiffPane::Primary => {
+                self.pending_scroll_anchor_row = target;
             }
-        }
-
-        if let Some(target_index) = last_match_index {
-            self.set_active_line_index(target_index);
-            true
-        } else {
-            false
+            DiffPane::Secondary => {
+                self.pending_scroll_anchor_row_secondary = target;
+            }
         }
     }
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use crate::domain::diff::{DiffFile, DiffHunk, DiffLine, DiffLineKind};
-    use crate::domain::review::{CommentStatus, LineComment};
+    use crate::domain::review::{CommentStatus, DiffSide, LineAnchorSnapshot, LineComment};
     use std::path::PathBuf;
-    use std::time::SystemTime;
 
-    fn make_test_app(paths: Vec<&str>, comments: Vec<LineComment>) -> TuiApp {
+    pub(crate) fn make_test_app(paths: Vec<&str>, comments: Vec<LineComment>) -> TuiApp {
         make_test_app_with_files_and_comments(
             paths
                 .iter()
@@ -279,23 +311,19 @@ mod tests {
         )
     }
 
-    fn make_test_app_with_files_and_comments(
+    pub(crate) fn make_test_app_with_files_and_comments(
         files: Vec<DiffFile>,
         comments: Vec<LineComment>,
     ) -> TuiApp {
         let review = ReviewSession {
             name: "test".to_string(),
-            created_at: SystemTime::now()
-                .duration_since(SystemTime::UNIX_EPOCH)
-                .unwrap()
-                .as_millis() as u64,
-            updated_at: SystemTime::now()
-                .duration_since(SystemTime::UNIX_EPOCH)
-                .unwrap()
-                .as_millis() as u64,
+            created_at_ms: 0,
+            updated_at_ms: 0,
+            done_at_ms: None,
             state: ReviewState::Open,
             comments,
-            state_history: Vec::new(),
+            next_comment_id: 100,
+            next_reply_id: 1,
         };
         let diff = DiffDocument { files };
         let config = AppConfig::default();
@@ -314,7 +342,7 @@ mod tests {
         })
     }
 
-    fn diff_file_with_context_lines(path: &str, lines: &[(u32, &str)]) -> DiffFile {
+    pub(crate) fn diff_file_with_context_lines(path: &str, lines: &[(u32, &str)]) -> DiffFile {
         let mut hunk_lines = Vec::new();
         for (line_num, content) in lines {
             hunk_lines.push(DiffLine {
@@ -328,7 +356,6 @@ mod tests {
 
         DiffFile {
             path: path.to_string(),
-            old_path: None,
             header_lines: vec![
                 format!("diff --git a/{path} b/{path}"),
                 format!("--- a/{path}"),
@@ -345,23 +372,7 @@ mod tests {
         }
     }
 
-    fn make_comment(id: u64, file_path: &str, status: CommentStatus) -> LineComment {
-        LineComment {
-            id,
-            file_path: file_path.to_string(),
-            old_line: None,
-            new_line: None,
-            line_anchor: None,
-            body: "test comment".to_string(),
-            status,
-            author: Author::User,
-            created_at: 0,
-            updated_at: 0,
-            replies: Vec::new(),
-        }
-    }
-
-    fn make_comment_with_anchor(
+    pub(crate) fn make_comment_with_anchor(
         id: u64,
         file_path: &str,
         status: CommentStatus,
@@ -373,21 +384,24 @@ mod tests {
             file_path: file_path.to_string(),
             old_line: Some(old_line),
             new_line: Some(new_line),
+            side: DiffSide::Right,
             line_anchor: Some(LineAnchorSnapshot {
                 target_code: "test".to_string(),
                 before_context: vec![],
                 after_context: vec![],
             }),
+            detached: false,
             body: "test comment".to_string(),
             status,
             author: Author::User,
-            created_at: 0,
-            updated_at: 0,
+            created_at_ms: 0,
+            updated_at_ms: 0,
+            addressed_at_ms: None,
             replies: Vec::new(),
         }
     }
 
-    fn cache_key(file_index: usize) -> DiffRenderCacheKey {
+    pub(crate) fn cache_key(file_index: usize) -> DiffRenderCacheKey {
         DiffRenderCacheKey {
             file_index,
             pane_inner_width: 80,
@@ -402,7 +416,7 @@ mod tests {
         }
     }
 
-    fn cache_entry() -> DiffRenderCacheEntry {
+    pub(crate) fn cache_entry() -> DiffRenderCacheEntry {
         DiffRenderCacheEntry {
             lines: vec![],
             row_map: vec![],

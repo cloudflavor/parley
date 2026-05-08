@@ -7,7 +7,7 @@ use std::collections::HashSet;
 use super::*;
 
 impl TuiApp {
-    pub(super) fn active_file_index(&self) -> usize {
+    pub(crate) fn active_file_index(&self) -> usize {
         if self.split_diff_view && matches!(self.active_diff_pane, DiffPane::Secondary) {
             self.secondary_selected_file
         } else {
@@ -15,7 +15,7 @@ impl TuiApp {
         }
     }
 
-    pub(super) fn set_active_file_index(&mut self, index: usize) {
+    pub(crate) fn set_active_file_index(&mut self, index: usize) {
         if self.split_diff_view && matches!(self.active_diff_pane, DiffPane::Secondary) {
             if self.secondary_selected_file != index {
                 self.pending_scroll_anchor_row_secondary = None;
@@ -31,7 +31,7 @@ impl TuiApp {
         }
     }
 
-    pub(super) fn file_for_pane(&self, pane: DiffPane) -> Option<&DiffFile> {
+    pub(crate) fn file_for_pane(&self, pane: DiffPane) -> Option<&DiffFile> {
         let idx = match pane {
             DiffPane::Primary => self.selected_file,
             DiffPane::Secondary => self.secondary_selected_file,
@@ -39,7 +39,7 @@ impl TuiApp {
         self.diff.files.get(idx)
     }
 
-    pub(super) fn select_file(&mut self, index: usize) {
+    pub(crate) fn select_file(&mut self, index: usize) {
         if self.diff.files.is_empty() {
             self.set_active_file_index(0);
             return;
@@ -56,7 +56,7 @@ impl TuiApp {
         self.inline_comment = None;
     }
 
-    pub(super) fn move_file_selection(&mut self, delta: isize) {
+    pub(crate) fn move_file_selection(&mut self, delta: isize) {
         let ordered_files = self.ordered_file_selection_indices();
         if ordered_files.is_empty() {
             self.set_active_file_index(0);
@@ -84,11 +84,11 @@ impl TuiApp {
         self.visible_file_indices()
     }
 
-    pub(super) fn current_file(&self) -> Option<&DiffFile> {
+    pub(crate) fn current_file(&self) -> Option<&DiffFile> {
         self.diff.files.get(self.active_file_index())
     }
 
-    pub(super) fn comments_for_file(&self, file_path: &str) -> Vec<&LineComment> {
+    pub(crate) fn comments_for_file(&self, file_path: &str) -> Vec<&LineComment> {
         self.review
             .comments
             .iter()
@@ -96,7 +96,7 @@ impl TuiApp {
             .collect()
     }
 
-    pub(super) fn file_comment_stats(&self) -> HashMap<String, (usize, usize, usize)> {
+    pub(crate) fn file_comment_stats(&self) -> HashMap<String, (usize, usize, usize)> {
         let mut stats = HashMap::new();
         for comment in &self.review.comments {
             let entry = stats.entry(comment.file_path.clone()).or_insert((0, 0, 0));
@@ -111,7 +111,7 @@ impl TuiApp {
         stats
     }
 
-    pub(super) fn visible_file_indices(&self) -> Vec<usize> {
+    pub(crate) fn visible_file_indices(&self) -> Vec<usize> {
         let stats = self.file_comment_stats();
         let file_query = self.file_search_query().map(str::to_lowercase);
         let mut indices: Vec<usize> = self
@@ -159,7 +159,7 @@ impl TuiApp {
         indices
     }
 
-    pub(super) fn constrain_active_file_to_visible_list(&mut self) {
+    pub(crate) fn constrain_active_file_to_visible_list(&mut self) {
         let visible = self.visible_file_indices();
         if visible.is_empty() {
             self.selected_file = self.diff.files.len().saturating_sub(1);
@@ -180,7 +180,7 @@ impl TuiApp {
         }
     }
 
-    pub(super) fn cycle_file_filter_mode(&mut self) {
+    pub(crate) fn cycle_file_filter_mode(&mut self) {
         let next = match self.file_filter_mode {
             FileFilterMode::All => FileFilterMode::Open,
             FileFilterMode::Open => FileFilterMode::Pending,
@@ -189,13 +189,13 @@ impl TuiApp {
         self.set_file_filter_mode(next);
     }
 
-    pub(super) fn set_file_filter_mode(&mut self, mode: FileFilterMode) {
+    pub(crate) fn set_file_filter_mode(&mut self, mode: FileFilterMode) {
         self.file_filter_mode = mode;
         self.constrain_active_file_to_visible_list();
         self.status_line = format!("file filter: {}", self.file_filter_mode_label());
     }
 
-    pub(super) fn cycle_file_sort_mode(&mut self) {
+    pub(crate) fn cycle_file_sort_mode(&mut self) {
         let next = match self.file_sort_mode {
             FileSortMode::Path => FileSortMode::OpenCountDesc,
             FileSortMode::OpenCountDesc => FileSortMode::TotalCountDesc,
@@ -204,13 +204,13 @@ impl TuiApp {
         self.set_file_sort_mode(next);
     }
 
-    pub(super) fn set_file_sort_mode(&mut self, mode: FileSortMode) {
+    pub(crate) fn set_file_sort_mode(&mut self, mode: FileSortMode) {
         self.file_sort_mode = mode;
         self.constrain_active_file_to_visible_list();
         self.status_line = format!("file sort: {}", self.file_sort_mode_label());
     }
 
-    pub(super) fn file_filter_mode_label(&self) -> &'static str {
+    pub(crate) fn file_filter_mode_label(&self) -> &'static str {
         match self.file_filter_mode {
             FileFilterMode::All => "all",
             FileFilterMode::Open => "open",
@@ -218,7 +218,7 @@ impl TuiApp {
         }
     }
 
-    pub(super) fn file_sort_mode_label(&self) -> &'static str {
+    pub(crate) fn file_sort_mode_label(&self) -> &'static str {
         match self.file_sort_mode {
             FileSortMode::Path => "path",
             FileSortMode::OpenCountDesc => "open_count",
@@ -226,7 +226,7 @@ impl TuiApp {
         }
     }
 
-    pub(super) fn file_group_name_for_index(&self, file_index: usize) -> String {
+    pub(crate) fn file_group_name_for_index(&self, file_index: usize) -> String {
         let Some(file) = self.diff.files.get(file_index) else {
             return ".".to_string();
         };
@@ -242,7 +242,7 @@ impl TuiApp {
             .unwrap_or_else(|| ".".to_string())
     }
 
-    pub(super) fn file_search_query(&self) -> Option<&str> {
+    pub(crate) fn file_search_query(&self) -> Option<&str> {
         let trimmed = self.file_search.query.trim();
         if trimmed.is_empty() {
             None
@@ -251,7 +251,7 @@ impl TuiApp {
         }
     }
 
-    pub(super) fn toggle_file_group_collapsed(&mut self, group: &str) {
+    pub(crate) fn toggle_file_group_collapsed(&mut self, group: &str) {
         if self.collapsed_file_groups.contains(group) {
             self.collapsed_file_groups.remove(group);
             self.status_line = format!("expanded group: {group}");
@@ -262,12 +262,12 @@ impl TuiApp {
         }
     }
 
-    pub(super) fn toggle_active_file_group_collapsed(&mut self) {
+    pub(crate) fn toggle_active_file_group_collapsed(&mut self) {
         let group = self.file_group_name_for_index(self.active_file_index());
         self.toggle_file_group_collapsed(&group);
     }
 
-    pub(super) fn collapse_all_visible_file_groups(&mut self) {
+    pub(crate) fn collapse_all_visible_file_groups(&mut self) {
         let visible = self.visible_file_indices();
         if visible.is_empty() {
             self.status_line = "no file groups to collapse".into();
@@ -293,6 +293,7 @@ impl TuiApp {
 mod tests {
     use super::*;
     use crate::domain::review::CommentStatus;
+    use crate::tui::app::state::tests::{make_comment_with_anchor, make_test_app};
 
     #[test]
     fn visible_file_indices_respects_filter_sort_and_search_query() {

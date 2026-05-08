@@ -3,10 +3,9 @@
 //! Handles review state transitions, reloading, and persistence.
 
 use super::*;
-use crate::domain::review::ReanchorLineComment;
 
 impl TuiApp {
-    pub(super) fn review_state_code(&self) -> u8 {
+    pub(crate) fn review_state_code(&self) -> u8 {
         match self.review.state {
             ReviewState::Open => 0,
             ReviewState::UnderReview => 1,
@@ -14,7 +13,7 @@ impl TuiApp {
         }
     }
 
-    pub(super) fn activate_pane(&mut self, pane: DiffPane) {
+    pub(crate) fn activate_pane(&mut self, pane: DiffPane) {
         if self.active_diff_pane == pane {
             return;
         }
@@ -22,7 +21,7 @@ impl TuiApp {
         self.inline_comment = None;
     }
 
-    pub(super) fn toggle_split_diff_view(&mut self) {
+    pub(crate) fn toggle_split_diff_view(&mut self) {
         self.split_diff_view = !self.split_diff_view;
         if !self.split_diff_view {
             self.active_diff_pane = DiffPane::Primary;
@@ -30,11 +29,11 @@ impl TuiApp {
         }
     }
 
-    pub(super) fn resize_file_pane(&mut self, delta_cols: i16) {
+    pub(crate) fn resize_file_pane(&mut self, delta_cols: i16) {
         self.file_pane_width_delta = (self.file_pane_width_delta + delta_cols).clamp(-40, 80);
     }
 
-    pub(super) fn computed_file_pane_width(&self, total_width: u16) -> u16 {
+    pub(crate) fn computed_file_pane_width(&self, total_width: u16) -> u16 {
         let longest_path = self
             .diff
             .files
@@ -49,14 +48,14 @@ impl TuiApp {
         computed as u16
     }
 
-    pub(super) fn line_for_pane(&self, pane: DiffPane) -> usize {
+    pub(crate) fn line_for_pane(&self, pane: DiffPane) -> usize {
         match pane {
             DiffPane::Primary => self.selected_line,
             DiffPane::Secondary => self.secondary_selected_line,
         }
     }
 
-    pub(super) async fn set_state(
+    pub(crate) async fn set_state(
         &mut self,
         service: &ReviewService,
         next: ReviewState,
@@ -70,7 +69,7 @@ impl TuiApp {
         Ok(())
     }
 
-    pub(super) async fn reload_review(&mut self, service: &ReviewService) -> Result<()> {
+    pub(crate) async fn reload_review(&mut self, service: &ReviewService) -> Result<()> {
         let selected_line = self.selected_line;
         let secondary_selected_line = self.secondary_selected_line;
         let selected_comment = self.selected_comment;
@@ -87,69 +86,101 @@ impl TuiApp {
         Ok(())
     }
 
-    pub(super) async fn refresh_review_and_diff(&mut self, service: &ReviewService) -> Result<()> {
-        self.reload_review(service).await?;
-        self.status_line = "review and diff refreshed".into();
+    pub(crate) async fn refresh_review_and_diff(&mut self, service: &ReviewService) -> Result<()> {
+        let previous_primary_path = self
+            .file_for_pane(DiffPane::Primary)
+            .map(|f| f.path.clone());
+        let previous_secondary_path = self
+            .file_for_pane(DiffPane::Secondary)
+            .map(|f| f.path.clone());
+        let selected_line = self.selected_line;
+        let secondary_selected_line = self.secondary_selected_line;
+        let selected_comment = self.selected_comment;
+
+        self.review = service.load_review(&self.review_name).await?;
+        self.expanded_threads
+            .retain(|id| self.review.comments.iter().any(|comment| comment.id == *id));
+        self.collapsed_threads
+            .retain(|id| self.review.comments.iter().any(|comment| comment.id == *id));
+        self.diff = load_git_diff(&self.config, &self.diff_source).await?;
+        self.row_cache.clear();
+        self.clear_diff_render_cache();
+        if self.remap_comment_anchors() {
+            service.save_review(&self.review).await?;
+        }
+
+        self.selected_file = previous_primary_path
+            .and_then(|path| self.diff.files.iter().position(|f| f.path == path))
+            .unwrap_or(0);
+        self.secondary_selected_file = previous_secondary_path
+            .and_then(|path| self.diff.files.iter().position(|f| f.path == path))
+            .unwrap_or(self.selected_file);
+
+        self.selected_line = selected_line;
+        self.secondary_selected_line = secondary_selected_line;
+        self.selected_comment = selected_comment;
+        self.ensure_row_cache_for_file(self.selected_file);
+        if self.split_diff_view {
+            self.ensure_row_cache_for_file(self.secondary_selected_file);
+        }
+        self.constrain_selection();
         Ok(())
     }
 
     fn remap_comment_anchors(&mut self) -> bool {
         let mut changed = false;
-        let mut updates = Vec::new();
+        let remap_timestamp = anchor::now_ms_utc();
 
-        for comment in &self.review.comments {
-            let file_index = self
-                .diff
-                .files
-                .iter()
-                .position(|file| file.path == comment.file_path);
+        for index in 0..self.review.comments.len() {
+            let snapshot = self.review.comments[index].clone();
+            let resolved = self.resolve_comment_anchor(&snapshot);
+            let comment = &mut self.review.comments[index];
 
-            let Some(file_index) = file_index else {
-                continue;
-            };
-
-            if file_index != self.active_file_index() {
-                continue;
-            }
-
-            let rows = self.current_rows();
-            let resolved = self.resolve_comment_anchor(comment, rows);
-
-            if let Some(resolved) = resolved {
-                if resolved.old_line != comment.old_line || resolved.new_line != comment.new_line {
-                    updates.push(ReanchorLineComment {
-                        comment_id: comment.id,
-                        old_line: resolved.old_line,
-                        new_line: resolved.new_line,
-                        line_anchor: Some(resolved.line_anchor),
-                    });
-                    changed = true;
+            match resolved {
+                Some(target) => {
+                    let needs_update = comment.side != target.side
+                        || comment.old_line != target.old_line
+                        || comment.new_line != target.new_line
+                        || comment.detached
+                        || comment.line_anchor.as_ref() != Some(&target.line_anchor);
+                    if needs_update {
+                        comment.side = target.side;
+                        comment.old_line = target.old_line;
+                        comment.new_line = target.new_line;
+                        comment.detached = false;
+                        comment.line_anchor = Some(target.line_anchor);
+                        comment.updated_at_ms = remap_timestamp;
+                        changed = true;
+                    }
                 }
-            } else if comment.old_line.is_some() || comment.new_line.is_some() {
-                updates.push(ReanchorLineComment {
-                    comment_id: comment.id,
-                    old_line: None,
-                    new_line: None,
-                    line_anchor: comment.line_anchor.clone(),
-                });
-                changed = true;
+                None => {
+                    if !comment.detached {
+                        comment.detached = true;
+                        comment.updated_at_ms = remap_timestamp;
+                        changed = true;
+                    }
+                }
             }
         }
 
-        if !updates.is_empty() {
-            for update in updates {
-                let _ = self.review.reanchor_comment(&update);
-            }
+        if changed {
+            self.review.updated_at_ms = remap_timestamp;
         }
-
         changed
     }
 
     fn resolve_comment_anchor(
-        &self,
+        &mut self,
         comment: &LineComment,
-        rows: &[DisplayRow],
     ) -> Option<anchor::ResolvedLineAnchor> {
+        let file_index = self
+            .diff
+            .files
+            .iter()
+            .position(|file| file.path == comment.file_path)?;
+        self.ensure_row_cache_for_file(file_index);
+        let rows = self.row_cache.get(&file_index)?.rows.as_slice();
+
         if let Some((row_index, _)) = rows.iter().enumerate().find(|(_, row)| {
             anchor::is_commentable_row(row) && anchor::row_matches_exact_anchor(comment, row)
         }) {

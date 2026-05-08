@@ -7,11 +7,11 @@ use std::time::Instant;
 use super::*;
 
 impl TuiApp {
-    pub(super) fn dismiss_ai_progress_popup(&mut self) {
+    pub(crate) fn dismiss_ai_progress_popup(&mut self) {
         self.ai_progress_visible = false;
     }
 
-    pub(super) fn toggle_ai_progress_popup(&mut self) {
+    pub(crate) fn toggle_ai_progress_popup(&mut self) {
         if self.ai_progress_visible {
             self.ai_progress_visible = false;
             self.status_line = "ai progress popup hidden".into();
@@ -24,7 +24,7 @@ impl TuiApp {
         self.status_line = "ai progress popup visible".into();
     }
 
-    pub(super) fn ai_progress_scroll_up(&mut self, lines: usize) {
+    pub(crate) fn ai_progress_scroll_up(&mut self, lines: usize) {
         if lines == 0 {
             return;
         }
@@ -32,24 +32,24 @@ impl TuiApp {
         self.ai_progress_scroll = self.ai_progress_scroll.saturating_sub(lines);
     }
 
-    pub(super) fn ai_progress_scroll_down(&mut self, lines: usize) {
+    pub(crate) fn ai_progress_scroll_down(&mut self, lines: usize) {
         if lines == 0 {
             return;
         }
         self.ai_progress_scroll = self.ai_progress_scroll.saturating_add(lines);
     }
 
-    pub(super) fn ai_progress_scroll_home(&mut self) {
+    pub(crate) fn ai_progress_scroll_home(&mut self) {
         self.ai_progress_follow_tail = false;
         self.ai_progress_scroll = 0;
     }
 
-    pub(super) fn ai_progress_scroll_end(&mut self) {
+    pub(crate) fn ai_progress_scroll_end(&mut self) {
         self.ai_progress_follow_tail = true;
         self.ai_progress_scroll = usize::MAX;
     }
 
-    pub(super) fn ai_progress_resolved_scroll(&mut self, max_scroll: usize) -> usize {
+    pub(crate) fn ai_progress_resolved_scroll(&mut self, max_scroll: usize) -> usize {
         if self.ai_progress_follow_tail {
             self.ai_progress_scroll = max_scroll;
             return max_scroll;
@@ -60,7 +60,7 @@ impl TuiApp {
         clamped
     }
 
-    pub(super) fn push_ai_progress_line(&mut self, line: String) {
+    pub(crate) fn push_ai_progress_line(&mut self, line: String) {
         self.ai_progress_lines.push_back(line);
         while self.ai_progress_lines.len() > AI_PROGRESS_MAX_LINES {
             self.ai_progress_lines.pop_front();
@@ -70,7 +70,7 @@ impl TuiApp {
         }
     }
 
-    pub(super) fn record_ai_progress(&mut self, event: AiProgressEvent) -> bool {
+    pub(crate) fn record_ai_progress(&mut self, event: AiProgressEvent) -> bool {
         let Some(message) = Self::normalized_ai_stream_message(&event.stream, &event.message)
         else {
             return false;
@@ -91,7 +91,7 @@ impl TuiApp {
         true
     }
 
-    pub(super) fn drain_ai_progress(&mut self) -> bool {
+    pub(crate) fn drain_ai_progress(&mut self) -> bool {
         let mut changed = false;
         let mut events = Vec::new();
         if let Some(task) = self.ai_task.as_mut() {
@@ -105,7 +105,7 @@ impl TuiApp {
         changed
     }
 
-    pub(super) fn cancel_ai_task(&mut self) {
+    pub(crate) fn cancel_ai_task(&mut self) {
         let Some(task) = self.ai_task.take() else {
             self.status_line = "no ai session running".into();
             return;
@@ -137,7 +137,7 @@ impl TuiApp {
         );
     }
 
-    pub(super) async fn poll_ai_task(&mut self, service: &ReviewService) -> Result<bool> {
+    pub(crate) async fn poll_ai_task(&mut self, service: &ReviewService) -> Result<bool> {
         let mut changed = self.drain_ai_progress();
 
         let Some(task) = self.ai_task.as_ref() else {
@@ -207,7 +207,7 @@ impl TuiApp {
         Ok(changed)
     }
 
-    pub(super) async fn start_ai_session(
+    pub(crate) async fn start_ai_session(
         &mut self,
         service: &ReviewService,
         selected_only: bool,
@@ -299,7 +299,7 @@ impl TuiApp {
         Ok(())
     }
 
-    pub(super) async fn cycle_ai_provider(&mut self, service: &ReviewService) -> Result<()> {
+    pub(crate) async fn cycle_ai_provider(&mut self, service: &ReviewService) -> Result<()> {
         self.ai_provider = match self.ai_provider {
             AiProvider::Codex => AiProvider::Claude,
             AiProvider::Claude => AiProvider::Opencode,

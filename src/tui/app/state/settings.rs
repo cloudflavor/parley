@@ -5,7 +5,7 @@
 use super::*;
 
 impl TuiApp {
-    pub(super) fn dismiss_blocking_overlays(&mut self) {
+    pub(crate) fn dismiss_blocking_overlays(&mut self) {
         self.command_palette = None;
         self.theme_picker = None;
         self.commit_picker = None;
@@ -15,7 +15,7 @@ impl TuiApp {
         self.shortcuts_modal_visible = false;
     }
 
-    pub(super) fn open_command_prompt(&mut self, mode: CommandPromptMode) {
+    pub(crate) fn open_command_prompt(&mut self, mode: CommandPromptMode) {
         self.dismiss_ai_progress_popup();
         let (value, cursor_col, status_line) = match mode {
             CommandPromptMode::GotoLine => (String::new(), 0, "goto line prompt"),
@@ -33,7 +33,7 @@ impl TuiApp {
         self.status_line = status_line.into();
     }
 
-    pub(super) fn open_help_docs(&mut self) {
+    pub(crate) fn open_help_docs(&mut self) {
         self.dismiss_ai_progress_popup();
         self.shortcuts_modal_visible = true;
         self.shortcuts_modal_scroll = 0;
@@ -41,7 +41,7 @@ impl TuiApp {
         self.status_line = "help docs opened".into();
     }
 
-    pub(super) fn open_user_name_editor(&mut self) {
+    pub(crate) fn open_user_name_editor(&mut self) {
         self.dismiss_ai_progress_popup();
         let value = self.config.user_name.clone();
         let cursor_col = value.chars().count();
@@ -53,7 +53,7 @@ impl TuiApp {
         self.status_line = "editing user name".into();
     }
 
-    pub(super) fn open_create_review_editor(&mut self) {
+    pub(crate) fn open_create_review_editor(&mut self) {
         self.dismiss_ai_progress_popup();
         self.review_picker = None;
         self.settings_editor = Some(SettingsEditorState {
@@ -64,7 +64,7 @@ impl TuiApp {
         self.status_line = "creating review".into();
     }
 
-    pub(super) async fn save_settings_editor(&mut self, service: &ReviewService) -> Result<()> {
+    pub(crate) async fn save_settings_editor(&mut self, service: &ReviewService) -> Result<()> {
         let Some(editor) = self.settings_editor.take() else {
             return Ok(());
         };
@@ -111,7 +111,7 @@ impl TuiApp {
         Ok(())
     }
 
-    pub(super) fn open_theme_picker(&mut self) {
+    pub(crate) fn open_theme_picker(&mut self) {
         if self.themes.is_empty() {
             self.status_line = "no themes loaded".into();
             return;
@@ -124,7 +124,7 @@ impl TuiApp {
         self.status_line = "theme picker opened".into();
     }
 
-    pub(super) fn open_commit_picker(&mut self) -> Result<()> {
+    pub(crate) fn open_commit_picker(&mut self) -> Result<()> {
         let commits = crate::git::history::recent_commits(200)?;
         if commits.is_empty() {
             self.status_line = "commit picker unavailable: no commits found".into();
@@ -149,7 +149,7 @@ impl TuiApp {
         Ok(())
     }
 
-    pub(super) async fn open_review_picker(&mut self, service: &ReviewService) -> Result<()> {
+    pub(crate) async fn open_review_picker(&mut self, service: &ReviewService) -> Result<()> {
         let review_names = service.list_reviews().await?;
         if review_names.is_empty() {
             self.status_line = "review picker unavailable: no reviews found".into();
@@ -202,7 +202,7 @@ impl TuiApp {
         Ok(())
     }
 
-    pub(super) fn commit_picker_filtered_indices(&self) -> Vec<usize> {
+    pub(crate) fn commit_picker_filtered_indices(&self) -> Vec<usize> {
         let Some(picker) = self.commit_picker.as_ref() else {
             return Vec::new();
         };
@@ -223,7 +223,7 @@ impl TuiApp {
             .collect()
     }
 
-    pub(super) fn review_picker_filtered_indices(&self) -> Vec<usize> {
+    pub(crate) fn review_picker_filtered_indices(&self) -> Vec<usize> {
         let Some(picker) = self.review_picker.as_ref() else {
             return Vec::new();
         };
@@ -247,7 +247,7 @@ impl TuiApp {
             .collect()
     }
 
-    pub(super) async fn apply_theme_picker_selection(
+    pub(crate) async fn apply_theme_picker_selection(
         &mut self,
         service: &ReviewService,
     ) -> Result<()> {
@@ -266,7 +266,7 @@ impl TuiApp {
         Ok(())
     }
 
-    pub(super) async fn toggle_light_dark_theme(&mut self, service: &ReviewService) -> Result<()> {
+    pub(crate) async fn toggle_light_dark_theme(&mut self, service: &ReviewService) -> Result<()> {
         if self.themes.is_empty() {
             self.status_line = "no themes loaded".into();
             return Ok(());
@@ -300,11 +300,11 @@ impl TuiApp {
         Ok(())
     }
 
-    pub(super) fn help_docs_count(&self) -> usize {
+    pub(crate) fn help_docs_count(&self) -> usize {
         super::help_docs::HELP_DOCS.len()
     }
 
-    pub(super) fn cycle_help_doc(&mut self, forward: bool) {
+    pub(crate) fn cycle_help_doc(&mut self, forward: bool) {
         let count = self.help_docs_count();
         let current = self.shortcuts_modal_doc_index.min(count.saturating_sub(1));
         let next = if forward {
@@ -318,13 +318,13 @@ impl TuiApp {
         self.shortcuts_modal_scroll = 0;
     }
 
-    pub(super) fn set_help_doc_index(&mut self, index: usize) {
+    pub(crate) fn set_help_doc_index(&mut self, index: usize) {
         let count = self.help_docs_count();
         self.shortcuts_modal_doc_index = index.min(count.saturating_sub(1));
         self.shortcuts_modal_scroll = 0;
     }
 
-    pub(super) fn resize_help_modal(&mut self, delta: i16) {
+    pub(crate) fn resize_help_modal(&mut self, delta: i16) {
         let next = self.shortcuts_modal_zoom_step.saturating_add(delta);
         self.shortcuts_modal_zoom_step = next.clamp(-8, 12);
     }
@@ -333,6 +333,7 @@ impl TuiApp {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::tui::app::state::tests::make_test_app;
 
     #[test]
     fn opening_modal_overlays_hides_ai_progress_popup() {
