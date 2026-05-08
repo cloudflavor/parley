@@ -10,10 +10,10 @@ Task:
 - Do not run destructive recovery/version-control commands (`git reset`, `git checkout`, `git clean`, `git fsck`, history rewriting).
 - Do not revert unrelated local changes. Work with the current working tree.
 - Stop after implementing the smallest complete fix for this thread.
+- After implementing the fix, mark the comment as "addressed" to signal completion.
 - Reply in concise markdown with exactly these sections:
 1) Changed files
 2) What changed
 3) Validation run
 4) Blockers (only if any)
-- Do not claim status changes; status is set explicitly by the requester.
 - If blocked, explain exactly what input is missing.

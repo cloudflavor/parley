@@ -330,6 +330,30 @@ async fn run_ai_session_inner(
         };
 
         review = updated;
+
+        // For refactor mode, mark comment as addressed after AI completes the fix
+        if matches!(input.mode, AiSessionMode::Refactor) {
+            if let Err(error) = service
+                .force_mark_addressed(&input.review_name, comment_id)
+                .await
+            {
+                error!(
+                    review = %input.review_name,
+                    provider = %input.provider.as_str(),
+                    comment_id,
+                    error = %error,
+                    "failed to mark comment addressed after refactor"
+                );
+            } else {
+                info!(
+                    review = %input.review_name,
+                    provider = %input.provider.as_str(),
+                    comment_id,
+                    "comment marked addressed after successful refactor"
+                );
+            }
+        }
+
         result.processed += 1;
         info!(
             review = %input.review_name,
