@@ -124,7 +124,7 @@ AI sessions use the same selected revision source for prompt context.
 
 ## 10. Reviewing the current root directory
 
-Use `parley tui --root` to review the current repository root without requiring a git diff or commit. This derives a review name from the current directory and creates that review if it does not exist. Pass `--review <name>` with `--root` to use an explicit review name.
+Use `parley tui --review <name> --root` to review the current repository root without requiring a git diff or commit. `--review` is required, and the TUI opens that review name while using root-directory diff mode. The review is created if it does not exist.
 
 Root-directory review mode loads tracked files plus untracked files that are not ignored by gitignore rules. It skips `.git`, `.parley`, and `worktrees/` directories. Each file is shown as context lines so comments can attach to the current file line numbers.
 

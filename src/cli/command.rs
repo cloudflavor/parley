@@ -17,8 +17,8 @@ pub enum Command {
     #[command(name = "tui")]
     Tui {
         /// Review name to open in the TUI.
-        #[arg(long, required_unless_present = "root")]
-        review: Option<String>,
+        #[arg(long)]
+        review: String,
         /// Disable mouse capture and mouse interaction in the TUI.
         #[arg(long)]
         no_mouse: bool,
@@ -154,7 +154,7 @@ mod tests {
                 base,
                 head,
             } => {
-                assert_eq!(review.as_deref(), Some("parser-cleanup"));
+                assert_eq!(review, "parser-cleanup");
                 assert!(no_mouse);
                 assert_eq!(commit, None);
                 assert!(!root);
@@ -227,7 +227,7 @@ mod tests {
 
         match cli.command {
             Command::Tui { review, root, .. } => {
-                assert_eq!(review.as_deref(), Some("root-review"));
+                assert_eq!(review, "root-review");
                 assert!(root);
             }
             other => panic!("unexpected command: {other:?}"),
@@ -235,16 +235,12 @@ mod tests {
     }
 
     #[test]
-    fn tui_command_allows_root_without_review_name() {
-        let cli = Cli::parse_from(["parley", "tui", "--root"]);
+    fn tui_command_rejects_root_without_review_name() {
+        let error = Cli::try_parse_from(["parley", "tui", "--root"])
+            .expect_err("cli should reject root without review name");
 
-        match cli.command {
-            Command::Tui { review, root, .. } => {
-                assert_eq!(review, None);
-                assert!(root);
-            }
-            other => panic!("unexpected command: {other:?}"),
-        }
+        let message = error.to_string();
+        assert!(message.contains("--review"));
     }
 
     #[test]
