@@ -18,14 +18,6 @@ pub struct FileHeatmapEntry {
     pub changes: usize,
     pub insertions: usize,
     pub deletions: usize,
-    pub buckets: Vec<FileHeatmapBucket>,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct FileHeatmapBucket {
-    pub day: i64,
-    pub commits: usize,
-    pub changes: usize,
 }
 
 #[derive(Debug, Default)]
@@ -33,17 +25,7 @@ struct FileHeatmapStats {
     commits: usize,
     insertions: usize,
     deletions: usize,
-    buckets: HashMap<i64, FileHeatmapBucketStats>,
 }
-
-#[derive(Debug, Default)]
-struct FileHeatmapBucketStats {
-    commits: usize,
-    insertions: usize,
-    deletions: usize,
-}
-
-const SECONDS_PER_DAY: i64 = 86_400;
 
 /// # Errors
 ///
@@ -113,15 +95,6 @@ pub fn file_heatmap(limit: usize) -> Result<Vec<FileHeatmapEntry>> {
     let mut entries = stats
         .into_iter()
         .map(|(path, stats)| FileHeatmapEntry {
-            buckets: stats
-                .buckets
-                .into_iter()
-                .map(|(day, bucket)| FileHeatmapBucket {
-                    day,
-                    commits: bucket.commits,
-                    changes: bucket.insertions + bucket.deletions,
-                })
-                .collect::<Vec<_>>(),
             path,
             commits: stats.commits,
             changes: stats.insertions + stats.deletions,
@@ -129,14 +102,11 @@ pub fn file_heatmap(limit: usize) -> Result<Vec<FileHeatmapEntry>> {
             deletions: stats.deletions,
         })
         .collect::<Vec<_>>();
-    for entry in &mut entries {
-        entry.buckets.sort_by_key(|bucket| bucket.day);
-    }
     entries.sort_by(|left, right| {
         right
-            .commits
-            .cmp(&left.commits)
-            .then_with(|| right.changes.cmp(&left.changes))
+            .changes
+            .cmp(&left.changes)
+            .then_with(|| right.commits.cmp(&left.commits))
             .then_with(|| left.path.cmp(&right.path))
     });
     Ok(entries)
@@ -147,7 +117,6 @@ fn collect_commit_file_heat(
     commit: &Commit<'_>,
     stats: &mut HashMap<String, FileHeatmapStats>,
 ) -> Result<()> {
-    let day = commit.time().seconds().div_euclid(SECONDS_PER_DAY);
     let new_tree = commit.tree().context("failed to read commit tree")?;
     let old_tree = if commit.parent_count() == 0 {
         None
@@ -197,19 +166,15 @@ fn collect_commit_file_heat(
     for (path, insertion) in line_changes {
         touched.insert(path.clone());
         let entry = stats.entry(path).or_default();
-        let bucket = entry.buckets.entry(day).or_default();
         if insertion {
             entry.insertions += 1;
-            bucket.insertions += 1;
         } else {
             entry.deletions += 1;
-            bucket.deletions += 1;
         }
     }
     for path in touched {
         let entry = stats.entry(path).or_default();
         entry.commits += 1;
-        entry.buckets.entry(day).or_default().commits += 1;
     }
     Ok(())
 }
@@ -252,7 +217,7 @@ mod tests {
     }
 
     #[test]
-    fn file_heatmap_orders_files_by_touch_count() -> Result<()> {
+    fn file_heatmap_orders_files_by_line_churn() -> Result<()> {
         let temp = tempdir()?;
         let repo = git2::Repository::init(temp.path())?;
         commit_file(&repo, temp.path(), "src/hot.rs", "fn one() {}\n", "hot one")?;
@@ -273,14 +238,6 @@ mod tests {
 
         assert_eq!(entries[0].path, "src/hot.rs");
         assert_eq!(entries[0].commits, 2);
-        assert_eq!(
-            entries[0]
-                .buckets
-                .iter()
-                .map(|bucket| bucket.commits)
-                .sum::<usize>(),
-            2
-        );
         assert!(entries[0].changes >= entries[1].changes);
         Ok(())
     }
