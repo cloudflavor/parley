@@ -101,8 +101,18 @@ parley tui --review my-review --base HEAD~2^ --head HEAD
 Top-level commands:
 
 - `parley tui`
+- `parley search <query> [paths...]`
 - `parley review <subcommand>`
 - `parley mcp`
+
+Search examples:
+
+```bash
+parley search "TODO"
+parley search "TODO" src docs
+```
+
+Search uses `rg` when available. If `rg` is unavailable, it falls back to `grep` and honors `.gitignore` through Git file tracking for Git worktrees.
 
 Common `review` subcommands:
 

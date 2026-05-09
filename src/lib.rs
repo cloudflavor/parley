@@ -10,6 +10,7 @@ pub mod tui;
 pub mod utils;
 
 use std::io::IsTerminal;
+use std::process::Command as ProcessCommand;
 use std::{ffi::OsString, path::Path};
 
 use anyhow::{Context, Result, anyhow};
@@ -52,12 +53,115 @@ pub async fn run() -> Result<()> {
         Command::Review { command } => {
             handle_review_command(command, &service).await?;
         }
+        Command::Search { query, paths } => {
+            run_code_search(&query, &paths)?;
+        }
         Command::Mcp => {
             mcp::run_mcp(service).await?;
         }
     }
 
     Ok(())
+}
+
+fn run_code_search(query: &str, paths: &[String]) -> Result<()> {
+    let search_paths = if paths.is_empty() {
+        vec![".".to_string()]
+    } else {
+        paths.to_vec()
+    };
+
+    if command_exists("rg") {
+        let mut command = ProcessCommand::new("rg");
+        command.args(["--line-number", "--no-heading"]);
+        command.arg(query);
+        command.args(&search_paths);
+        let output = command.output().context("failed to run ripgrep")?;
+        handle_search_output("rg", output)
+    } else if has_git_repo() {
+        let files = list_files_for_search(&search_paths)?;
+        if files.is_empty() {
+            return Ok(());
+        }
+        let mut command = ProcessCommand::new("grep");
+        command.args(["-n", "-E"]);
+        command.arg("-e");
+        command.arg(query);
+        command.args(files);
+        let output = command
+            .output()
+            .context("failed to run grep with git file list")?;
+        handle_search_output("grep", output)
+    } else {
+        let mut command = ProcessCommand::new("grep");
+        command.args(["-RIn", "-E", "--exclude-dir=.git"]);
+        command.arg("-e");
+        command.arg(query);
+        command.args(&search_paths);
+        let output = command.output().context("failed to run grep")?;
+        handle_search_output("grep", output)
+    }
+}
+
+fn command_exists(name: &str) -> bool {
+    match ProcessCommand::new(name).arg("--version").output() {
+        Ok(output) => output.status.success(),
+        Err(_) => false,
+    }
+}
+
+fn has_git_repo() -> bool {
+    match ProcessCommand::new("git")
+        .args(["rev-parse", "--is-inside-work-tree"])
+        .output()
+    {
+        Ok(output) => output.status.success(),
+        Err(_) => false,
+    }
+}
+
+fn list_files_for_search(paths: &[String]) -> Result<Vec<String>> {
+    let mut command = ProcessCommand::new("git");
+    command.args([
+        "ls-files",
+        "-z",
+        "--cached",
+        "--others",
+        "--exclude-standard",
+    ]);
+    command.args(paths);
+    let output = command.output().context("failed to list files from git")?;
+    if !output.status.success() {
+        return Err(anyhow!(
+            "git ls-files failed with status {:?}: {}",
+            output.status.code(),
+            String::from_utf8_lossy(&output.stderr)
+        ));
+    }
+    Ok(output
+        .stdout
+        .split(|b| *b == b'\0')
+        .filter_map(|entry| {
+            if entry.is_empty() {
+                None
+            } else {
+                Some(String::from_utf8_lossy(entry).to_string())
+            }
+        })
+        .collect())
+}
+
+fn handle_search_output(command: &str, output: std::process::Output) -> Result<()> {
+    if output.status.success() || output.status.code() == Some(1) {
+        print!("{}", String::from_utf8_lossy(&output.stdout));
+        return Ok(());
+    }
+
+    Err(anyhow!(
+        "{command} failed with status {:?}: {}",
+        output.status.code(),
+        String::from_utf8_lossy(&output.stderr)
+    ))
 }
 
 fn default_root_review_name(project_root: &Path) -> String {

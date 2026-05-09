@@ -40,6 +40,13 @@ pub enum Command {
         #[command(subcommand)]
         command: ReviewCommand,
     },
+    #[command(name = "search")]
+    Search {
+        /// Query string (uses ripgrep syntax when available).
+        query: String,
+        /// Optional file or directory scopes to limit search.
+        paths: Vec<String>,
+    },
     #[command(name = "mcp")]
     Mcp,
 }
@@ -263,5 +270,31 @@ mod tests {
         let message = error.to_string();
         assert!(message.contains("--root"));
         assert!(message.contains("--commit"));
+    }
+
+    #[test]
+    fn search_command_parses_query_and_paths() {
+        let cli = Cli::parse_from(["parley", "search", "TODO", "src", "docs"]);
+
+        match cli.command {
+            Command::Search { query, paths } => {
+                assert_eq!(query, "TODO");
+                assert_eq!(paths, vec!["src".to_string(), "docs".to_string()]);
+            }
+            other => panic!("unexpected command: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn search_command_parses_query_only() {
+        let cli = Cli::parse_from(["parley", "search", "TODO"]);
+
+        match cli.command {
+            Command::Search { query, paths } => {
+                assert_eq!(query, "TODO");
+                assert!(paths.is_empty());
+            }
+            other => panic!("unexpected command: {other:?}"),
+        }
     }
 }
