@@ -12,8 +12,11 @@
 ## Search and jump
 
 - `:<line>`: go to line
-- `/query`: set search query
-- `n/p`: next/previous search match
+- `/`: open codebase search popup (`rg`, falling back to `grep`)
+- Code search `type`: update results live
+- Code search `Enter`: open selected file and line
+- Code search `Esc`: close search
+- `n/p`: next/previous in-diff search match
 
 ## Threads
 

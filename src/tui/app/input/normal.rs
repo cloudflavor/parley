@@ -172,7 +172,9 @@ impl TuiApp {
                 self.start_inline_reply_for_selected_comment();
             }
             KeyCode::Char(':') => self.open_command_prompt(CommandPromptMode::GotoLine),
-            KeyCode::Char('/') => self.open_command_prompt(CommandPromptMode::Search),
+            KeyCode::Char('/') => {
+                self.open_code_search().await?;
+            }
             KeyCode::Char('n') => {
                 self.ensure_row_cache();
                 self.jump_search(true);

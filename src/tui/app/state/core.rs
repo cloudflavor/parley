@@ -54,6 +54,7 @@ impl TuiApp {
             theme_picker: None,
             commit_picker: None,
             review_picker: None,
+            code_search: None,
             file_search: FileSearchState {
                 query: String::new(),
                 cursor_col: 0,

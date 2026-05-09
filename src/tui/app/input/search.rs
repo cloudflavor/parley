@@ -58,12 +58,8 @@ impl TuiApp {
     pub(super) fn handle_command_prompt_key(&mut self, key: KeyEvent) -> Result<()> {
         if matches!(key.code, KeyCode::Esc) {
             if let Some(prompt) = self.command_prompt.take() {
-                if matches!(prompt.mode, CommandPromptMode::Search) {
-                    self.search_query = None;
-                    self.status_line = "search cleared".into();
-                } else {
-                    self.status_line = "command cancelled".into();
-                }
+                let _ = prompt;
+                self.status_line = "command cancelled".into();
             } else {
                 self.status_line = "command cancelled".into();
             }
@@ -116,7 +112,6 @@ impl TuiApp {
 
         match prompt.mode {
             CommandPromptMode::GotoLine => self.goto_line_from_prompt(&prompt.value),
-            CommandPromptMode::Search => self.search_from_prompt(&prompt.value),
         }
     }
 
@@ -167,22 +162,6 @@ impl TuiApp {
         }
 
         false
-    }
-
-    fn search_from_prompt(&mut self, input: &str) -> Result<()> {
-        let query = input.trim();
-        if query.is_empty() {
-            self.search_query = None;
-            self.status_line = "search cleared".into();
-            return Ok(());
-        }
-        self.search_query = Some(query.to_string());
-        if self.find_search_match(query, true) {
-            self.status_line = format!("search match: {query}");
-        } else {
-            self.status_line = format!("no match for: {query}");
-        }
-        Ok(())
     }
 
     pub(super) fn jump_search(&mut self, forward: bool) {

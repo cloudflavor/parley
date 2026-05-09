@@ -15,16 +15,17 @@ use crate::{
 };
 
 use super::{
-    CommandPaletteAction, CommandPaletteItem, CommandPaletteState, CommandPromptMode,
-    CommentLineRange, CommentTarget, DiffPane, DisplayRow, INLINE_FILE_MENTION_MAX_CANDIDATES,
-    INLINE_FILE_MENTION_MAX_VISIBLE_ROWS, InlineCommentState, InlineDraftMode,
-    InlineFileMentionState, MOUSE_WHEEL_FILE_SCROLL_FILES, MOUSE_WHEEL_SCROLL_LINES,
-    PendingUiAction, ReplyTarget, SettingsEditorKind, SettingsEditorState, TextBuffer,
-    ThreadAnchor, TuiApp, comment_matches_display_row, format_comment_reference,
-    format_line_range_reference, format_line_reference, insert_char_at, point_in_rect,
-    remove_char_at,
+    CodeSearchResult, CodeSearchState, CommandPaletteAction, CommandPaletteItem,
+    CommandPaletteState, CommandPromptMode, CommentLineRange, CommentTarget, DiffPane, DisplayRow,
+    INLINE_FILE_MENTION_MAX_CANDIDATES, INLINE_FILE_MENTION_MAX_VISIBLE_ROWS, InlineCommentState,
+    InlineDraftMode, InlineFileMentionState, MOUSE_WHEEL_FILE_SCROLL_FILES,
+    MOUSE_WHEEL_SCROLL_LINES, PendingUiAction, ReplyTarget, SettingsEditorKind,
+    SettingsEditorState, TextBuffer, ThreadAnchor, TuiApp, comment_matches_display_row,
+    format_comment_reference, format_line_range_reference, format_line_reference, insert_char_at,
+    point_in_rect, remove_char_at,
 };
 
+mod code_search;
 mod command_actions;
 mod command_palette;
 mod file_reference;
@@ -66,6 +67,9 @@ impl TuiApp {
         }
         if self.command_palette.is_some() {
             return self.handle_command_palette_key(key, service).await;
+        }
+        if self.code_search.is_some() {
+            return self.handle_code_search_key(key).await;
         }
         if self.theme_picker.is_some() {
             return self.handle_theme_picker_key(key, service).await;

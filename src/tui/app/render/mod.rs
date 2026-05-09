@@ -85,8 +85,8 @@ impl DiffRenderCacheEntry {
 use diff::draw_diff_view_for_pane;
 use modals::{draw_commit_picker, draw_review_picker, draw_settings_editor, draw_theme_picker};
 use overlays::{
-    draw_ai_progress_popup, draw_command_palette, draw_command_prompt, draw_file_heatmap_overlay,
-    draw_shortcuts_modal, draw_thread_navigator_overlay,
+    draw_ai_progress_popup, draw_code_search, draw_command_palette, draw_command_prompt,
+    draw_file_heatmap_overlay, draw_shortcuts_modal, draw_thread_navigator_overlay,
 };
 use sidebar::draw_file_sidebar;
 use status::{compute_status_height, draw_status_panel, draw_status_toast};
@@ -99,6 +99,7 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &mut TuiApp) {
         || app.theme_picker.is_some()
         || app.commit_picker.is_some()
         || app.review_picker.is_some()
+        || app.code_search.is_some()
         || app.settings_editor.is_some()
         || app.shortcuts_modal_visible
         || app.file_heatmap.is_some()
@@ -142,6 +143,9 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &mut TuiApp) {
         }
         if app.review_picker.is_some() {
             draw_review_picker(frame, app);
+        }
+        if app.code_search.is_some() {
+            draw_code_search(frame, app);
         }
         if app.command_prompt.is_some() {
             draw_command_prompt(frame, app);
@@ -201,6 +205,9 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &mut TuiApp) {
     }
     if app.review_picker.is_some() {
         draw_review_picker(frame, app);
+    }
+    if app.code_search.is_some() {
+        draw_code_search(frame, app);
     }
     if app.command_prompt.is_some() {
         draw_command_prompt(frame, app);

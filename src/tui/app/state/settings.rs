@@ -10,6 +10,7 @@ impl TuiApp {
         self.theme_picker = None;
         self.commit_picker = None;
         self.review_picker = None;
+        self.code_search = None;
         self.settings_editor = None;
         self.command_prompt = None;
         self.shortcuts_modal_visible = false;
@@ -19,11 +20,6 @@ impl TuiApp {
         self.dismiss_ai_progress_popup();
         let (value, cursor_col, status_line) = match mode {
             CommandPromptMode::GotoLine => (String::new(), 0, "goto line prompt"),
-            CommandPromptMode::Search => {
-                let value = self.search_query.clone().unwrap_or_default();
-                let cursor_col = value.chars().count();
-                (value, cursor_col, "search prompt")
-            }
         };
         self.command_prompt = Some(CommandPromptState {
             mode,

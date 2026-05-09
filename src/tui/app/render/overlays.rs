@@ -551,7 +551,6 @@ pub(super) fn draw_command_prompt(frame: &mut Frame<'_>, app: &TuiApp) {
 
     let prefix = match prompt.mode {
         CommandPromptMode::GotoLine => ":",
-        CommandPromptMode::Search => "/",
     };
 
     let inner_width = usize::from(area.width.saturating_sub(4)).max(1);
@@ -704,6 +703,129 @@ pub(super) fn draw_command_palette(frame: &mut Frame<'_>, app: &mut TuiApp) {
         .saturating_add(usize_to_u16_saturating(query_prefix.len()))
         .saturating_add(usize_to_u16_saturating(
             palette_cursor_col.saturating_sub(query_scroll),
+        ));
+    let cursor_y = area.y.saturating_add(1);
+    frame.set_cursor_position((cursor_x, cursor_y));
+}
+
+pub(super) fn draw_code_search(frame: &mut Frame<'_>, app: &mut TuiApp) {
+    let Some(search_snapshot) = app.code_search.as_ref() else {
+        return;
+    };
+    let query = search_snapshot.query.clone();
+    let cursor_col = search_snapshot.cursor_col;
+    let selected_index = search_snapshot.selected_index;
+    let scroll = search_snapshot.scroll;
+    let message = search_snapshot.message.clone();
+    let results = search_snapshot.results.clone();
+
+    let root = frame.area();
+    if root.width < 48 || root.height < 10 {
+        return;
+    }
+
+    let width = root.width.saturating_sub(4).clamp(56, 112);
+    let height = root.height.saturating_sub(4).clamp(10, 24);
+    let area = Rect {
+        x: root.x + root.width.saturating_sub(width) / 2,
+        y: root.y + root.height.saturating_sub(height) / 2,
+        width,
+        height,
+    };
+    let colors = app.theme().colors.clone();
+    let query_prefix = "/ ";
+    let query_width = usize::from(area.width.saturating_sub(2)).saturating_sub(query_prefix.len());
+    let query_width = query_width.max(1);
+    let query_scroll = cursor_col.saturating_sub(query_width.saturating_sub(1));
+    let visible_query = slice_chars(&query, query_scroll, query_width);
+    let visible_rows = usize::from(area.height.saturating_sub(5)).max(1);
+    let selected_index = selected_index.min(results.len().saturating_sub(1));
+    let mut scroll = scroll;
+    if !results.is_empty() {
+        if selected_index < scroll {
+            scroll = selected_index;
+        } else if selected_index >= scroll.saturating_add(visible_rows) {
+            scroll = selected_index.saturating_sub(visible_rows.saturating_sub(1));
+        }
+    }
+    if let Some(search) = app.code_search.as_mut() {
+        search.selected_index = selected_index;
+        search.scroll = scroll;
+    }
+
+    let mut lines = Vec::new();
+    lines.push(Line::from(vec![
+        Span::styled(
+            query_prefix,
+            Style::default()
+                .fg(colors.accent)
+                .add_modifier(Modifier::BOLD),
+        ),
+        Span::styled(visible_query, Style::default().fg(colors.text_primary)),
+    ]));
+    lines.push(Line::from(Span::styled(
+        message,
+        Style::default().fg(colors.status_help),
+    )));
+
+    if results.is_empty() {
+        lines.push(Line::from(Span::styled(
+            "(no matches)",
+            Style::default().fg(colors.text_muted),
+        )));
+    } else {
+        let inner_width = usize::from(area.width.saturating_sub(2)).max(1);
+        for (idx, result) in results.iter().enumerate().skip(scroll).take(visible_rows) {
+            let is_selected = idx == selected_index;
+            let marker = if is_selected { "▶ " } else { "  " };
+            let row = format!(
+                "{marker}{}:{}:{} {}",
+                result.path,
+                result.line,
+                result.column,
+                result.text.trim()
+            );
+            let style = if is_selected {
+                Style::default()
+                    .bg(colors.sidebar_highlight_bg)
+                    .fg(colors.sidebar_highlight_fg)
+                    .add_modifier(Modifier::BOLD)
+            } else {
+                Style::default().fg(colors.text_primary)
+            };
+            lines.push(Line::from(Span::styled(
+                fit_to_width(&row, inner_width),
+                style,
+            )));
+        }
+    }
+    lines.push(Line::from(Span::styled(
+        "Enter open | Esc close | ↑/↓ move | type updates live | rg with grep fallback",
+        Style::default().fg(colors.status_help),
+    )));
+
+    frame.render_widget(Clear, area);
+    frame.render_widget(
+        Paragraph::new(lines).block(
+            Block::default()
+                .title("Code Search")
+                .borders(Borders::ALL)
+                .border_style(Style::default().fg(colors.thread_border))
+                .title_style(
+                    Style::default()
+                        .fg(colors.accent)
+                        .add_modifier(Modifier::BOLD),
+                ),
+        ),
+        area,
+    );
+
+    let cursor_x = area
+        .x
+        .saturating_add(1)
+        .saturating_add(usize_to_u16_saturating(query_prefix.len()))
+        .saturating_add(usize_to_u16_saturating(
+            cursor_col.saturating_sub(query_scroll),
         ));
     let cursor_y = area.y.saturating_add(1);
     frame.set_cursor_position((cursor_x, cursor_y));

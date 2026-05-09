@@ -340,7 +340,6 @@ enum DiffPane {
 #[derive(Debug, Clone)]
 enum CommandPromptMode {
     GotoLine,
-    Search,
 }
 
 #[derive(Debug, Clone)]
@@ -408,6 +407,25 @@ struct FileSearchState {
     query: String,
     cursor_col: usize,
     focused: bool,
+}
+
+#[derive(Debug, Clone)]
+struct CodeSearchResult {
+    path: String,
+    line: u32,
+    column: u32,
+    text: String,
+}
+
+#[derive(Debug, Clone)]
+struct CodeSearchState {
+    query: String,
+    cursor_col: usize,
+    results: Vec<CodeSearchResult>,
+    selected_index: usize,
+    scroll: usize,
+    engine: Option<&'static str>,
+    message: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -573,6 +591,7 @@ struct TuiApp {
     theme_picker: Option<ThemePickerState>,
     commit_picker: Option<CommitPickerState>,
     review_picker: Option<ReviewPickerState>,
+    code_search: Option<CodeSearchState>,
     file_search: FileSearchState,
     file_filter_mode: FileFilterMode,
     file_sort_mode: FileSortMode,
