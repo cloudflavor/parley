@@ -65,6 +65,8 @@
 
 - `?`: open help docs
 - `Ctrl+k`: command palette
+- Command palette `Toggle Active File Group`: collapse or expand the active file group
+- Command palette `Collapse All File Groups`: collapse every file group visible under the current filter
 - Command palette `Open Commit Picker`: open recent commits, filter by message or SHA, and apply the selected commit as the active diff source
 - Command palette `Open Review Picker`: open reviews, filter by name or state, and apply the selected review as the active comment context
 - Command palette `Create Review`: create a new review context and switch to it
@@ -74,6 +76,9 @@
 - `S`: toggle side-by-side diff
 - `Tab`: switch active diff pane
 - `</>`: resize files pane
+- `Enter`: collapse or expand the active file group
+- `Shift+C`: collapse all visible file groups
+- Mouse: click a file group header to collapse or expand it
 - `b`: toggle thread navigator
 
 ## Help pane
