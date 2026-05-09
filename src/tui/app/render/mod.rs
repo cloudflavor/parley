@@ -332,6 +332,86 @@ mod tests {
     }
 
     #[test]
+    fn unified_added_and_removed_rows_use_muted_backgrounds() -> Result<()> {
+        let colors = test_colors()?;
+        let pane_inner_width = 50usize;
+        let highlighted_segments =
+            vec![(Style::default().fg(colors.text_primary), "changed".into())];
+        let added = DisplayRow {
+            kind: DiffLineKind::Added,
+            old_line: None,
+            new_line: Some(8),
+            raw: "+changed".to_string(),
+            code: "changed".to_string(),
+        };
+        let removed = DisplayRow {
+            kind: DiffLineKind::Removed,
+            old_line: Some(8),
+            new_line: None,
+            raw: "-changed".to_string(),
+            code: "changed".to_string(),
+        };
+        let context = DisplayRow {
+            kind: DiffLineKind::Context,
+            old_line: Some(8),
+            new_line: Some(8),
+            raw: " changed".to_string(),
+            code: "changed".to_string(),
+        };
+
+        let added_lines = build_unified_row_lines(
+            &added,
+            &highlighted_segments,
+            false,
+            false,
+            pane_inner_width,
+            &colors,
+        );
+        let removed_lines = build_unified_row_lines(
+            &removed,
+            &highlighted_segments,
+            false,
+            false,
+            pane_inner_width,
+            &colors,
+        );
+        let context_lines = build_unified_row_lines(
+            &context,
+            &highlighted_segments,
+            false,
+            false,
+            pane_inner_width,
+            &colors,
+        );
+
+        assert!(added_lines[0].style.bg.is_some());
+        assert!(removed_lines[0].style.bg.is_some());
+        assert_ne!(added_lines[0].style.bg, removed_lines[0].style.bg);
+        assert!(context_lines[0].style.bg.is_none());
+        Ok(())
+    }
+
+    #[test]
+    fn selected_active_diff_row_keeps_selection_background() -> Result<()> {
+        let colors = test_colors()?;
+        let row = DisplayRow {
+            kind: DiffLineKind::Added,
+            old_line: None,
+            new_line: Some(8),
+            raw: "+changed".to_string(),
+            code: "changed".to_string(),
+        };
+        let highlighted_segments =
+            vec![(Style::default().fg(colors.text_primary), "changed".into())];
+
+        let rendered =
+            build_unified_row_lines(&row, &highlighted_segments, true, true, 50, &colors);
+
+        assert_eq!(rendered[0].style.bg, Some(colors.selected_line_bg));
+        Ok(())
+    }
+
+    #[test]
     fn status_panel_height_grows_when_terminal_has_room() {
         assert_eq!(compute_status_height(11), 3);
         assert_eq!(compute_status_height(12), 4);

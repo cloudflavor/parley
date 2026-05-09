@@ -1,7 +1,7 @@
 use ratatui::{
     Frame,
     layout::Rect,
-    style::{Modifier, Style},
+    style::{Color, Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, Clear, Paragraph, Wrap},
 };
@@ -520,6 +520,7 @@ pub(super) fn build_unified_row_lines(
     };
 
     let content_width = pane_inner_width.saturating_sub(UNIFIED_PREFIX_WIDTH).max(1);
+    let row_background = diff_line_background(&row.kind, colors);
     let wrapped_content = wrap_styled_line(&content, content_width);
     let wrapped_content = if wrapped_content.is_empty() {
         vec![blank_line(
@@ -565,12 +566,17 @@ pub(super) fn build_unified_row_lines(
         ));
         spans.extend(content_line.spans.into_iter());
 
-        let line = if is_selected && is_active {
-            Line::from(spans).patch_style(
+        let line_style = if is_selected && is_active {
+            Some(
                 Style::default()
                     .bg(colors.selected_line_bg)
                     .add_modifier(Modifier::BOLD),
             )
+        } else {
+            row_background.map(|background| Style::default().bg(background))
+        };
+        let line = if let Some(style) = line_style {
+            Line::from(spans).patch_style(style)
         } else {
             Line::from(spans)
         };
@@ -606,6 +612,7 @@ fn build_side_by_side_row_lines(
     let code_cols = pane_inner_width.saturating_sub(fixed_cols).max(2);
     let left_width = (code_cols / 2).max(1);
     let right_width = (code_cols - left_width).max(1);
+    let row_background = diff_line_background(&row.kind, colors);
 
     let left_sign_style = if matches!(row.kind, DiffLineKind::Removed) {
         Style::default()
@@ -717,18 +724,83 @@ fn build_side_by_side_row_lines(
                 .into_iter(),
         );
 
-        let line = if is_selected && is_active {
-            Line::from(spans).patch_style(
+        let line_style = if is_selected && is_active {
+            Some(
                 Style::default()
                     .bg(colors.selected_line_bg)
                     .add_modifier(Modifier::BOLD),
             )
+        } else {
+            row_background.map(|background| Style::default().bg(background))
+        };
+        let line = if let Some(style) = line_style {
+            Line::from(spans).patch_style(style)
         } else {
             Line::from(spans)
         };
         out.push(line);
     }
     out
+}
+
+fn diff_line_background(kind: &DiffLineKind, colors: &ThemeColors) -> Option<Color> {
+    match kind {
+        DiffLineKind::Added => Some(blend_color(
+            colors.thread_background,
+            colors.added_sign,
+            0.18,
+        )),
+        DiffLineKind::Removed => Some(blend_color(
+            colors.thread_background,
+            colors.removed_sign,
+            0.16,
+        )),
+        DiffLineKind::Context | DiffLineKind::HunkHeader | DiffLineKind::Meta => None,
+    }
+}
+
+fn blend_color(base: Color, overlay: Color, alpha: f32) -> Color {
+    let Some((base_r, base_g, base_b)) = color_to_rgb(base) else {
+        return overlay;
+    };
+    let Some((overlay_r, overlay_g, overlay_b)) = color_to_rgb(overlay) else {
+        return overlay;
+    };
+
+    let blend_channel = |base: u8, overlay: u8| -> u8 {
+        (f32::from(base) + (f32::from(overlay) - f32::from(base)) * alpha)
+            .round()
+            .clamp(0.0, 255.0) as u8
+    };
+
+    Color::Rgb(
+        blend_channel(base_r, overlay_r),
+        blend_channel(base_g, overlay_g),
+        blend_channel(base_b, overlay_b),
+    )
+}
+
+fn color_to_rgb(color: Color) -> Option<(u8, u8, u8)> {
+    match color {
+        Color::Rgb(r, g, b) => Some((r, g, b)),
+        Color::Black => Some((0, 0, 0)),
+        Color::Red => Some((205, 49, 49)),
+        Color::Green => Some((13, 188, 121)),
+        Color::Yellow => Some((229, 229, 16)),
+        Color::Blue => Some((36, 114, 200)),
+        Color::Magenta => Some((188, 63, 188)),
+        Color::Cyan => Some((17, 168, 205)),
+        Color::Gray => Some((170, 170, 170)),
+        Color::DarkGray => Some((85, 85, 85)),
+        Color::LightRed => Some((241, 76, 76)),
+        Color::LightGreen => Some((35, 209, 139)),
+        Color::LightYellow => Some((245, 245, 67)),
+        Color::LightBlue => Some((59, 142, 234)),
+        Color::LightMagenta => Some((214, 112, 214)),
+        Color::LightCyan => Some((41, 184, 219)),
+        Color::White => Some((255, 255, 255)),
+        Color::Reset | Color::Indexed(_) => None,
+    }
 }
 
 pub(super) fn draw_inline_comment_editor(frame: &mut Frame<'_>, app: &TuiApp, area: Rect) {
