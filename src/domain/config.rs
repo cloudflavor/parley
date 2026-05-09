@@ -24,6 +24,7 @@ pub enum DiffViewMode {
 }
 
 impl DiffViewMode {
+    #[must_use]
     pub fn is_side_by_side(&self) -> bool {
         matches!(self, Self::SideBySide)
     }
@@ -69,6 +70,7 @@ pub struct AiConfig {
     pub opencode: AiProviderConfig,
 }
 
+#[must_use]
 pub fn default_user_name() -> String {
     std::env::var("PARLEY_USER_NAME")
         .ok()
@@ -78,10 +80,12 @@ pub fn default_user_name() -> String {
         .unwrap_or_else(|| "User".to_string())
 }
 
+#[must_use]
 pub fn default_log_level() -> String {
     "info".to_string()
 }
 
+#[must_use]
 pub fn default_ignore_parley_dir() -> bool {
     true
 }
@@ -112,6 +116,7 @@ impl Default for AiProviderConfig {
 }
 
 impl AiProviderConfig {
+    #[must_use]
     pub fn with_client(client: &str) -> Self {
         Self {
             client: client.to_string(),
@@ -146,6 +151,7 @@ impl Default for AiConfig {
 }
 
 impl AiConfig {
+    #[must_use]
     pub fn provider_config(&self, provider: AiProvider) -> &AiProviderConfig {
         match provider {
             AiProvider::Codex => &self.codex,

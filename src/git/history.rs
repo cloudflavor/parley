@@ -8,6 +8,9 @@ pub struct CommitSummary {
     pub summary: String,
 }
 
+/// # Errors
+///
+/// Returns an error when the git repository cannot be found or its commit history cannot be read.
 pub fn recent_commits(limit: usize) -> Result<Vec<CommitSummary>> {
     if limit == 0 {
         return Ok(Vec::new());

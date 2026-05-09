@@ -1,6 +1,5 @@
-use std::path::Path;
+use std::{path::Path, sync::LazyLock};
 
-use once_cell::sync::Lazy;
 use ratatui::style::{Color, Modifier, Style};
 use syntect::{
     easy::HighlightLines,
@@ -10,15 +9,15 @@ use syntect::{
 
 use super::theme::ThemeColors;
 
-static SYNTAX_SET: Lazy<SyntaxSet> = Lazy::new(SyntaxSet::load_defaults_newlines);
-static THEME_DARK: Lazy<Theme> = Lazy::new(|| {
+static SYNTAX_SET: LazyLock<SyntaxSet> = LazyLock::new(SyntaxSet::load_defaults_newlines);
+static THEME_DARK: LazyLock<Theme> = LazyLock::new(|| {
     let set = ThemeSet::load_defaults();
     set.themes
         .get("base16-ocean.dark")
         .cloned()
         .unwrap_or_default()
 });
-static THEME_LIGHT: Lazy<Theme> = Lazy::new(|| {
+static THEME_LIGHT: LazyLock<Theme> = LazyLock::new(|| {
     let set = ThemeSet::load_defaults();
     set.themes
         .get("InspiredGitHub")
@@ -65,24 +64,25 @@ impl SyntaxPainter {
         };
         self.highlighter
             .highlight_line(&line_with_newline, &SYNTAX_SET)
-            .map(|parts| {
-                parts
-                    .into_iter()
-                    .map(|(style, text)| {
-                        let text = text.strip_suffix('\n').unwrap_or(text);
-                        (to_ratatui_style(style, text, theme), text.to_string())
-                    })
-                    .collect()
-            })
-            .unwrap_or_else(|_| vec![(Style::default(), line.to_string())])
+            .map_or_else(
+                |_| vec![(Style::default(), line.to_string())],
+                |parts| {
+                    parts
+                        .into_iter()
+                        .map(|(style, text)| {
+                            let text = text.strip_suffix('\n').unwrap_or(text);
+                            (to_ratatui_style(style, text, theme), text.to_string())
+                        })
+                        .collect()
+                },
+            )
     }
 }
 
 fn theme_is_dark(theme: &ThemeColors) -> bool {
     color_to_rgb(theme.thread_background)
         .map(rgb_luminance)
-        .map(|lum| lum < 0.5)
-        .unwrap_or(true)
+        .is_none_or(|lum| lum < 0.5)
 }
 
 fn syntax_for_path(path: &str) -> &'static SyntaxReference {
@@ -290,7 +290,7 @@ fn is_constant_like(token: &str) -> bool {
 
 fn is_type_like(token: &str) -> bool {
     let first = token.chars().next();
-    first.map(|ch| ch.is_ascii_uppercase()).unwrap_or(false)
+    first.is_some_and(|ch| ch.is_ascii_uppercase())
         && token
             .chars()
             .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '_' | ':'))

@@ -1,3 +1,4 @@
+#[must_use]
 pub fn normalize_review_name(input: &str) -> String {
     let mut output = String::with_capacity(input.len());
     let mut previous_was_separator = false;

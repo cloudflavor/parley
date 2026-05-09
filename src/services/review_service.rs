@@ -1,20 +1,14 @@
-use std::{
-    path::PathBuf,
-    time::{SystemTime, UNIX_EPOCH},
-};
+use std::path::PathBuf;
 
 use anyhow::{Context, Result, anyhow};
 
-use crate::{
-    domain::{
-        config::AppConfig,
-        review::{
-            Author, CommentStatus, DiffSide, LineAnchorSnapshot, NewLineComment,
-            ReanchorLineComment, ReviewSession, ReviewState,
-        },
-    },
-    persistence::store::Store,
+use crate::domain::config::AppConfig;
+use crate::domain::review::{
+    Author, CommentStatus, DiffSide, LineAnchorSnapshot, NewLineComment, ReanchorLineComment,
+    ReviewSession, ReviewState,
 };
+use crate::persistence::store::Store;
+use crate::utils::time::now_ms;
 
 #[derive(Debug, Clone)]
 pub struct ReviewService {
@@ -50,10 +44,14 @@ pub struct ReanchorCommentInput {
 }
 
 impl ReviewService {
+    #[must_use]
     pub fn new(store: Store) -> Self {
         Self { store }
     }
 
+    /// # Errors
+    ///
+    /// Returns an error when the clock is invalid or the review cannot be persisted.
     pub async fn create_review(&self, name: &str) -> Result<ReviewSession> {
         let session = ReviewSession::new(name.to_string(), now_ms()?);
         self.store
@@ -63,6 +61,9 @@ impl ReviewService {
         Ok(session)
     }
 
+    /// # Errors
+    ///
+    /// Returns an error when the review cannot be loaded from storage.
     pub async fn load_review(&self, name: &str) -> Result<ReviewSession> {
         self.store
             .load_review(name)
@@ -70,6 +71,9 @@ impl ReviewService {
             .with_context(|| format!("failed to load review {name}"))
     }
 
+    /// # Errors
+    ///
+    /// Returns an error when review storage cannot be listed.
     pub async fn list_reviews(&self) -> Result<Vec<String>> {
         self.store
             .list_reviews()
@@ -77,6 +81,9 @@ impl ReviewService {
             .context("failed to list reviews")
     }
 
+    /// # Errors
+    ///
+    /// Returns an error when configuration cannot be loaded from storage.
     pub async fn load_config(&self) -> Result<AppConfig> {
         self.store
             .load_config()
@@ -84,6 +91,9 @@ impl ReviewService {
             .context("failed to load parler config")
     }
 
+    /// # Errors
+    ///
+    /// Returns an error when configuration cannot be saved to storage.
     pub async fn save_config(&self, config: &AppConfig) -> Result<()> {
         self.store
             .save_config(config)
@@ -91,12 +101,19 @@ impl ReviewService {
             .context("failed to save parler config")
     }
 
+    /// # Errors
+    ///
+    /// Returns an error when `review_name` is invalid.
     pub fn review_log_path(&self, review_name: &str) -> Result<PathBuf> {
         self.store
             .review_log_path(review_name)
             .with_context(|| format!("failed to resolve log path for review {review_name}"))
     }
 
+    /// # Errors
+    ///
+    /// Returns an error when the review cannot be loaded, the clock is invalid, the state
+    /// transition is rejected, or the updated review cannot be saved.
     pub async fn set_state(&self, name: &str, next: ReviewState) -> Result<ReviewSession> {
         let mut session = self.load_review(name).await?;
         session
@@ -109,6 +126,10 @@ impl ReviewService {
         Ok(session)
     }
 
+    /// # Errors
+    ///
+    /// Returns an error when the review cannot be loaded, the clock is invalid, or the updated
+    /// review cannot be saved.
     pub async fn set_state_force(&self, name: &str, next: ReviewState) -> Result<ReviewSession> {
         let mut session = self.load_review(name).await?;
         session
@@ -121,6 +142,10 @@ impl ReviewService {
         Ok(session)
     }
 
+    /// # Errors
+    ///
+    /// Returns an error when the review cannot be loaded, the clock is invalid, or the new comment
+    /// cannot be persisted.
     pub async fn add_comment(&self, name: &str, input: AddCommentInput) -> Result<ReviewSession> {
         let mut session = self.load_review(name).await?;
         session.add_comment(
@@ -142,6 +167,10 @@ impl ReviewService {
         Ok(session)
     }
 
+    /// # Errors
+    ///
+    /// Returns an error when the review cannot be loaded, the target comment is missing, the clock
+    /// is invalid, or the reply cannot be persisted.
     pub async fn add_reply(&self, name: &str, input: AddReplyInput) -> Result<ReviewSession> {
         let mut session = self.load_review(name).await?;
         session
@@ -154,6 +183,10 @@ impl ReviewService {
         Ok(session)
     }
 
+    /// # Errors
+    ///
+    /// Returns an error when the review cannot be loaded, the actor may not mark the comment
+    /// addressed, the clock is invalid, or the update cannot be persisted.
     pub async fn mark_addressed(
         &self,
         name: &str,
@@ -164,6 +197,10 @@ impl ReviewService {
             .await
     }
 
+    /// # Errors
+    ///
+    /// Returns an error when the review cannot be loaded, the actor may not reopen the comment, the
+    /// clock is invalid, or the update cannot be persisted.
     pub async fn mark_open(
         &self,
         name: &str,
@@ -174,6 +211,10 @@ impl ReviewService {
             .await
     }
 
+    /// # Errors
+    ///
+    /// Returns an error when the review cannot be loaded, the target comment is missing, the clock
+    /// is invalid, or the update cannot be persisted.
     pub async fn force_mark_addressed(&self, name: &str, comment_id: u64) -> Result<ReviewSession> {
         let mut session = self.load_review(name).await?;
         session
@@ -186,6 +227,10 @@ impl ReviewService {
         Ok(session)
     }
 
+    /// # Errors
+    ///
+    /// Returns an error when the review cannot be loaded, the target comment is missing, the clock
+    /// is invalid, or the re-anchor cannot be persisted.
     pub async fn reanchor_comment(
         &self,
         name: &str,
@@ -212,6 +257,9 @@ impl ReviewService {
         Ok(session)
     }
 
+    /// # Errors
+    ///
+    /// Returns an error when the review session cannot be saved.
     pub async fn save_review(&self, session: &ReviewSession) -> Result<()> {
         self.store
             .save_review(session)
@@ -236,11 +284,4 @@ impl ReviewService {
             .context("failed to persist comment status")?;
         Ok(session)
     }
-}
-
-fn now_ms() -> Result<u64> {
-    let elapsed = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .context("system clock is before unix epoch")?;
-    Ok(elapsed.as_millis() as u64)
 }
