@@ -31,6 +31,8 @@ use super::theme::{UiTheme, default_theme_name, load_themes, resolve_theme_index
 mod help_docs;
 mod helpers;
 mod input;
+#[cfg(test)]
+mod perf_tests;
 mod render;
 mod state;
 
@@ -236,7 +238,7 @@ const INLINE_FILE_MENTION_MAX_CANDIDATES: usize = 120;
 #[derive(Debug, Clone)]
 struct CachedFileRows {
     rows: Vec<DisplayRow>,
-    highlights: Vec<HighlightParts>,
+    highlights: Vec<Option<HighlightParts>>,
 }
 
 #[derive(Debug, Clone)]

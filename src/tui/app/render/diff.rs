@@ -129,22 +129,38 @@ pub(super) fn draw_diff_view_for_pane(
         (cached.lines, cached.row_map, cached.link_hits)
     } else {
         app.ensure_row_cache_for_file(file_index);
-        let Some((rows, highlights)) = app.rows_and_highlights_for_file(file_index) else {
+        let Some(row_count) = app.row_count_for_file(file_index) else {
             return;
         };
-        let file_comments = app.comments_for_file(&file_path);
+        let file_comments = app
+            .comments_for_file(&file_path)
+            .into_iter()
+            .cloned()
+            .collect::<Vec<_>>();
+        let Some(mut syntax_painter) = app.syntax_painter_for_file(file_index, &colors) else {
+            return;
+        };
 
         let mut lines = Vec::new();
         let mut row_map = Vec::new();
         let mut link_hits = Vec::new();
         let mut rendered_comment_ids = std::collections::HashSet::new();
 
-        for (index, row) in rows.iter().enumerate() {
+        for index in 0..row_count {
+            let highlighted_parts = app.highlighted_segments_for_file_row_with_painter(
+                file_index,
+                index,
+                &mut syntax_painter,
+                &colors,
+            );
+            let highlighted_segments =
+                apply_search_highlighting(&highlighted_parts, app.search_query.as_deref(), &colors);
+            let Some(row) = app.row_for_file(file_index, index) else {
+                continue;
+            };
             let is_selected = index == selected_line
                 || selected_row_range
                     .is_some_and(|(start, end)| is_active && index >= start && index <= end);
-            let highlighted_segments =
-                apply_search_highlighting(&highlights[index], app.search_query.as_deref(), &colors);
             let rendered = if effective_side_by_side_diff
                 && matches!(
                     row.kind,
@@ -175,7 +191,6 @@ pub(super) fn draw_diff_view_for_pane(
 
             for comment in file_comments
                 .iter()
-                .copied()
                 .filter(|comment| comment_matches_display_row(comment, row))
             {
                 rendered_comment_ids.insert(comment.id);
@@ -195,10 +210,9 @@ pub(super) fn draw_diff_view_for_pane(
             }
         }
 
-        let fallback_source_row_index = selected_line.min(rows.len().saturating_sub(1));
+        let fallback_source_row_index = selected_line.min(row_count.saturating_sub(1));
         for comment in file_comments
             .iter()
-            .copied()
             .filter(|comment| !rendered_comment_ids.contains(&comment.id))
         {
             let inner_width = compute_thread_inner_width(pane_inner_width, 12);

@@ -4,6 +4,8 @@
 
 use super::*;
 
+use crate::tui::theme::ThemeColors;
+
 impl TuiApp {
     pub(crate) fn active_line_index(&self) -> usize {
         if self.split_diff_view && matches!(self.active_diff_pane, DiffPane::Secondary) {
@@ -181,12 +183,62 @@ impl TuiApp {
         Some(anchor::build_line_anchor_snapshot(rows, row_index))
     }
 
-    pub(crate) fn rows_and_highlights_for_file(
+    pub(crate) fn row_count_for_file(&self, file_index: usize) -> Option<usize> {
+        self.row_cache
+            .get(&file_index)
+            .map(|cached| cached.rows.len())
+    }
+
+    pub(crate) fn row_for_file(&self, file_index: usize, row_index: usize) -> Option<&DisplayRow> {
+        self.row_cache
+            .get(&file_index)
+            .and_then(|cached| cached.rows.get(row_index))
+    }
+
+    pub(crate) fn syntax_painter_for_file(
         &self,
         file_index: usize,
-    ) -> Option<(&[DisplayRow], &[HighlightParts])> {
-        let cached = self.row_cache.get(&file_index)?;
-        Some((&cached.rows, &cached.highlights))
+        theme_colors: &ThemeColors,
+    ) -> Option<SyntaxPainter> {
+        self.diff
+            .files
+            .get(file_index)
+            .map(|file| SyntaxPainter::for_path(&file.path, theme_colors))
+    }
+
+    pub(crate) fn highlighted_segments_for_file_row_with_painter(
+        &mut self,
+        file_index: usize,
+        row_index: usize,
+        painter: &mut SyntaxPainter,
+        theme_colors: &ThemeColors,
+    ) -> HighlightParts {
+        self.ensure_row_cache_for_file(file_index);
+        let Some(cached) = self.row_cache.get_mut(&file_index) else {
+            return Vec::new();
+        };
+        let Some(row) = cached.rows.get(row_index) else {
+            return Vec::new();
+        };
+
+        let parsed = match row.kind {
+            DiffLineKind::Added | DiffLineKind::Removed | DiffLineKind::Context => {
+                painter.highlight(&row.code, theme_colors)
+            }
+            _ => Vec::new(),
+        };
+        if let Some(parts) = cached
+            .highlights
+            .get(row_index)
+            .and_then(std::option::Option::as_ref)
+        {
+            return parts.clone();
+        }
+
+        if let Some(slot) = cached.highlights.get_mut(row_index) {
+            *slot = Some(parsed.clone());
+        }
+        parsed
     }
 
     pub(crate) fn constrain_selection(&mut self) {
@@ -262,18 +314,7 @@ impl TuiApp {
             }
         }
 
-        let theme_colors = self.theme().colors.clone();
-        let mut painter = SyntaxPainter::for_path(&file.path, &theme_colors);
-        let mut highlights = Vec::with_capacity(rows.len());
-        for row in &rows {
-            let parts = match row.kind {
-                DiffLineKind::Added | DiffLineKind::Removed | DiffLineKind::Context => {
-                    painter.highlight(&row.code, &theme_colors)
-                }
-                _ => Vec::new(),
-            };
-            highlights.push(parts);
-        }
+        let highlights = vec![None; rows.len()];
         self.row_cache
             .insert(file_index, CachedFileRows { rows, highlights });
         self.clear_diff_render_cache_for_file(file_index);
