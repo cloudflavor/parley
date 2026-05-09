@@ -159,7 +159,7 @@ async fn run_loop(
                         app.invalidate_redraw();
                     }
                     Event::Mouse(mouse) => {
-                        app.handle_mouse(mouse)?;
+                        app.handle_mouse(mouse).await?;
                         app.invalidate_redraw();
                     }
                     Event::Resize(_, _) => {
@@ -624,6 +624,9 @@ struct TuiApp {
     last_file_heatmap_area: Option<Rect>,
     last_file_area: Option<Rect>,
     last_file_search_area: Option<Rect>,
+    last_code_search_area: Option<Rect>,
+    last_code_search_scroll: usize,
+    last_code_search_visible_rows: usize,
     last_file_scroll: usize,
     last_file_row_map: Vec<Option<usize>>,
     last_file_group_map: Vec<Option<String>>,

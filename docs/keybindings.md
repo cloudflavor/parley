@@ -12,7 +12,7 @@
 ## Search and jump
 
 - `:<line>`: go to line
-- `/`: open codebase search popup (`rg`, falling back to `grep`)
+- `/` or `Ctrl+g`: open codebase search popup (`rg`, falling back to `grep`)
 - Code search `type`: update results live
 - Code search `Enter`: open selected file and line
 - Code search `Esc`: close search

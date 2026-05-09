@@ -31,19 +31,6 @@ pub struct SyntaxPainter {
     highlighter: HighlightLines<'static>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum SemanticTokenKind {
-    Plain,
-    Keyword,
-    String,
-    Number,
-    Type,
-    Constant,
-    Comment,
-    Operator,
-    Function,
-}
-
 impl SyntaxPainter {
     pub fn for_path(path: &str, theme: &ThemeColors) -> Self {
         let syntax_theme = if theme_is_dark(theme) {
@@ -188,12 +175,13 @@ fn syntax_by_name_or_extension(
 
 fn to_ratatui_style(
     style: syntect::highlighting::Style,
-    token_text: &str,
+    _token_text: &str,
     theme: &ThemeColors,
 ) -> Style {
-    let base_fg = Color::Rgb(style.foreground.r, style.foreground.g, style.foreground.b);
-    let semantic = classify_semantic_token(token_text, style.font_style);
-    let fg = semantic_fg_for_kind(semantic, base_fg, theme);
+    let fg = normalize_diff_fg(
+        Color::Rgb(style.foreground.r, style.foreground.g, style.foreground.b),
+        theme,
+    );
     let mut ratatui = Style::default().fg(fg);
 
     if style.font_style.contains(FontStyle::BOLD) {
@@ -207,275 +195,6 @@ fn to_ratatui_style(
     }
 
     ratatui
-}
-
-fn classify_semantic_token(token_text: &str, font_style: FontStyle) -> SemanticTokenKind {
-    let trimmed = token_text.trim();
-    if trimmed.is_empty() {
-        return SemanticTokenKind::Plain;
-    }
-    if is_comment_like(trimmed, font_style) {
-        return SemanticTokenKind::Comment;
-    }
-    if is_keyword_token(trimmed) {
-        return SemanticTokenKind::Keyword;
-    }
-    if is_string_like(trimmed) {
-        return SemanticTokenKind::String;
-    }
-    if is_number_like(trimmed) {
-        return SemanticTokenKind::Number;
-    }
-    if is_constant_like(trimmed) {
-        return SemanticTokenKind::Constant;
-    }
-    if is_function_like(trimmed) {
-        return SemanticTokenKind::Function;
-    }
-    if is_type_like(trimmed) {
-        return SemanticTokenKind::Type;
-    }
-    if is_operator_like(trimmed) {
-        return SemanticTokenKind::Operator;
-    }
-    SemanticTokenKind::Plain
-}
-
-fn semantic_fg_for_kind(kind: SemanticTokenKind, base_fg: Color, theme: &ThemeColors) -> Color {
-    let base = normalize_diff_fg(base_fg, theme);
-    let target = match kind {
-        SemanticTokenKind::Plain => return base,
-        SemanticTokenKind::Keyword => theme.accent,
-        SemanticTokenKind::String => theme.reply_title,
-        SemanticTokenKind::Number => theme.hunk_header,
-        SemanticTokenKind::Type => theme.comment_title,
-        SemanticTokenKind::Constant => theme.added_sign,
-        SemanticTokenKind::Comment => theme.text_muted,
-        SemanticTokenKind::Operator => theme.context_sign,
-        SemanticTokenKind::Function => theme.markdown_heading,
-    };
-    let Some(base_rgb) = color_to_rgb(base) else {
-        return base;
-    };
-    let Some(target_rgb) = color_to_rgb(target) else {
-        return base;
-    };
-    let blend_amount = match kind {
-        SemanticTokenKind::Comment => 0.75,
-        SemanticTokenKind::Keyword => 0.58,
-        SemanticTokenKind::String => 0.46,
-        SemanticTokenKind::Number => 0.42,
-        SemanticTokenKind::Type => 0.40,
-        SemanticTokenKind::Constant => 0.50,
-        SemanticTokenKind::Operator => 0.35,
-        SemanticTokenKind::Function => 0.45,
-        SemanticTokenKind::Plain => 0.0,
-    };
-    let blended = blend_rgb(base_rgb, target_rgb, blend_amount);
-    normalize_diff_fg(Color::Rgb(blended.0, blended.1, blended.2), theme)
-}
-
-fn is_comment_like(token: &str, font_style: FontStyle) -> bool {
-    token.starts_with("//")
-        || token.starts_with("/*")
-        || token.starts_with('*')
-        || token.starts_with("--")
-        || (font_style.contains(FontStyle::ITALIC) && token.len() > 1)
-}
-
-fn is_string_like(token: &str) -> bool {
-    token.starts_with('"')
-        || token.ends_with('"')
-        || token.starts_with('\'')
-        || token.ends_with('\'')
-        || token.starts_with('`')
-        || token.ends_with('`')
-        || token.starts_with("r\"")
-        || token.starts_with("r#\"")
-        || token.starts_with("b\"")
-}
-
-fn is_number_like(token: &str) -> bool {
-    let mut has_digit = false;
-    for ch in token.chars() {
-        if ch.is_ascii_digit() {
-            has_digit = true;
-            continue;
-        }
-        if matches!(
-            ch,
-            '_' | '.' | '-' | '+' | 'x' | 'X' | 'o' | 'O' | 'b' | 'B' | 'e' | 'E'
-        ) {
-            continue;
-        }
-        if matches!(ch, 'a'..='f' | 'A'..='F') {
-            continue;
-        }
-        return false;
-    }
-    has_digit
-}
-
-fn is_constant_like(token: &str) -> bool {
-    let mut has_alpha = false;
-    let mut has_lower = false;
-    for ch in token.chars() {
-        if ch.is_ascii_alphabetic() {
-            has_alpha = true;
-            if ch.is_ascii_lowercase() {
-                has_lower = true;
-            }
-        } else if !(ch.is_ascii_digit() || ch == '_') {
-            return false;
-        }
-    }
-    has_alpha && !has_lower && token.chars().count() >= 2
-}
-
-fn is_type_like(token: &str) -> bool {
-    let first = token.chars().next();
-    first.is_some_and(|ch| ch.is_ascii_uppercase())
-        && token
-            .chars()
-            .all(|ch| ch.is_ascii_alphanumeric() || matches!(ch, '_' | ':'))
-}
-
-fn is_function_like(token: &str) -> bool {
-    token.ends_with('(') || token.ends_with("()")
-}
-
-fn is_operator_like(token: &str) -> bool {
-    token.chars().all(|ch| {
-        matches!(
-            ch,
-            '+' | '-'
-                | '*'
-                | '/'
-                | '%'
-                | '='
-                | '!'
-                | '<'
-                | '>'
-                | '&'
-                | '|'
-                | '^'
-                | '~'
-                | '?'
-                | ':'
-                | ','
-                | ';'
-                | '.'
-                | '('
-                | ')'
-                | '['
-                | ']'
-                | '{'
-                | '}'
-        )
-    })
-}
-
-fn is_keyword_token(token: &str) -> bool {
-    matches!(
-        token,
-        "fn" | "let"
-            | "mut"
-            | "const"
-            | "static"
-            | "pub"
-            | "impl"
-            | "trait"
-            | "enum"
-            | "struct"
-            | "type"
-            | "match"
-            | "if"
-            | "else"
-            | "for"
-            | "while"
-            | "loop"
-            | "return"
-            | "break"
-            | "continue"
-            | "mod"
-            | "use"
-            | "crate"
-            | "super"
-            | "self"
-            | "Self"
-            | "where"
-            | "as"
-            | "in"
-            | "async"
-            | "await"
-            | "move"
-            | "unsafe"
-            | "extern"
-            | "true"
-            | "false"
-            | "None"
-            | "Some"
-            | "Ok"
-            | "Err"
-            | "class"
-            | "interface"
-            | "function"
-            | "var"
-            | "new"
-            | "import"
-            | "from"
-            | "export"
-            | "default"
-            | "def"
-            | "elif"
-            | "try"
-            | "except"
-            | "finally"
-            | "with"
-            | "yield"
-            | "lambda"
-            | "pass"
-            | "raise"
-            | "global"
-            | "nonlocal"
-            | "del"
-            | "is"
-            | "not"
-            | "and"
-            | "or"
-            | "null"
-            | "undefined"
-            | "extends"
-            | "typeof"
-            | "instanceof"
-            | "switch"
-            | "case"
-            | "catch"
-            | "throw"
-            | "package"
-            | "func"
-            | "defer"
-            | "go"
-            | "select"
-            | "chan"
-            | "map"
-            | "public"
-            | "private"
-            | "protected"
-            | "final"
-            | "void"
-            | "int"
-            | "long"
-            | "float"
-            | "double"
-            | "char"
-            | "boolean"
-            | "namespace"
-            | "template"
-            | "typename"
-            | "include"
-            | "define"
-    )
 }
 
 fn normalize_diff_fg(color: Color, theme: &ThemeColors) -> Color {
@@ -530,9 +249,11 @@ fn blend_rgb(from: (u8, u8, u8), to: (u8, u8, u8), t: f32) -> (u8, u8, u8) {
 
 #[cfg(test)]
 mod tests {
-    use syntect::highlighting::FontStyle;
+    use std::collections::HashSet;
 
-    use super::{SemanticTokenKind, classify_semantic_token, syntax_for_path};
+    use anyhow::{Result, anyhow};
+
+    use super::{SyntaxPainter, syntax_for_path};
 
     #[test]
     fn syntax_for_path_detects_toml_files() {
@@ -577,42 +298,26 @@ mod tests {
     }
 
     #[test]
-    fn semantic_classifier_detects_keywords() {
-        assert_eq!(
-            classify_semantic_token("fn", FontStyle::empty()),
-            SemanticTokenKind::Keyword
+    fn syntax_painter_uses_syntect_colors_for_typescript() -> Result<()> {
+        let themes = crate::tui::theme::load_themes()?;
+        let colors = &themes
+            .first()
+            .ok_or_else(|| anyhow!("expected at least one theme"))?
+            .colors;
+        let mut painter = SyntaxPainter::for_path("api/src/lib/encryption.ts", colors);
+        let parts = painter.highlight(
+            "const rawKey = await crypto.subtle.exportKey(\"raw\", key as CryptoKey);",
+            colors,
         );
-        assert_eq!(
-            classify_semantic_token("return", FontStyle::empty()),
-            SemanticTokenKind::Keyword
-        );
-        assert_eq!(
-            classify_semantic_token("def", FontStyle::empty()),
-            SemanticTokenKind::Keyword
-        );
-        assert_eq!(
-            classify_semantic_token("const", FontStyle::empty()),
-            SemanticTokenKind::Keyword
-        );
-    }
+        let foregrounds = parts
+            .iter()
+            .filter_map(|(style, _)| style.fg)
+            .collect::<HashSet<_>>();
 
-    #[test]
-    fn semantic_classifier_detects_done_comment_tokens() {
-        assert_eq!(
-            classify_semantic_token("// done", FontStyle::ITALIC),
-            SemanticTokenKind::Comment
+        assert!(
+            foregrounds.len() > 1,
+            "TypeScript should receive multiple syntect foreground colors"
         );
-    }
-
-    #[test]
-    fn semantic_classifier_detects_types_and_numbers() {
-        assert_eq!(
-            classify_semantic_token("ReviewSession", FontStyle::empty()),
-            SemanticTokenKind::Type
-        );
-        assert_eq!(
-            classify_semantic_token("42", FontStyle::empty()),
-            SemanticTokenKind::Number
-        );
+        Ok(())
     }
 }

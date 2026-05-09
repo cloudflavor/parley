@@ -59,6 +59,10 @@ impl TuiApp {
         key: KeyEvent,
         service: &ReviewService,
     ) -> Result<()> {
+        if is_code_search_shortcut(key) {
+            self.open_code_search().await?;
+            return Ok(());
+        }
         if self.file_heatmap.is_some() || self.file_heatmap_started_at.is_some() {
             return self.handle_file_heatmap_key(key);
         }
@@ -97,6 +101,11 @@ impl TuiApp {
     }
 }
 
+fn is_code_search_shortcut(key: KeyEvent) -> bool {
+    matches!(key.code, KeyCode::Char('g' | 'G')) && key.modifiers.contains(KeyModifiers::CONTROL)
+        || matches!(key.code, KeyCode::Char('\u{7}'))
+}
+
 fn format_unresolved_ids(ids: &[u64]) -> String {
     const LIMIT: usize = 8;
     let mut visible = ids
@@ -124,6 +133,7 @@ mod tests {
     use crate::tui::theme::load_themes;
     use crate::utils::cast::usize_to_u32_saturating;
     use anyhow::{Result, anyhow};
+    use ratatui::layout::Rect;
     use tempfile::tempdir;
 
     use super::*;
@@ -292,6 +302,57 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn clicking_code_search_result_opens_match_line() -> Result<()> {
+        let mut app = make_test_app_with_files(vec![
+            empty_diff_file("src/a.rs"),
+            diff_file_with_lines(
+                "src/target.rs",
+                &[(10, "fn ten() {}"), (11, "fn eleven() {}")],
+            ),
+        ])?;
+        app.code_search = Some(CodeSearchState {
+            query: "eleven".into(),
+            cursor_col: "eleven".chars().count(),
+            results: vec![CodeSearchResult {
+                path: "src/target.rs".into(),
+                line: 11,
+                column: 4,
+                text: "fn eleven() {}".into(),
+            }],
+            selected_index: 0,
+            scroll: 0,
+            engine: Some("rg"),
+            message: "1 match via rg".into(),
+        });
+        app.last_code_search_area = Some(Rect {
+            x: 0,
+            y: 0,
+            width: 80,
+            height: 10,
+        });
+        app.last_code_search_scroll = 0;
+        app.last_code_search_visible_rows = 5;
+
+        app.handle_mouse(MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: 2,
+            row: 3,
+            modifiers: KeyModifiers::empty(),
+        })
+        .await?;
+
+        assert!(app.code_search.is_none());
+        assert_eq!(app.active_file_index(), 1);
+        let active_row = app
+            .current_rows()
+            .get(app.active_line_index())
+            .ok_or_else(|| anyhow!("active row should exist"))?;
+        assert_eq!(active_row.new_line, Some(11));
+        assert_eq!(app.status_line, "opened src/target.rs:11");
+        Ok(())
+    }
+
+    #[tokio::test]
     async fn alt_d_deletes_forward_word_in_inline_comment_editor() -> Result<()> {
         let mut app = make_test_app(vec!["src/a.rs"])?;
         let service = make_test_service()?;
@@ -347,6 +408,38 @@ mod tests {
             Some(PendingUiAction::SuspendTuiProcess)
         ));
         assert_eq!(app.status_line, "suspending parley; run `fg` to resume");
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn ctrl_g_opens_code_search() -> Result<()> {
+        let mut app = make_test_app(vec!["src/a.rs"])?;
+        let service = make_test_service()?;
+
+        app.handle_key(
+            KeyEvent::new(KeyCode::Char('g'), KeyModifiers::CONTROL),
+            &service,
+        )
+        .await?;
+
+        assert!(app.code_search.is_some());
+        assert_eq!(app.status_line, "code search opened");
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn ctrl_g_bel_opens_code_search() -> Result<()> {
+        let mut app = make_test_app(vec!["src/a.rs"])?;
+        let service = make_test_service()?;
+
+        app.handle_key(
+            KeyEvent::new(KeyCode::Char('\u{7}'), KeyModifiers::NONE),
+            &service,
+        )
+        .await?;
+
+        assert!(app.code_search.is_some());
+        assert_eq!(app.status_line, "code search opened");
         Ok(())
     }
 

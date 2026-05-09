@@ -144,7 +144,7 @@ impl TuiApp {
         Ok(())
     }
 
-    fn constrain_code_search_selection(&mut self) {
+    pub(super) fn constrain_code_search_selection(&mut self) {
         let Some(search) = self.code_search.as_mut() else {
             return;
         };
@@ -163,11 +163,26 @@ impl TuiApp {
         }
     }
 
-    async fn open_selected_code_search_result(&mut self) -> Result<()> {
+    pub(super) async fn open_selected_code_search_result(&mut self) -> Result<()> {
+        let Some(selected_index) = self
+            .code_search
+            .as_ref()
+            .map(|search| search.selected_index)
+        else {
+            self.status_line = "no code search result selected".into();
+            return Ok(());
+        };
+        self.open_code_search_result_at_index(selected_index).await
+    }
+
+    pub(super) async fn open_code_search_result_at_index(
+        &mut self,
+        result_index: usize,
+    ) -> Result<()> {
         let Some(result) = self
             .code_search
             .as_ref()
-            .and_then(|search| search.results.get(search.selected_index))
+            .and_then(|search| search.results.get(result_index))
             .cloned()
         else {
             self.status_line = "no code search result selected".into();

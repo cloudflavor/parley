@@ -751,6 +751,7 @@ pub(super) fn draw_code_search(frame: &mut Frame<'_>, app: &mut TuiApp) {
     let scroll = search_snapshot.scroll;
     let message = search_snapshot.message.clone();
     let results = search_snapshot.results.clone();
+    let engine = search_snapshot.engine;
 
     let root = frame.area();
     if root.width < 48 || root.height < 10 {
@@ -785,6 +786,9 @@ pub(super) fn draw_code_search(frame: &mut Frame<'_>, app: &mut TuiApp) {
         search.selected_index = selected_index;
         search.scroll = scroll;
     }
+    app.last_code_search_area = Some(area);
+    app.last_code_search_scroll = scroll;
+    app.last_code_search_visible_rows = visible_rows;
 
     let mut lines = Vec::new();
     lines.push(Line::from(vec![
@@ -824,7 +828,7 @@ pub(super) fn draw_code_search(frame: &mut Frame<'_>, app: &mut TuiApp) {
                     .fg(colors.sidebar_highlight_fg)
                     .add_modifier(Modifier::BOLD)
             } else {
-                Style::default().fg(colors.text_primary)
+                Style::default().fg(code_search_filetype_color(&result.path, &colors))
             };
             lines.push(Line::from(Span::styled(
                 fit_to_width(&row, inner_width),
@@ -838,10 +842,11 @@ pub(super) fn draw_code_search(frame: &mut Frame<'_>, app: &mut TuiApp) {
     )));
 
     frame.render_widget(Clear, area);
+    let title = code_search_title(results.len(), engine);
     frame.render_widget(
         Paragraph::new(lines).block(
             Block::default()
-                .title("Code Search")
+                .title(title)
                 .borders(Borders::ALL)
                 .border_style(Style::default().fg(colors.thread_border))
                 .title_style(
@@ -862,6 +867,32 @@ pub(super) fn draw_code_search(frame: &mut Frame<'_>, app: &mut TuiApp) {
         ));
     let cursor_y = area.y.saturating_add(1);
     frame.set_cursor_position((cursor_x, cursor_y));
+}
+
+fn code_search_title(result_count: usize, engine: Option<&'static str>) -> String {
+    let match_label = if result_count == 1 {
+        "match"
+    } else {
+        "matches"
+    };
+    match engine {
+        Some(engine) => format!("Code Search - {result_count} {match_label} via {engine}"),
+        None => "Code Search".to_string(),
+    }
+}
+
+fn code_search_filetype_color(path: &str, colors: &ThemeColors) -> Color {
+    let extension = path.rsplit('.').next().unwrap_or_default();
+    match extension {
+        "rs" => Color::Rgb(224, 142, 80),
+        "ts" | "tsx" => Color::Rgb(93, 173, 226),
+        "js" | "jsx" | "mjs" | "cjs" => Color::Rgb(240, 220, 96),
+        "py" => Color::Rgb(99, 196, 132),
+        "go" => Color::Rgb(96, 190, 210),
+        "md" | "markdown" => Color::Rgb(190, 150, 240),
+        "toml" | "yaml" | "yml" | "json" => colors.accent,
+        _ => colors.text_primary,
+    }
 }
 
 #[cfg(test)]
@@ -913,6 +944,18 @@ mod heatmap_tests {
         assert_eq!(
             heatmap_metric_value(&entry, FileHeatmapSortMode::NetShrink),
             -4
+        );
+    }
+
+    #[test]
+    fn code_search_title_includes_result_count_and_engine() {
+        assert_eq!(
+            code_search_title(1, Some("rg")),
+            "Code Search - 1 match via rg"
+        );
+        assert_eq!(
+            code_search_title(12, Some("grep")),
+            "Code Search - 12 matches via grep"
         );
     }
 }

@@ -111,6 +111,9 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &mut TuiApp) {
     app.last_thread_nav_row_map.clear();
     app.last_ai_progress_area = None;
     app.last_file_search_area = None;
+    app.last_code_search_area = None;
+    app.last_code_search_scroll = 0;
+    app.last_code_search_visible_rows = 0;
     app.last_diff_area_secondary = None;
     app.last_diff_scroll_secondary = 0;
     app.last_diff_row_map_secondary.clear();

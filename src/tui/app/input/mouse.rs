@@ -2,7 +2,7 @@ use super::*;
 use crate::utils::cast::{usize_to_isize_saturating, usize_to_u16_saturating};
 
 impl TuiApp {
-    pub(in crate::tui::app) fn handle_mouse(&mut self, mouse: MouseEvent) -> Result<()> {
+    pub(in crate::tui::app) async fn handle_mouse(&mut self, mouse: MouseEvent) -> Result<()> {
         if self.file_heatmap.is_some() || self.file_heatmap_started_at.is_some() {
             match mouse.kind {
                 MouseEventKind::ScrollUp => {
@@ -40,6 +40,11 @@ impl TuiApp {
         if self.inline_file_reference_picker_active() {
             self.handle_inline_file_reference_picker_mouse(mouse);
             self.constrain_selection();
+            return Ok(());
+        }
+
+        if self.code_search.is_some() {
+            self.handle_code_search_mouse(mouse).await?;
             return Ok(());
         }
 
@@ -331,6 +336,57 @@ impl TuiApp {
             }
         }
     }
+
+    async fn handle_code_search_mouse(&mut self, mouse: MouseEvent) -> Result<()> {
+        let Some(area) = self.last_code_search_area else {
+            return Ok(());
+        };
+
+        if !point_in_rect(mouse.column, mouse.row, area) {
+            if matches!(mouse.kind, MouseEventKind::Down(MouseButton::Left)) {
+                self.code_search = None;
+                self.status_line = "code search closed".into();
+            }
+            return Ok(());
+        }
+
+        match mouse.kind {
+            MouseEventKind::Down(MouseButton::Left) => {
+                let first_result_row = area.y.saturating_add(3);
+                let visible_rows = usize_to_u16_saturating(self.last_code_search_visible_rows);
+                let result_row_end = first_result_row.saturating_add(visible_rows);
+                if mouse.row >= first_result_row && mouse.row < result_row_end {
+                    let result_offset = usize::from(mouse.row.saturating_sub(first_result_row));
+                    let result_index = self.last_code_search_scroll.saturating_add(result_offset);
+                    if self
+                        .code_search
+                        .as_ref()
+                        .is_some_and(|search| result_index < search.results.len())
+                    {
+                        if let Some(search) = self.code_search.as_mut() {
+                            search.selected_index = result_index;
+                        }
+                        self.open_code_search_result_at_index(result_index).await?;
+                    }
+                }
+            }
+            MouseEventKind::ScrollUp => {
+                if let Some(search) = self.code_search.as_mut() {
+                    search.selected_index = search.selected_index.saturating_sub(1);
+                    self.constrain_code_search_selection();
+                }
+            }
+            MouseEventKind::ScrollDown => {
+                if let Some(search) = self.code_search.as_mut() {
+                    let max_index = search.results.len().saturating_sub(1);
+                    search.selected_index = (search.selected_index + 1).min(max_index);
+                    self.constrain_code_search_selection();
+                }
+            }
+            _ => {}
+        }
+        Ok(())
+    }
 }
 
 #[cfg(test)]
@@ -344,8 +400,8 @@ mod tests {
     use crossterm::event::KeyModifiers;
     use ratatui::layout::Rect;
 
-    #[test]
-    fn clicking_visible_file_row_selects_scrolled_file() -> Result<()> {
+    #[tokio::test]
+    async fn clicking_visible_file_row_selects_scrolled_file() -> Result<()> {
         let mut app = make_test_app(vec!["src/a.rs", "src/b.rs", "src/c.rs"], Vec::new())?;
         app.last_file_area = Some(Rect {
             x: 0,
@@ -362,14 +418,15 @@ mod tests {
             column: 1,
             row: 1,
             modifiers: KeyModifiers::empty(),
-        })?;
+        })
+        .await?;
 
         assert_eq!(app.active_file_index(), 1);
         Ok(())
     }
 
-    #[test]
-    fn heatmap_mouse_wheel_scrolls_heatmap_not_background_diff() -> Result<()> {
+    #[tokio::test]
+    async fn heatmap_mouse_wheel_scrolls_heatmap_not_background_diff() -> Result<()> {
         let mut app = make_test_app(vec!["src/a.rs"], Vec::new())?;
         app.file_heatmap = Some(FileHeatmapState {
             entries: vec![FileHeatmapEntry {
@@ -403,7 +460,8 @@ mod tests {
             column: 12,
             row: 4,
             modifiers: KeyModifiers::empty(),
-        })?;
+        })
+        .await?;
 
         assert_eq!(
             app.file_heatmap.as_ref().map(|heatmap| heatmap.scroll),
