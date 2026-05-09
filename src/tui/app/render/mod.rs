@@ -231,7 +231,11 @@ mod tests {
     use super::status::{build_status_field_line, truncate_with_ellipsis};
     use super::*;
     use crate::domain::diff::DiffLineKind;
+    use crate::tui::app::state::tests::{
+        diff_file_with_context_lines, make_test_app_with_files_and_comments,
+    };
     use crate::tui::theme::{default_theme_name, load_themes, resolve_theme_index};
+    use ratatui::{Terminal, backend::TestBackend, layout::Rect, widgets::Paragraph};
 
     fn test_colors() -> Result<crate::tui::theme::ThemeColors> {
         let themes = load_themes()?;
@@ -333,8 +337,6 @@ mod tests {
 
     #[test]
     fn inline_comment_editor_area_is_fixed_width_and_left_anchored() -> Result<()> {
-        use ratatui::layout::Rect;
-
         let area = Rect {
             x: 10,
             y: 5,
@@ -349,6 +351,35 @@ mod tests {
         assert_eq!(editor.width, 68);
         assert_eq!(editor.height, 10);
         assert_eq!(editor.y, 23);
+        Ok(())
+    }
+
+    #[test]
+    fn diff_render_clears_stale_cells_before_drawing_visible_rows() -> Result<()> {
+        let mut app = make_test_app_with_files_and_comments(
+            vec![diff_file_with_context_lines("src/a.rs", &[(1, "short")])],
+            Vec::new(),
+        )?;
+        let mut terminal = Terminal::new(TestBackend::new(80, 16))?;
+        let area = Rect {
+            x: 0,
+            y: 0,
+            width: 80,
+            height: 12,
+        };
+
+        terminal.draw(|frame| {
+            frame.render_widget(Paragraph::new("Z".repeat(80 * 12)), area);
+        })?;
+        terminal.draw(|frame| {
+            diff::draw_diff_view_for_pane(frame, &mut app, area, DiffPane::Primary);
+        })?;
+
+        let stale_cell_found = (area.y..area.y + area.height).any(|y| {
+            (area.x..area.x + area.width)
+                .any(|x| terminal.backend().buffer()[(x, y)].symbol() == "Z")
+        });
+        assert!(!stale_cell_found);
         Ok(())
     }
 

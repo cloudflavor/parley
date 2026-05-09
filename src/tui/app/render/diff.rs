@@ -50,6 +50,7 @@ pub(super) fn draw_diff_view_for_pane(
     } else {
         app.last_diff_area_secondary = Some(area);
     }
+    frame.render_widget(Clear, area);
 
     let Some(file_path) = app.diff.files.get(file_index).map(|file| file.path.clone()) else {
         let title = if pane == DiffPane::Primary {
