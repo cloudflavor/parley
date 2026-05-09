@@ -13,6 +13,15 @@ use crate::domain::reference::parse_file_references;
 use crate::domain::review::{Author, LineComment, ReviewSession};
 
 static AI_SESSION_PROMPTS_DIR: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/prompts/ai_session");
+const OUTPUT_CONTRACT: &str = r#"
+Output contract:
+- Reply directly and briefly, as a human code author.
+- Maximum 120 words.
+- Use at most 3 short bullets unless a blocker requires one extra sentence.
+- Do not narrate reasoning, investigation, process, or uncertainty.
+- Do not include phrases like "I see", "I found", "Looking at this", "It looks like", "You're right", or "The issue is".
+- Do not include chain-of-thought, step-by-step analysis, hidden reasoning, or tool/process commentary.
+"#;
 
 pub(super) async fn build_thread_prompt(
     review_name: &str,
@@ -106,6 +115,10 @@ fn append_task_prompt(prompt: &mut String, task_prompt: &str) {
         prompt.push('\n');
     }
     prompt.push_str(task_prompt);
+    if !prompt.ends_with('\n') {
+        prompt.push('\n');
+    }
+    prompt.push_str(OUTPUT_CONTRACT);
     if !prompt.ends_with('\n') {
         prompt.push('\n');
     }

@@ -143,6 +143,8 @@ async fn thread_prompt_uses_custom_task_prompt_when_provided() -> anyhow::Result
     assert!(prompt.contains("Original comment:\noriginal request"));
     assert!(prompt.contains("Custom task: answer with risk analysis."));
     assert!(!prompt.contains("Provide a concise markdown reply only"));
+    assert!(prompt.contains("Output contract:"));
+    assert!(prompt.contains("Maximum 120 words."));
     Ok(())
 }
 

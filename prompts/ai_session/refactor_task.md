@@ -13,9 +13,11 @@ Task:
 - Do not revert unrelated local changes. Work with the current working tree.
 - Stop after implementing the smallest complete fix for this thread.
 - After implementing the fix, mark the comment as "addressed" to signal completion.
-- Reply in concise markdown with exactly these sections:
-1) Changed files
-2) What changed
-3) Validation run
-4) Blockers (only if any)
+- Reply briefly as a human code author. Maximum 120 words.
+- Use at most 3 short bullets unless a blocker requires one extra sentence.
+- Include only what changed and validation status. Mention files only when useful.
+- Do not use sectioned templates or numbered report sections.
+- Do not narrate your reasoning, investigation, process, or uncertainty.
+- Do not include phrases like "I see", "I found", "Looking at this", "It looks like", "You're right", or "The issue is".
+- Do not include chain-of-thought, step-by-step analysis, hidden reasoning, or tool/process commentary.
 - If blocked, explain exactly what input is missing.
