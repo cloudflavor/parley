@@ -230,6 +230,8 @@ pub(super) fn draw_file_heatmap_overlay(frame: &mut Frame<'_>, app: &mut TuiApp)
                 )
             },
         )
+    } else if loaded_at {
+        format!("Git File Heatmap sort: {sort_label} {sort_direction}")
     } else {
         "Git File Heatmap".to_string()
     };
