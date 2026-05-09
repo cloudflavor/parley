@@ -22,7 +22,8 @@ impl TuiApp {
             log_path,
         } = init;
         let ai_provider = config.ai.default_provider;
-        let side_by_side_diff = config.diff_view.is_side_by_side();
+        let side_by_side_diff = config.diff_view.is_side_by_side()
+            && !matches!(&diff_source, DiffSource::RootDirectory);
         Self {
             review_name,
             review,
@@ -294,10 +295,29 @@ impl TuiApp {
 #[cfg(test)]
 pub(crate) mod tests {
     use super::*;
+    use crate::domain::config::DiffViewMode;
     use crate::domain::diff::{DiffFile, DiffHunk, DiffLine, DiffLineKind};
     use crate::domain::review::{CommentStatus, DiffSide, LineAnchorSnapshot, LineComment};
     use anyhow::Result;
     use std::path::PathBuf;
+
+    #[test]
+    fn root_directory_starts_unified_without_changing_configured_diff_view() -> Result<()> {
+        let app = make_test_app_with_diff_source(DiffSource::RootDirectory)?;
+
+        assert!(!app.side_by_side_diff);
+        assert_eq!(app.config.diff_view, DiffViewMode::SideBySide);
+        Ok(())
+    }
+
+    #[test]
+    fn working_tree_starts_with_configured_side_by_side_diff_view() -> Result<()> {
+        let app = make_test_app_with_diff_source(DiffSource::WorkingTree)?;
+
+        assert!(app.side_by_side_diff);
+        assert_eq!(app.config.diff_view, DiffViewMode::SideBySide);
+        Ok(())
+    }
 
     pub(crate) fn make_test_app(paths: Vec<&str>, comments: Vec<LineComment>) -> Result<TuiApp> {
         make_test_app_with_files_and_comments(
@@ -336,7 +356,43 @@ pub(crate) mod tests {
             config,
             themes,
             theme_index,
-            log_path: PathBuf::from("/tmp/test.log"),
+            log_path: PathBuf::from("test.log"),
+        }))
+    }
+
+    fn make_test_app_with_diff_source(diff_source: DiffSource) -> Result<TuiApp> {
+        let review = ReviewSession {
+            name: "test".to_string(),
+            created_at_ms: 0,
+            updated_at_ms: 0,
+            done_at_ms: None,
+            state: ReviewState::Open,
+            comments: Vec::new(),
+            next_comment_id: 100,
+            next_reply_id: 1,
+        };
+        let diff = DiffDocument {
+            files: vec![diff_file_with_context_lines(
+                "src/lib.rs",
+                &[(1, "fn main() {}")],
+            )],
+        };
+        let config = AppConfig {
+            diff_view: DiffViewMode::SideBySide,
+            ..Default::default()
+        };
+        let themes = load_themes()?;
+        let theme_index = resolve_theme_index(&themes, default_theme_name()).unwrap_or(0);
+
+        Ok(TuiApp::new(TuiAppInit {
+            review_name: "test".to_string(),
+            review,
+            diff,
+            diff_source,
+            config,
+            themes,
+            theme_index,
+            log_path: PathBuf::from("test.log"),
         }))
     }
 
