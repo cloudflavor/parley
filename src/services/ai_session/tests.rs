@@ -44,8 +44,8 @@ fn refactor_mode_targets_only_open_threads() {
     ));
 }
 
-#[test]
-fn thread_prompt_marks_latest_human_reply_as_current_request() {
+#[tokio::test]
+async fn thread_prompt_marks_latest_human_reply_as_current_request() -> anyhow::Result<()> {
     let review = ReviewSession {
         name: "review".into(),
         state: ReviewState::Open,
@@ -92,15 +92,17 @@ fn thread_prompt_marks_latest_human_reply_as_current_request() {
         next_reply_id: 4,
     };
 
-    let prompt = build_thread_prompt("review", 7, &review, None, AiSessionMode::Reply, None);
+    let prompt =
+        build_thread_prompt("review", 7, &review, None, AiSessionMode::Reply, None).await?;
 
     assert!(prompt.contains("- user: first follow-up"));
     assert!(prompt.contains("- user: latest follow-up"));
     assert!(prompt.contains("- latest human reply: latest follow-up"));
+    Ok(())
 }
 
-#[test]
-fn thread_prompt_uses_custom_task_prompt_when_provided() {
+#[tokio::test]
+async fn thread_prompt_uses_custom_task_prompt_when_provided() -> anyhow::Result<()> {
     let review = ReviewSession {
         name: "review".into(),
         state: ReviewState::Open,
@@ -135,11 +137,13 @@ fn thread_prompt_uses_custom_task_prompt_when_provided() {
         None,
         AiSessionMode::Reply,
         Some("Custom task: answer with risk analysis."),
-    );
+    )
+    .await?;
 
     assert!(prompt.contains("Original comment:\noriginal request"));
     assert!(prompt.contains("Custom task: answer with risk analysis."));
     assert!(!prompt.contains("Provide a concise markdown reply only"));
+    Ok(())
 }
 
 #[test]

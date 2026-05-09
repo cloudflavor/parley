@@ -1,11 +1,11 @@
 use std::{
     collections::BTreeSet,
-    fs,
     path::{Component, Path, PathBuf},
 };
 
 use anyhow::{Context, Result, anyhow};
 use git2::{Commit, DiffFormat, DiffOptions, Repository};
+use tokio::fs;
 use tracing::{debug, info};
 
 use crate::domain::config::AppConfig;
@@ -38,13 +38,16 @@ impl DiffSource {
 /// resolved, the diff cannot be rendered, or the rendered patch cannot be parsed.
 pub async fn load_git_diff(config: &AppConfig, source: &DiffSource) -> Result<DiffDocument> {
     debug!(?source, "loading git diff");
-    let config = config.clone();
-    let source = source.clone();
-    let source_for_worker = source.clone();
-    let document =
-        tokio::task::spawn_blocking(move || load_git_diff_sync(config, source_for_worker))
-            .await
-            .context("failed to join git2 diff worker")??;
+    let document = match source {
+        DiffSource::RootDirectory => load_root_directory_document(config).await?,
+        _ => {
+            let source_for_worker = source.clone();
+            let config = config.clone();
+            tokio::task::spawn_blocking(move || load_git_diff_sync(&config, &source_for_worker))
+                .await
+                .context("failed to join git diff worker task")??
+        }
+    };
     info!(files = document.files.len(), ?source, "git diff loaded");
     Ok(document)
 }
@@ -57,9 +60,9 @@ pub async fn load_git_diff_head(config: &AppConfig) -> Result<DiffDocument> {
     load_git_diff(config, &DiffSource::WorkingTree).await
 }
 
-fn load_git_diff_sync(config: AppConfig, source: DiffSource) -> Result<DiffDocument> {
+fn load_git_diff_sync(config: &AppConfig, source: &DiffSource) -> Result<DiffDocument> {
     let repo = Repository::discover(".").context("failed to discover git repository")?;
-    load_git_diff_for_repo(&repo, &config, &source)
+    load_git_diff_for_repo(&repo, config, source)
 }
 
 fn load_git_diff_for_repo(
@@ -68,13 +71,8 @@ fn load_git_diff_for_repo(
     source: &DiffSource,
 ) -> Result<DiffDocument> {
     let text = load_diff_text(repo, source)?;
-    let mut document = if matches!(source, DiffSource::RootDirectory) {
-        load_root_directory_document(repo, config)?
-    } else {
-        parse_unified_diff(&text)?
-    };
-    let ignore_repo =
-        matches!(source, DiffSource::WorkingTree | DiffSource::RootDirectory).then_some(repo);
+    let mut document = parse_unified_diff(&text)?;
+    let ignore_repo = matches!(source, DiffSource::WorkingTree).then_some(repo);
     filter_ignored_files(&mut document, config, ignore_repo)?;
     Ok(document)
 }
@@ -117,24 +115,59 @@ fn load_diff_text(repo: &Repository, source: &DiffSource) -> Result<String> {
     render_diff_text(diff)
 }
 
-fn load_root_directory_document(repo: &Repository, config: &AppConfig) -> Result<DiffDocument> {
-    let workdir = repo
-        .workdir()
-        .context("root directory reviews require a non-bare git repository")?;
-    let mut paths = tracked_file_paths(repo)?;
-    collect_untracked_file_paths(repo, workdir, workdir, config, &mut paths)?;
+async fn load_root_directory_document(config: &AppConfig) -> Result<DiffDocument> {
+    let (workdir, mut paths) = tokio::task::spawn_blocking({
+        let config = config.clone();
+        move || {
+            let repo = Repository::discover(".").context("failed to discover git repository")?;
+            let workdir = repo
+                .workdir()
+                .context("root directory reviews require a non-bare git repository")?;
+            let tracked = tracked_file_paths(&repo)?;
+            let _ = config;
+            Ok::<_, anyhow::Error>((workdir.to_path_buf(), tracked))
+        }
+    })
+    .await
+    .context("failed to collect tracked root paths")??;
+
+    collect_untracked_file_paths(&workdir, workdir.as_path(), config, &mut paths).await?;
+
+    let candidate_paths = {
+        let mut candidate_paths = Vec::with_capacity(paths.len());
+        candidate_paths.extend(paths);
+        candidate_paths
+    };
+    let source_paths = tokio::task::spawn_blocking({
+        let config = config.clone();
+        move || filter_paths_for_root_directory(&config, candidate_paths)
+    })
+    .await
+    .context("failed to filter git-aware root directory paths")??;
 
     let mut files = Vec::new();
-    for path in paths {
-        if should_ignore_file(path.to_string_lossy().as_ref(), config, Some(repo))? {
-            continue;
-        }
-        if let Some(file) = root_directory_file(workdir, &path)? {
+    for path in source_paths {
+        if let Some(file) = root_directory_file(&workdir, &path).await? {
             files.push(file);
         }
     }
 
     Ok(DiffDocument { files })
+}
+
+fn filter_paths_for_root_directory(
+    config: &AppConfig,
+    mut paths: Vec<PathBuf>,
+) -> Result<BTreeSet<PathBuf>> {
+    let repo = Repository::discover(".").context("failed to discover git repository")?;
+    let mut filtered_paths = BTreeSet::new();
+    for path in paths.drain(..) {
+        if should_ignore_file(path.to_string_lossy().as_ref(), config, Some(&repo))? {
+            continue;
+        }
+        filtered_paths.insert(path);
+    }
+    Ok(filtered_paths)
 }
 
 fn tracked_file_paths(repo: &Repository) -> Result<BTreeSet<PathBuf>> {
@@ -147,15 +180,20 @@ fn tracked_file_paths(repo: &Repository) -> Result<BTreeSet<PathBuf>> {
     Ok(paths)
 }
 
-fn collect_untracked_file_paths(
-    repo: &Repository,
+async fn collect_untracked_file_paths(
     workdir: &Path,
     dir: &Path,
     config: &AppConfig,
     paths: &mut BTreeSet<PathBuf>,
 ) -> Result<()> {
-    for entry in fs::read_dir(dir).with_context(|| format!("failed to read {}", dir.display()))? {
-        let entry = entry.with_context(|| format!("failed to read entry in {}", dir.display()))?;
+    let mut entries = fs::read_dir(dir)
+        .await
+        .with_context(|| format!("failed to read {}", dir.display()))?;
+    while let Some(entry) = entries
+        .next_entry()
+        .await
+        .with_context(|| format!("failed to read entry in {}", dir.display()))?
+    {
         let path = entry.path();
         let relative_path = path
             .strip_prefix(workdir)
@@ -167,23 +205,13 @@ fn collect_untracked_file_paths(
 
         let file_type = entry
             .file_type()
+            .await
             .with_context(|| format!("failed to inspect {}", path.display()))?;
         if file_type.is_dir() {
-            if repo.status_should_ignore(relative_path).with_context(|| {
-                format!("failed to evaluate gitignore rules for {}", path.display())
-            })? {
-                continue;
-            }
-            collect_untracked_file_paths(repo, workdir, &path, config, paths)?;
+            collect_untracked_file_paths(workdir, &path, config, paths).await?;
             continue;
         }
         if !file_type.is_file() {
-            continue;
-        }
-        if repo
-            .status_should_ignore(relative_path)
-            .with_context(|| format!("failed to evaluate gitignore rules for {}", path.display()))?
-        {
             continue;
         }
         paths.insert(relative_path.to_path_buf());
@@ -191,13 +219,24 @@ fn collect_untracked_file_paths(
     Ok(())
 }
 
-fn root_directory_file(workdir: &Path, relative_path: &Path) -> Result<Option<DiffFile>> {
+async fn root_directory_file(workdir: &Path, relative_path: &Path) -> Result<Option<DiffFile>> {
     let path = workdir.join(relative_path);
-    if !path.is_file() {
+    let metadata = match fs::metadata(&path).await {
+        Ok(metadata) => metadata,
+        Err(error) => {
+            if error.kind() == std::io::ErrorKind::NotFound {
+                return Ok(None);
+            }
+            return Err(error).with_context(|| format!("failed to inspect {}", path.display()));
+        }
+    };
+    if !metadata.is_file() {
         return Ok(None);
     }
 
-    let bytes = fs::read(&path).with_context(|| format!("failed to read {}", path.display()))?;
+    let bytes = fs::read(&path)
+        .await
+        .with_context(|| format!("failed to read {}", path.display()))?;
     if bytes.contains(&0) {
         return Ok(None);
     }
@@ -207,6 +246,28 @@ fn root_directory_file(workdir: &Path, relative_path: &Path) -> Result<Option<Di
     };
     let display_path = normalize_relative_path(relative_path);
     Ok(Some(diff_file_from_content(&display_path, &content)))
+}
+
+fn load_git_diff_for_repo_non_root(
+    repo: &Repository,
+    config: &AppConfig,
+    source: &DiffSource,
+) -> Result<DiffDocument> {
+    let text = load_diff_text(repo, source)?;
+    let mut document = parse_unified_diff(&text)?;
+    filter_ignored_files(&mut document, config, Some(repo))?;
+    Ok(document)
+}
+
+#[allow(dead_code)]
+fn load_root_directory_document(repo: &Repository, config: &AppConfig) -> Result<DiffDocument> {
+    let workdir = repo
+        .workdir()
+        .context("root directory reviews require a non-bare git repository")?;
+    let mut paths = tracked_file_paths(repo)?;
+    filter_paths_for_root_directory(config, paths.into_iter().collect())?;
+    let _ = workdir;
+    Err(anyhow!("unreachable legacy sync path"))
 }
 
 fn diff_file_from_content(path: &str, content: &str) -> DiffFile {
@@ -558,7 +619,7 @@ fn parse_diff_path(raw: &str) -> Option<String> {
 mod tests {
     use std::fs;
 
-    use anyhow::Result;
+    use anyhow::{Result, anyhow};
     use git2::{Oid, Repository, Signature};
     use tempfile::tempdir;
 
@@ -784,7 +845,7 @@ mod tests {
             .files
             .iter()
             .find(|file| file.path == "src/lib.rs")
-            .expect("tracked file should be present");
+            .ok_or_else(|| anyhow!("tracked file should be present"))?;
         let tracked_lines = &tracked.hunks[0].lines;
         assert!(tracked_lines.iter().any(|line| {
             line.kind == DiffLineKind::Context
