@@ -7,7 +7,7 @@ use crate::domain::review::{
     Author, CommentStatus, DiffSide, LineAnchorSnapshot, NewLineComment, ReanchorLineComment,
     ReviewSession, ReviewState,
 };
-use crate::persistence::store::Store;
+use crate::persistence::store::{Store, StoreError};
 use crate::utils::time::now_ms;
 
 #[derive(Debug, Clone)]
@@ -69,6 +69,18 @@ impl ReviewService {
             .load_review(name)
             .await
             .with_context(|| format!("failed to load review {name}"))
+    }
+
+    /// # Errors
+    ///
+    /// Returns an error when the review exists but cannot be loaded, or when a missing review
+    /// cannot be created.
+    pub async fn load_or_create_review(&self, name: &str) -> Result<ReviewSession> {
+        match self.store.load_review(name).await {
+            Ok(session) => Ok(session),
+            Err(StoreError::ReviewNotFound(_)) => self.create_review(name).await,
+            Err(error) => Err(error).with_context(|| format!("failed to load review {name}")),
+        }
     }
 
     /// # Errors

@@ -9,14 +9,14 @@ pub mod services;
 pub mod tui;
 pub mod utils;
 
-use std::ffi::OsString;
 use std::io::IsTerminal;
+use std::{ffi::OsString, path::Path};
 
 use anyhow::{Context, Result, anyhow};
 use clap::Parser;
 
 use crate::cli::{Cli, Command, ReviewCommand};
-use crate::git::diff::DiffSource;
+use crate::git::{diff::DiffSource, review_name::normalize_review_name};
 use crate::services::review_service::ReviewService;
 
 /// # Errors
@@ -41,11 +41,13 @@ pub async fn run() -> Result<()> {
             review,
             no_mouse,
             commit,
+            root,
             base,
             head,
         } => {
-            let diff_source = resolve_tui_diff_source(commit, base, head);
-            tui::run_tui(service, review, no_mouse, diff_source).await?;
+            let diff_source = resolve_tui_diff_source(commit, root, base, head);
+            let review_name = review.unwrap_or_else(|| default_root_review_name(&project_root));
+            tui::run_tui(service, review_name, no_mouse, diff_source, root).await?;
         }
         Command::Review { command } => {
             handle_review_command(command, &service).await?;
@@ -56,6 +58,19 @@ pub async fn run() -> Result<()> {
     }
 
     Ok(())
+}
+
+fn default_root_review_name(project_root: &Path) -> String {
+    let raw_name = project_root
+        .file_name()
+        .and_then(|value| value.to_str())
+        .map_or_else(|| "root".to_string(), |value| format!("{value}-root"));
+    let normalized = normalize_review_name(&raw_name);
+    if normalized.is_empty() {
+        "root".to_string()
+    } else {
+        normalized
+    }
 }
 
 fn should_run_mcp(args: &[OsString]) -> bool {
@@ -76,10 +91,13 @@ fn should_run_mcp(args: &[OsString]) -> bool {
 
 fn resolve_tui_diff_source(
     commit: Option<String>,
+    root: bool,
     base: Option<String>,
     head: Option<String>,
 ) -> DiffSource {
-    if let Some(rev) = commit {
+    if root {
+        DiffSource::RootDirectory
+    } else if let Some(rev) = commit {
         DiffSource::Commit { rev }
     } else if let Some(base) = base {
         DiffSource::Range {

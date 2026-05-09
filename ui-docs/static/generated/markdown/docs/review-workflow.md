@@ -122,6 +122,12 @@ Parley can review more than the live working tree:
 
 AI sessions use the same selected revision source for prompt context.
 
+## 10. Reviewing the current root directory
+
+Use `parley tui --root` to review the current repository root without requiring a git diff or commit. This derives a review name from the current directory and creates that review if it does not exist. Pass `--review <name>` with `--root` to use an explicit review name.
+
+Root-directory review mode loads tracked files plus untracked files that are not ignored by gitignore rules. It skips `.git`, `.parley`, and `worktrees/` directories. Each file is shown as context lines so comments can attach to the current file line numbers.
+
 Inside the TUI, `Ctrl+k` opens the command palette. Select `Open Commit Picker` to choose from recent commits, filter by message or SHA, and press `Enter` to apply the selected commit as the active diff source.
 
 Select `Open Review Picker` from the same command palette to switch review context. This reloads comments, replies, and review state from the selected review while keeping the active working tree, commit, or range diff unchanged.

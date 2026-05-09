@@ -17,14 +17,17 @@ pub enum Command {
     #[command(name = "tui")]
     Tui {
         /// Review name to open in the TUI.
-        #[arg(long)]
-        review: String,
+        #[arg(long, required_unless_present = "root")]
+        review: Option<String>,
         /// Disable mouse capture and mouse interaction in the TUI.
         #[arg(long)]
         no_mouse: bool,
         /// Show diff for a single commit (against its first parent).
         #[arg(long, conflicts_with_all = &["base", "head"])]
         commit: Option<String>,
+        /// Review current repository files without requiring a git diff.
+        #[arg(long, conflicts_with_all = &["commit", "base", "head"])]
+        root: bool,
         /// Base revision for an explicit diff range.
         #[arg(long, conflicts_with = "commit")]
         base: Option<String>,
@@ -147,12 +150,14 @@ mod tests {
                 review,
                 no_mouse,
                 commit,
+                root,
                 base,
                 head,
             } => {
-                assert_eq!(review, "parser-cleanup");
+                assert_eq!(review.as_deref(), Some("parser-cleanup"));
                 assert!(no_mouse);
                 assert_eq!(commit, None);
+                assert!(!root);
                 assert_eq!(base, None);
                 assert_eq!(head, None);
             }
@@ -173,9 +178,14 @@ mod tests {
 
         match cli.command {
             Command::Tui {
-                commit, base, head, ..
+                commit,
+                root,
+                base,
+                head,
+                ..
             } => {
                 assert_eq!(commit.as_deref(), Some("HEAD~2"));
+                assert!(!root);
                 assert_eq!(base, None);
                 assert_eq!(head, None);
             }
@@ -209,5 +219,49 @@ mod tests {
         let message = error.to_string();
         assert!(message.contains("--commit"));
         assert!(message.contains("--base"));
+    }
+
+    #[test]
+    fn tui_command_parses_root_source() {
+        let cli = Cli::parse_from(["parley", "tui", "--review", "root-review", "--root"]);
+
+        match cli.command {
+            Command::Tui { review, root, .. } => {
+                assert_eq!(review.as_deref(), Some("root-review"));
+                assert!(root);
+            }
+            other => panic!("unexpected command: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn tui_command_allows_root_without_review_name() {
+        let cli = Cli::parse_from(["parley", "tui", "--root"]);
+
+        match cli.command {
+            Command::Tui { review, root, .. } => {
+                assert_eq!(review, None);
+                assert!(root);
+            }
+            other => panic!("unexpected command: {other:?}"),
+        }
+    }
+
+    #[test]
+    fn tui_command_rejects_root_and_commit_combination() {
+        let error = Cli::try_parse_from([
+            "parley",
+            "tui",
+            "--review",
+            "root-review",
+            "--root",
+            "--commit",
+            "HEAD",
+        ])
+        .expect_err("cli should reject conflicting root and commit sources");
+
+        let message = error.to_string();
+        assert!(message.contains("--root"));
+        assert!(message.contains("--commit"));
     }
 }

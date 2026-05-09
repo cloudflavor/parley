@@ -54,8 +54,13 @@ pub(super) fn draw_diff_view_for_pane(
             "Diff B"
         };
         let borders = diff_pane_borders(app.split_diff_view, pane);
+        let message = if matches!(app.diff_source, crate::git::diff::DiffSource::RootDirectory) {
+            "No reviewable files found in the current root directory."
+        } else {
+            "No git changes against HEAD."
+        };
         frame.render_widget(
-            Paragraph::new("No git changes against HEAD.").block(
+            Paragraph::new(message).block(
                 Block::default()
                     .title(title)
                     .borders(borders)

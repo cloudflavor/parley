@@ -1,4 +1,8 @@
-use std::path::Path;
+use std::{
+    collections::BTreeSet,
+    fs,
+    path::{Component, Path, PathBuf},
+};
 
 use anyhow::{Context, Result, anyhow};
 use git2::{Commit, DiffFormat, DiffOptions, Repository};
@@ -11,6 +15,7 @@ use crate::domain::diff::{DiffDocument, DiffFile, DiffHunk, DiffLine, DiffLineKi
 pub enum DiffSource {
     #[default]
     WorkingTree,
+    RootDirectory,
     Commit {
         rev: String,
     },
@@ -63,8 +68,13 @@ fn load_git_diff_for_repo(
     source: &DiffSource,
 ) -> Result<DiffDocument> {
     let text = load_diff_text(repo, source)?;
-    let mut document = parse_unified_diff(&text)?;
-    let ignore_repo = matches!(source, DiffSource::WorkingTree).then_some(repo);
+    let mut document = if matches!(source, DiffSource::RootDirectory) {
+        load_root_directory_document(repo, config)?
+    } else {
+        parse_unified_diff(&text)?
+    };
+    let ignore_repo =
+        matches!(source, DiffSource::WorkingTree | DiffSource::RootDirectory).then_some(repo);
     filter_ignored_files(&mut document, config, ignore_repo)?;
     Ok(document)
 }
@@ -80,6 +90,7 @@ fn load_diff_text(repo: &Repository, source: &DiffSource) -> Result<String> {
             repo.diff_tree_to_workdir_with_index(head_tree.as_ref(), Some(&mut diff_opts))
                 .context("failed to compute repository diff")?
         }
+        DiffSource::RootDirectory => return Ok(String::new()),
         DiffSource::Commit { rev } => {
             let commit = resolve_commit(repo, rev)?;
             let new_tree = commit.tree().context("failed to read commit tree")?;
@@ -104,6 +115,155 @@ fn load_diff_text(repo: &Repository, source: &DiffSource) -> Result<String> {
     };
 
     render_diff_text(diff)
+}
+
+fn load_root_directory_document(repo: &Repository, config: &AppConfig) -> Result<DiffDocument> {
+    let workdir = repo
+        .workdir()
+        .context("root directory reviews require a non-bare git repository")?;
+    let mut paths = tracked_file_paths(repo)?;
+    collect_untracked_file_paths(repo, workdir, workdir, config, &mut paths)?;
+
+    let mut files = Vec::new();
+    for path in paths {
+        if should_ignore_file(path.to_string_lossy().as_ref(), config, Some(repo))? {
+            continue;
+        }
+        if let Some(file) = root_directory_file(workdir, &path)? {
+            files.push(file);
+        }
+    }
+
+    Ok(DiffDocument { files })
+}
+
+fn tracked_file_paths(repo: &Repository) -> Result<BTreeSet<PathBuf>> {
+    let index = repo.index().context("failed to read git index")?;
+    let mut paths = BTreeSet::new();
+    for entry in index.iter() {
+        let path = std::str::from_utf8(&entry.path).context("git index path is not utf-8")?;
+        paths.insert(PathBuf::from(path));
+    }
+    Ok(paths)
+}
+
+fn collect_untracked_file_paths(
+    repo: &Repository,
+    workdir: &Path,
+    dir: &Path,
+    config: &AppConfig,
+    paths: &mut BTreeSet<PathBuf>,
+) -> Result<()> {
+    for entry in fs::read_dir(dir).with_context(|| format!("failed to read {}", dir.display()))? {
+        let entry = entry.with_context(|| format!("failed to read entry in {}", dir.display()))?;
+        let path = entry.path();
+        let relative_path = path
+            .strip_prefix(workdir)
+            .with_context(|| format!("failed to relativize {}", path.display()))?;
+
+        if should_skip_root_directory_path(relative_path, config) {
+            continue;
+        }
+
+        let file_type = entry
+            .file_type()
+            .with_context(|| format!("failed to inspect {}", path.display()))?;
+        if file_type.is_dir() {
+            if repo.status_should_ignore(relative_path).with_context(|| {
+                format!("failed to evaluate gitignore rules for {}", path.display())
+            })? {
+                continue;
+            }
+            collect_untracked_file_paths(repo, workdir, &path, config, paths)?;
+            continue;
+        }
+        if !file_type.is_file() {
+            continue;
+        }
+        if repo
+            .status_should_ignore(relative_path)
+            .with_context(|| format!("failed to evaluate gitignore rules for {}", path.display()))?
+        {
+            continue;
+        }
+        paths.insert(relative_path.to_path_buf());
+    }
+    Ok(())
+}
+
+fn root_directory_file(workdir: &Path, relative_path: &Path) -> Result<Option<DiffFile>> {
+    let path = workdir.join(relative_path);
+    if !path.is_file() {
+        return Ok(None);
+    }
+
+    let bytes = fs::read(&path).with_context(|| format!("failed to read {}", path.display()))?;
+    if bytes.contains(&0) {
+        return Ok(None);
+    }
+    let content = match String::from_utf8(bytes) {
+        Ok(content) => content,
+        Err(_) => return Ok(None),
+    };
+    let display_path = normalize_relative_path(relative_path);
+    Ok(Some(diff_file_from_content(&display_path, &content)))
+}
+
+fn diff_file_from_content(path: &str, content: &str) -> DiffFile {
+    let lines = content.lines().collect::<Vec<_>>();
+    let line_count = u32::try_from(lines.len()).unwrap_or(u32::MAX);
+    let mut hunk = DiffHunk {
+        old_start: 1,
+        old_count: line_count,
+        new_start: 1,
+        new_count: line_count,
+        header: format!("@@ -1,{line_count} +1,{line_count} @@"),
+        lines: Vec::with_capacity(lines.len() + 1),
+    };
+    hunk.lines.push(DiffLine {
+        kind: DiffLineKind::HunkHeader,
+        old_line: None,
+        new_line: None,
+        raw: hunk.header.clone(),
+        code: hunk.header.clone(),
+    });
+    for (index, line) in lines.into_iter().enumerate() {
+        let line_number = u32::try_from(index + 1).unwrap_or(u32::MAX);
+        hunk.lines.push(DiffLine {
+            kind: DiffLineKind::Context,
+            old_line: Some(line_number),
+            new_line: Some(line_number),
+            raw: format!(" {line}"),
+            code: line.to_string(),
+        });
+    }
+
+    DiffFile {
+        path: path.to_string(),
+        header_lines: vec![format!("file {path}")],
+        hunks: vec![hunk],
+    }
+}
+
+fn normalize_relative_path(path: &Path) -> String {
+    path.components()
+        .filter_map(|component| match component {
+            Component::Normal(value) => Some(value.to_string_lossy().into_owned()),
+            _ => None,
+        })
+        .collect::<Vec<_>>()
+        .join("/")
+}
+
+fn should_skip_root_directory_path(path: &Path, config: &AppConfig) -> bool {
+    let mut components = path.components();
+    let Some(Component::Normal(first)) = components.next() else {
+        return false;
+    };
+    if first == ".git" || first == "worktrees" {
+        return true;
+    }
+    config.ignore_parley_dir && first == ".parley"
 }
 
 fn configure_worktree_diff_options(diff_opts: &mut DiffOptions) {
@@ -587,6 +747,51 @@ mod tests {
         assert!(lines.iter().any(|line| line.raw == "-fn one() {}"));
         assert!(lines.iter().any(|line| line.raw == "+fn three() {}"));
         assert!(!lines.iter().any(|line| line.raw == "+fn two() {}"));
+        Ok(())
+    }
+
+    #[test]
+    fn load_root_directory_includes_tracked_and_untracked_files() -> Result<()> {
+        let temp = tempdir()?;
+        let repo = Repository::init(temp.path())?;
+
+        commit_file(&repo, temp.path(), ".gitignore", "ignored.log\n", "ignore")?;
+        commit_file(
+            &repo,
+            temp.path(),
+            "src/lib.rs",
+            "fn tracked() {}\n",
+            "tracked",
+        )?;
+        fs::write(temp.path().join("src/extra.rs"), "fn untracked() {}\n")?;
+        fs::write(temp.path().join("ignored.log"), "ignored\n")?;
+        fs::create_dir_all(temp.path().join("worktrees/other/src"))?;
+        fs::write(
+            temp.path().join("worktrees/other/src/lib.rs"),
+            "fn other_worktree() {}\n",
+        )?;
+
+        let doc = load_git_diff_for_repo(&repo, &AppConfig::default(), &DiffSource::RootDirectory)?;
+
+        let paths = doc
+            .files
+            .iter()
+            .map(|file| file.path.as_str())
+            .collect::<Vec<_>>();
+        assert_eq!(paths, vec![".gitignore", "src/extra.rs", "src/lib.rs"]);
+
+        let tracked = doc
+            .files
+            .iter()
+            .find(|file| file.path == "src/lib.rs")
+            .expect("tracked file should be present");
+        let tracked_lines = &tracked.hunks[0].lines;
+        assert!(tracked_lines.iter().any(|line| {
+            line.kind == DiffLineKind::Context
+                && line.old_line == Some(1)
+                && line.new_line == Some(1)
+                && line.code == "fn tracked() {}"
+        }));
         Ok(())
     }
 

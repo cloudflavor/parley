@@ -36,16 +36,21 @@ pub async fn run_tui(
     review_name: String,
     no_mouse: bool,
     diff_source: DiffSource,
+    create_review_if_missing: bool,
 ) -> Result<()> {
     let mut terminal_session = TerminalSession::new(!no_mouse)?;
-    let review = service
-        .load_review(&review_name)
-        .await
-        .with_context(|| {
-            format!(
-                "failed to open review {review_name}; create it first with `parley review create {review_name}`"
-            )
-        })?;
+    let review = if create_review_if_missing {
+        service.load_or_create_review(&review_name).await?
+    } else {
+        service
+            .load_review(&review_name)
+            .await
+            .with_context(|| {
+                format!(
+                    "failed to open review {review_name}; create it first with `parley review create {review_name}`"
+                )
+            })?
+    };
     let themes = load_themes()?;
     let mut config = service.load_config().await?;
     let diff = load_git_diff(&config, &diff_source).await?;
