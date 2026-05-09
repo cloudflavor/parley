@@ -1,6 +1,8 @@
 
 Task:
 - Address the thread as a code author.
+- Treat `Current human request to address` as the only actionable request.
+- Use earlier thread comments and replies only as context for that request.
 - Provide a concise markdown reply only (no JSON, no tool output).
 - Keep the tone conversational and direct, like a human code-review response.
 - Keep the reply short (typically 1-4 sentences, unless details are required).

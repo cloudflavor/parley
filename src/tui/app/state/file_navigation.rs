@@ -96,6 +96,23 @@ impl TuiApp {
             .collect()
     }
 
+    pub(crate) fn selected_comment_id(&self) -> Option<u64> {
+        self.selected_comment_details().map(|comment| comment.id)
+    }
+
+    pub(crate) fn select_comment_by_id(&mut self, comment_id: u64) -> bool {
+        let Some(index) = self
+            .comments_for_selected_file()
+            .iter()
+            .position(|comment| comment.id == comment_id)
+        else {
+            return false;
+        };
+
+        self.selected_comment = index;
+        true
+    }
+
     pub(crate) fn file_comment_stats(&self) -> HashMap<String, (usize, usize, usize)> {
         let mut stats = HashMap::new();
         for comment in &self.review.comments {

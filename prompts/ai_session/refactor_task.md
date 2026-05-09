@@ -1,6 +1,8 @@
 
 Task:
 - Address this thread by editing code in this workspace.
+- Treat `Current human request to address` as the only actionable request.
+- Use earlier thread comments and replies only as context for that request.
 - Use any available skills and MCP tools/resources needed to complete the task end-to-end.
 - Scope: only the files directly needed for this thread. Do not perform repo-wide cleanup or unrelated refactors.
 - Prefer the provided thread anchor, file snippet, and diff-hunk context first; only search broadly if that context is insufficient.

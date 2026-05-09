@@ -333,6 +333,7 @@ impl TuiApp {
 
         let body = inline.buffer.to_text();
 
+        let mut select_comment_id = None;
         match inline.mode {
             InlineDraftMode::Comment(target) => {
                 service
@@ -368,6 +369,7 @@ impl TuiApp {
                     )
                     .await
                     .context("failed to save reply")?;
+                select_comment_id = Some(comment_id);
                 self.status_line = format!(
                     "reply saved on #{} at {}:{}",
                     comment_id,
@@ -377,6 +379,9 @@ impl TuiApp {
             }
         }
         self.reload_review(service).await?;
+        if let Some(comment_id) = select_comment_id {
+            self.select_comment_by_id(comment_id);
+        }
         Ok(())
     }
 

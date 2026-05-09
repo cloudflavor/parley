@@ -74,7 +74,7 @@ impl TuiApp {
     pub(crate) async fn reload_review(&mut self, service: &ReviewService) -> Result<()> {
         let selected_line = self.selected_line;
         let secondary_selected_line = self.secondary_selected_line;
-        let selected_comment = self.selected_comment;
+        let selected_comment_id = self.selected_comment_id();
         self.review = service.load_review(&self.review_name).await?;
         self.expanded_threads
             .retain(|id| self.review.comments.iter().any(|comment| comment.id == *id));
@@ -83,8 +83,10 @@ impl TuiApp {
         self.clear_diff_render_cache();
         self.selected_line = selected_line;
         self.secondary_selected_line = secondary_selected_line;
-        self.selected_comment = selected_comment;
         self.constrain_selection();
+        if let Some(comment_id) = selected_comment_id {
+            self.select_comment_by_id(comment_id);
+        }
         Ok(())
     }
 
@@ -97,7 +99,7 @@ impl TuiApp {
             .map(|f| f.path.clone());
         let selected_line = self.selected_line;
         let secondary_selected_line = self.secondary_selected_line;
-        let selected_comment = self.selected_comment;
+        let selected_comment_id = self.selected_comment_id();
 
         self.review = service.load_review(&self.review_name).await?;
         self.expanded_threads
@@ -120,12 +122,14 @@ impl TuiApp {
 
         self.selected_line = selected_line;
         self.secondary_selected_line = secondary_selected_line;
-        self.selected_comment = selected_comment;
         self.ensure_row_cache_for_file(self.selected_file);
         if self.split_diff_view {
             self.ensure_row_cache_for_file(self.secondary_selected_file);
         }
         self.constrain_selection();
+        if let Some(comment_id) = selected_comment_id {
+            self.select_comment_by_id(comment_id);
+        }
         Ok(())
     }
 
@@ -216,5 +220,43 @@ impl TuiApp {
 
         let (score, row_index) = best_match?;
         (score >= 90).then(|| anchor::ResolvedLineAnchor::from_row(rows, row_index))
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::persistence::store::Store;
+    use crate::services::review_service::ReviewService;
+    use crate::tui::app::state::tests::{make_comment_with_anchor, make_test_app};
+    use tempfile::tempdir;
+
+    #[tokio::test]
+    async fn reload_review_preserves_selected_thread_by_id_when_order_changes() -> Result<()> {
+        let tempdir = tempdir()?;
+        let service = ReviewService::new(Store::from_project_root(tempdir.path()));
+        let mut app = make_test_app(
+            vec!["src/a.rs"],
+            vec![
+                make_comment_with_anchor(1, "src/a.rs", CommentStatus::Open, 1, 1),
+                make_comment_with_anchor(2, "src/a.rs", CommentStatus::Pending, 2, 2),
+            ],
+        )?;
+        app.selected_comment = 1;
+
+        let mut stored = app.review.clone();
+        stored.comments = vec![
+            make_comment_with_anchor(2, "src/a.rs", CommentStatus::Pending, 2, 2),
+            make_comment_with_anchor(1, "src/a.rs", CommentStatus::Open, 1, 1),
+        ];
+        service.save_review(&stored).await?;
+
+        app.reload_review(&service).await?;
+
+        assert_eq!(
+            app.selected_comment_details().map(|comment| comment.id),
+            Some(2)
+        );
+        Ok(())
     }
 }

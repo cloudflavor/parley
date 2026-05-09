@@ -55,6 +55,7 @@ pub(super) fn build_thread_prompt(
             thread.push_str(&format!("- {}: {}\n", author, reply.body));
         }
     }
+    append_current_human_request(&mut thread, comment);
     append_target_file_and_diff_context(&mut thread, comment, diff_document);
     append_referenced_files_context(&mut thread, comment);
 
@@ -67,6 +68,27 @@ pub(super) fn build_thread_prompt(
         }
     }
     thread
+}
+
+fn append_current_human_request(prompt: &mut String, comment: &LineComment) {
+    prompt.push_str("\n\nCurrent human request to address:\n");
+    if let Some(reply) = comment
+        .replies
+        .iter()
+        .rev()
+        .find(|reply| matches!(reply.author, Author::User))
+    {
+        prompt.push_str("- latest human reply: ");
+        prompt.push_str(&reply.body);
+        prompt.push('\n');
+    } else {
+        prompt.push_str("- original comment: ");
+        prompt.push_str(&comment.body);
+        prompt.push('\n');
+    }
+    prompt.push_str(
+        "Use the full thread history above only as context; answer or act on this current human request, not an earlier AI reply or another thread.\n",
+    );
 }
 
 fn append_target_file_and_diff_context(

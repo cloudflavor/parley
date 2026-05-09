@@ -85,6 +85,22 @@ impl TuiApp {
             .max(1)
     }
 
+    pub(crate) fn effective_viewport_height_for_pane(&self, pane: DiffPane) -> usize {
+        let base = self.viewport_height_for_pane(pane);
+        if self.inline_comment.is_none() || pane != self.active_diff_pane {
+            return base;
+        }
+
+        let area = match pane {
+            DiffPane::Primary => self.last_diff_area,
+            DiffPane::Secondary => self.last_diff_area_secondary,
+        };
+        let reserved_rows = area
+            .map(inline_comment_editor_reserved_rows)
+            .unwrap_or_default();
+        base.saturating_sub(reserved_rows).max(1)
+    }
+
     pub(crate) fn current_rows(&self) -> &[DisplayRow] {
         self.row_cache
             .get(&self.active_file_index())
@@ -238,6 +254,20 @@ impl TuiApp {
             }
         }
     }
+}
+
+fn inline_comment_editor_reserved_rows(area: Rect) -> usize {
+    if area.height < 8 || area.width < 32 {
+        return 0;
+    }
+
+    let available_width = area.width.saturating_sub(2);
+    let available_height = area.height.saturating_sub(1);
+    if available_width < 30 || available_height < 6 {
+        return 0;
+    }
+
+    usize::from(available_height.min(10).saturating_sub(1))
 }
 
 #[cfg(test)]

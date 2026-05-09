@@ -13,7 +13,7 @@ impl TuiApp {
     pub(super) fn scroll_active_pane_page(&mut self, forward: bool, half_page: bool) {
         self.ensure_row_cache();
         let pane = self.active_diff_pane;
-        let viewport_height = self.viewport_height_for_pane(pane);
+        let viewport_height = self.effective_viewport_height_for_pane(pane);
         let step = if half_page {
             (viewport_height / 2).max(1)
         } else {
@@ -57,7 +57,7 @@ impl TuiApp {
 
     pub(super) fn center_active_cursor_in_viewport(&mut self) {
         let pane = self.active_diff_pane;
-        let viewport_height = self.viewport_height_for_pane(pane);
+        let viewport_height = self.effective_viewport_height_for_pane(pane);
         let cursor_source_row = self.line_for_pane(pane);
         let cursor_visual_row = self
             .row_map_for_pane(pane)

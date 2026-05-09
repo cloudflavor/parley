@@ -389,6 +389,125 @@ mod tests {
         Ok(())
     }
 
+    #[tokio::test]
+    async fn saving_new_thread_preserves_current_thread_selection() -> Result<()> {
+        let tempdir = tempdir()?;
+        let service = ReviewService::new(Store::from_project_root(tempdir.path()));
+        service.create_review("test-review").await?;
+        service
+            .add_comment(
+                "test-review",
+                AddCommentInput {
+                    file_path: "src/a.rs".into(),
+                    old_line: Some(1),
+                    new_line: Some(1),
+                    side: DiffSide::Right,
+                    line_anchor: None,
+                    body: "first".into(),
+                    author: Author::User,
+                },
+            )
+            .await?;
+        let review = service.load_review("test-review").await?;
+        let mut app = make_test_app_with_review_and_files(
+            review,
+            vec![diff_file_with_lines(
+                "src/a.rs",
+                &[(1, "fn first() {}"), (2, "fn second() {}")],
+            )],
+        )?;
+        app.selected_comment = 0;
+        app.inline_comment = Some(InlineCommentState {
+            row_index: 0,
+            mode: InlineDraftMode::Comment(CommentTarget {
+                side: DiffSide::Right,
+                old_line: Some(2),
+                new_line: Some(2),
+                file_path: "src/a.rs".into(),
+                line_anchor: LineAnchorSnapshot::default(),
+            }),
+            buffer: text_buffer_with_line("second"),
+            preview_mode: false,
+            file_mention: None,
+            file_reference_picker: None,
+        });
+
+        app.handle_inline_comment_key(
+            KeyEvent::new(KeyCode::Char('s'), KeyModifiers::CONTROL),
+            &service,
+        )
+        .await?;
+
+        assert_eq!(
+            app.selected_comment_details().map(|comment| comment.id),
+            Some(1)
+        );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn saving_reply_restores_replied_thread_selection() -> Result<()> {
+        let tempdir = tempdir()?;
+        let service = ReviewService::new(Store::from_project_root(tempdir.path()));
+        service.create_review("test-review").await?;
+        for (line, body) in [(1, "first"), (2, "second")] {
+            service
+                .add_comment(
+                    "test-review",
+                    AddCommentInput {
+                        file_path: "src/a.rs".into(),
+                        old_line: Some(line),
+                        new_line: Some(line),
+                        side: DiffSide::Right,
+                        line_anchor: None,
+                        body: body.into(),
+                        author: Author::User,
+                    },
+                )
+                .await?;
+        }
+        let review = service.load_review("test-review").await?;
+        let mut app = make_test_app_with_review_and_files(
+            review,
+            vec![diff_file_with_lines(
+                "src/a.rs",
+                &[(1, "fn first() {}"), (2, "fn second() {}")],
+            )],
+        )?;
+        app.selected_comment = 1;
+        app.inline_comment = Some(InlineCommentState {
+            row_index: 0,
+            mode: InlineDraftMode::Reply {
+                comment_id: 1,
+                old_line: Some(1),
+                new_line: Some(1),
+            },
+            buffer: text_buffer_with_line("reply to first"),
+            preview_mode: false,
+            file_mention: None,
+            file_reference_picker: None,
+        });
+
+        app.handle_inline_comment_key(
+            KeyEvent::new(KeyCode::Char('s'), KeyModifiers::CONTROL),
+            &service,
+        )
+        .await?;
+
+        assert_eq!(
+            app.selected_comment_details().map(|comment| comment.id),
+            Some(1)
+        );
+        let first = app
+            .review
+            .comments
+            .iter()
+            .find(|comment| comment.id == 1)
+            .ok_or_else(|| anyhow!("first comment should exist"))?;
+        assert_eq!(first.replies.len(), 1);
+        Ok(())
+    }
+
     fn make_test_app(paths: Vec<&str>) -> Result<TuiApp> {
         make_test_app_with_files(paths.into_iter().map(empty_diff_file).collect())
     }

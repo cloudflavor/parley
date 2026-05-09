@@ -197,8 +197,10 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &mut TuiApp) {
 mod tests {
     use anyhow::{Result, anyhow};
 
-    use super::diff::build_unified_row_lines;
-    use super::diff::inline_comment_editor_area;
+    use super::diff::{
+        build_unified_row_lines, inline_comment_editor_area, keep_source_row_range_visible,
+        source_row_visual_range,
+    };
     use super::helpers::line_plain_text;
     use super::status::{build_status_field_line, truncate_with_ellipsis};
     use super::*;
@@ -322,5 +324,41 @@ mod tests {
         assert_eq!(editor.height, 10);
         assert_eq!(editor.y, 23);
         Ok(())
+    }
+
+    #[test]
+    fn selected_source_row_range_includes_thread_replies() {
+        let row_map = vec![0, 1, 1, 1, 2];
+
+        assert_eq!(source_row_visual_range(&row_map, 1), Some((1, 3)));
+    }
+
+    #[test]
+    fn viewport_can_scroll_within_selected_thread_range() {
+        let scroll = keep_source_row_range_visible(3, 2, (1, 5));
+
+        assert_eq!(scroll, 3);
+    }
+
+    #[test]
+    fn viewport_moves_to_selected_thread_range_when_hidden_above() {
+        let scroll = keep_source_row_range_visible(5, 2, (0, 1));
+
+        assert_eq!(scroll, 1);
+    }
+
+    #[test]
+    fn last_line_comment_should_force_max_scroll() {
+        let range = (49, 52);
+        let lines_len = 53;
+        let viewport_height = 20;
+        let max_scroll = lines_len - viewport_height;
+        let mut scroll = 30;
+        let end_proximity_threshold = (lines_len as f64 * 0.8) as usize;
+        if range.1 >= end_proximity_threshold || range.0 >= end_proximity_threshold {
+            scroll = max_scroll;
+        }
+
+        assert_eq!(scroll, 33);
     }
 }

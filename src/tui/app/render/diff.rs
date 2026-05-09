@@ -281,12 +281,9 @@ pub(super) fn draw_diff_view_for_pane(
         (lines, row_map, link_hits)
     };
 
-    let selected_visual_index = row_map
-        .iter()
-        .position(|row_index| *row_index == selected_line)
-        .unwrap_or(0);
+    let selected_visual_range = source_row_visual_range(&row_map, selected_line).unwrap_or((0, 0));
 
-    let viewport_height = usize::from(area.height.saturating_sub(2)).max(1);
+    let viewport_height = app.effective_viewport_height_for_pane(pane);
     let max_scroll = lines.len().saturating_sub(viewport_height);
     let mut scroll = app.viewport_top_for_pane(pane).min(max_scroll);
 
@@ -295,14 +292,15 @@ pub(super) fn draw_diff_view_for_pane(
         scroll = clamped_anchor.saturating_sub(viewport_height.saturating_sub(1));
     }
 
-    if selected_visual_index < scroll {
-        scroll = selected_visual_index;
-    } else if selected_visual_index >= scroll.saturating_add(viewport_height) {
-        scroll = selected_visual_index
-            .saturating_add(1)
-            .saturating_sub(viewport_height);
-    }
+    scroll = keep_source_row_range_visible(scroll, viewport_height, selected_visual_range);
     scroll = scroll.min(max_scroll);
+
+    let end_proximity_threshold = (lines.len() as f64 * 0.8) as usize;
+    if selected_visual_range.1 >= end_proximity_threshold
+        || selected_visual_range.0 >= end_proximity_threshold
+    {
+        scroll = max_scroll;
+    }
     app.set_viewport_top_for_pane(pane, scroll);
 
     if pane == DiffPane::Primary {
@@ -354,6 +352,41 @@ pub(super) fn diff_pane_borders(split: bool, pane: DiffPane) -> Borders {
     match pane {
         DiffPane::Primary => Borders::TOP | Borders::LEFT | Borders::RIGHT,
         DiffPane::Secondary => Borders::TOP | Borders::RIGHT,
+    }
+}
+
+pub(super) fn source_row_visual_range(
+    row_map: &[usize],
+    source_row: usize,
+) -> Option<(usize, usize)> {
+    let start = row_map
+        .iter()
+        .position(|row_index| *row_index == source_row)?;
+    let end = row_map
+        .iter()
+        .enumerate()
+        .filter_map(|(visual_row, row_index)| (*row_index == source_row).then_some(visual_row))
+        .next_back()
+        .unwrap_or(start);
+    Some((start, end))
+}
+
+pub(super) fn keep_source_row_range_visible(
+    scroll: usize,
+    viewport_height: usize,
+    selected_range: (usize, usize),
+) -> usize {
+    let (selected_start, selected_end) = selected_range;
+    let viewport_end = scroll.saturating_add(viewport_height);
+
+    if selected_end < scroll {
+        selected_end
+    } else if selected_start >= viewport_end {
+        selected_start
+            .saturating_add(1)
+            .saturating_sub(viewport_height)
+    } else {
+        scroll
     }
 }
 

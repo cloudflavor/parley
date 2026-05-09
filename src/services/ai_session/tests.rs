@@ -1,11 +1,15 @@
 use super::comment_is_targetable;
-use super::prompt::{choose_best_hunk, format_hunk_excerpt, hunk_distance_to_anchor};
+use super::prompt::{
+    build_thread_prompt, choose_best_hunk, format_hunk_excerpt, hunk_distance_to_anchor,
+};
 use super::provider::{
     detect_model_from_json_stream, detect_model_from_text, format_ai_reply_body,
 };
 use crate::domain::ai::AiSessionMode;
 use crate::domain::diff::{DiffFile, DiffHunk, DiffLine, DiffLineKind};
-use crate::domain::review::CommentStatus;
+use crate::domain::review::{
+    Author, CommentReply, CommentStatus, DiffSide, LineComment, ReviewSession, ReviewState,
+};
 use anyhow::{Result, anyhow};
 
 #[test]
@@ -38,6 +42,60 @@ fn refactor_mode_targets_only_open_threads() {
         CommentStatus::Addressed,
         AiSessionMode::Refactor
     ));
+}
+
+#[test]
+fn thread_prompt_marks_latest_human_reply_as_current_request() {
+    let review = ReviewSession {
+        name: "review".into(),
+        state: ReviewState::Open,
+        created_at_ms: 0,
+        updated_at_ms: 0,
+        done_at_ms: None,
+        comments: vec![LineComment {
+            id: 7,
+            file_path: "src/lib.rs".into(),
+            old_line: None,
+            new_line: Some(42),
+            side: DiffSide::Right,
+            line_anchor: None,
+            detached: false,
+            body: "original request".into(),
+            author: Author::User,
+            status: CommentStatus::Open,
+            replies: vec![
+                CommentReply {
+                    id: 1,
+                    author: Author::Ai,
+                    body: "earlier ai answer".into(),
+                    created_at_ms: 1,
+                },
+                CommentReply {
+                    id: 2,
+                    author: Author::User,
+                    body: "first follow-up".into(),
+                    created_at_ms: 2,
+                },
+                CommentReply {
+                    id: 3,
+                    author: Author::User,
+                    body: "latest follow-up".into(),
+                    created_at_ms: 3,
+                },
+            ],
+            created_at_ms: 0,
+            updated_at_ms: 3,
+            addressed_at_ms: None,
+        }],
+        next_comment_id: 8,
+        next_reply_id: 4,
+    };
+
+    let prompt = build_thread_prompt("review", 7, &review, None, AiSessionMode::Reply);
+
+    assert!(prompt.contains("- user: first follow-up"));
+    assert!(prompt.contains("- user: latest follow-up"));
+    assert!(prompt.contains("- latest human reply: latest follow-up"));
 }
 
 #[test]
