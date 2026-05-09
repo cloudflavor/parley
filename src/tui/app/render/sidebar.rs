@@ -18,7 +18,6 @@ pub(super) fn draw_file_sidebar(frame: &mut Frame<'_>, app: &mut TuiApp, area: R
     app.last_file_row_map.clear();
     app.last_file_group_map.clear();
     let colors = app.theme().colors.clone();
-    let comment_stats = app.file_comment_stats();
     let file_name_query = app.file_search_query().map(str::to_owned);
 
     let (search_area, list_area) = if area.height > 4 {
@@ -60,11 +59,10 @@ pub(super) fn draw_file_sidebar(frame: &mut Frame<'_>, app: &mut TuiApp, area: R
                 let mut group_pending = 0usize;
                 for file_index in &file_indices {
                     let file = &app.diff.files[*file_index];
-                    let (total, open, pending) =
-                        comment_stats.get(&file.path).copied().unwrap_or((0, 0, 0));
-                    group_total += total;
-                    group_open += open;
-                    group_pending += pending;
+                    let stats = app.comment_stats_for_file(&file.path);
+                    group_total += stats.total;
+                    group_open += stats.open;
+                    group_pending += stats.pending;
                 }
                 (group, file_indices, group_total, group_open, group_pending)
             })
@@ -89,23 +87,17 @@ pub(super) fn draw_file_sidebar(frame: &mut Frame<'_>, app: &mut TuiApp, area: R
             sorted_indices.sort_by(|left, right| {
                 let left_file = &app.diff.files[*left];
                 let right_file = &app.diff.files[*right];
-                let left_stats = comment_stats
-                    .get(&left_file.path)
-                    .copied()
-                    .unwrap_or((0, 0, 0));
-                let right_stats = comment_stats
-                    .get(&right_file.path)
-                    .copied()
-                    .unwrap_or((0, 0, 0));
+                let left_stats = app.comment_stats_for_file(&left_file.path);
+                let right_stats = app.comment_stats_for_file(&right_file.path);
                 match app.file_sort_mode {
                     FileSortMode::Path => left_file.path.cmp(&right_file.path),
                     FileSortMode::OpenCountDesc => right_stats
-                        .1
-                        .cmp(&left_stats.1)
+                        .open
+                        .cmp(&left_stats.open)
                         .then_with(|| left_file.path.cmp(&right_file.path)),
                     FileSortMode::TotalCountDesc => right_stats
-                        .0
-                        .cmp(&left_stats.0)
+                        .total
+                        .cmp(&left_stats.total)
                         .then_with(|| left_file.path.cmp(&right_file.path)),
                 }
             });
@@ -129,26 +121,25 @@ pub(super) fn draw_file_sidebar(frame: &mut Frame<'_>, app: &mut TuiApp, area: R
 
             for file_index in sorted_indices {
                 let file = &app.diff.files[file_index];
-                let (total_comments, open_comments, pending_comments) =
-                    comment_stats.get(&file.path).copied().unwrap_or((0, 0, 0));
+                let stats = app.comment_stats_for_file(&file.path);
 
-                let marker_style = if open_comments > 0 {
+                let marker_style = if stats.open > 0 {
                     Style::default()
                         .fg(colors.comment_title)
                         .add_modifier(Modifier::BOLD)
-                } else if pending_comments > 0 {
+                } else if stats.pending > 0 {
                     Style::default()
                         .fg(colors.accent)
                         .add_modifier(Modifier::BOLD)
                 } else {
                     Style::default().fg(colors.text_muted)
                 };
-                let marker_text = if open_comments > 0 {
-                    format!("  ●{open_comments} ")
-                } else if pending_comments > 0 {
-                    format!("  ◍{pending_comments} ")
-                } else if total_comments > 0 {
-                    format!("  ◌{total_comments} ")
+                let marker_text = if stats.open > 0 {
+                    format!("  ●{} ", stats.open)
+                } else if stats.pending > 0 {
+                    format!("  ◍{} ", stats.pending)
+                } else if stats.total > 0 {
+                    format!("  ◌{} ", stats.total)
                 } else {
                     "    ".to_string()
                 };

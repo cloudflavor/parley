@@ -248,6 +248,13 @@ struct CachedFileRows {
     highlights: Vec<Option<HighlightParts>>,
 }
 
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+struct FileCommentStats {
+    total: usize,
+    open: usize,
+    pending: usize,
+}
+
 type RootFileLoadResult = Result<(usize, Option<DiffFile>)>;
 
 #[derive(Debug, Clone)]
@@ -504,6 +511,7 @@ struct TuiApp {
     review_name: String,
     review: ReviewSession,
     comment_indices_by_file: HashMap<String, Vec<usize>>,
+    comment_stats_by_file: HashMap<String, FileCommentStats>,
     diff_source: DiffSource,
     config: AppConfig,
     themes: Vec<UiTheme>,

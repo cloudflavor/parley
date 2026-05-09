@@ -105,8 +105,24 @@ impl TuiApp {
         index
     }
 
+    pub(crate) fn build_comment_stats(review: &ReviewSession) -> HashMap<String, FileCommentStats> {
+        let mut stats: HashMap<String, FileCommentStats> = HashMap::new();
+        for comment in &review.comments {
+            let entry = stats.entry(comment.file_path.clone()).or_default();
+            entry.total += 1;
+            if matches!(comment.status, CommentStatus::Open) {
+                entry.open += 1;
+            }
+            if matches!(comment.status, CommentStatus::Pending) {
+                entry.pending += 1;
+            }
+        }
+        stats
+    }
+
     pub(crate) fn rebuild_comment_index(&mut self) {
         self.comment_indices_by_file = Self::build_comment_index(&self.review);
+        self.comment_stats_by_file = Self::build_comment_stats(&self.review);
     }
 
     pub(crate) fn comments_for_file(&self, file_path: &str) -> Vec<&LineComment> {
@@ -116,6 +132,13 @@ impl TuiApp {
             .flat_map(|indices| indices.iter())
             .filter_map(|index| self.review.comments.get(*index))
             .collect()
+    }
+
+    pub(crate) fn comment_stats_for_file(&self, file_path: &str) -> FileCommentStats {
+        self.comment_stats_by_file
+            .get(file_path)
+            .copied()
+            .unwrap_or_default()
     }
 
     pub(crate) fn selected_comment_id(&self) -> Option<u64> {
@@ -135,23 +158,7 @@ impl TuiApp {
         true
     }
 
-    pub(crate) fn file_comment_stats(&self) -> HashMap<String, (usize, usize, usize)> {
-        let mut stats = HashMap::new();
-        for comment in &self.review.comments {
-            let entry = stats.entry(comment.file_path.clone()).or_insert((0, 0, 0));
-            entry.0 += 1;
-            if matches!(comment.status, CommentStatus::Open) {
-                entry.1 += 1;
-            }
-            if matches!(comment.status, CommentStatus::Pending) {
-                entry.2 += 1;
-            }
-        }
-        stats
-    }
-
     pub(crate) fn visible_file_indices(&self) -> Vec<usize> {
-        let stats = self.file_comment_stats();
         let file_query = self.file_search_query().map(str::to_lowercase);
         let mut indices: Vec<usize> = self
             .diff
@@ -159,11 +166,11 @@ impl TuiApp {
             .iter()
             .enumerate()
             .filter_map(|(idx, file)| {
-                let (_total, open, pending) = stats.get(&file.path).copied().unwrap_or((0, 0, 0));
+                let stats = self.comment_stats_for_file(&file.path);
                 let visible = match self.file_filter_mode {
                     FileFilterMode::All => true,
-                    FileFilterMode::Open => open > 0,
-                    FileFilterMode::Pending => pending > 0,
+                    FileFilterMode::Open => stats.open > 0,
+                    FileFilterMode::Pending => stats.pending > 0,
                 };
                 if !visible {
                     return None;
@@ -181,17 +188,17 @@ impl TuiApp {
         indices.sort_by(|left, right| {
             let left_file = &self.diff.files[*left];
             let right_file = &self.diff.files[*right];
-            let left_stats = stats.get(&left_file.path).copied().unwrap_or((0, 0, 0));
-            let right_stats = stats.get(&right_file.path).copied().unwrap_or((0, 0, 0));
+            let left_stats = self.comment_stats_for_file(&left_file.path);
+            let right_stats = self.comment_stats_for_file(&right_file.path);
             match self.file_sort_mode {
                 FileSortMode::Path => left_file.path.cmp(&right_file.path),
                 FileSortMode::OpenCountDesc => right_stats
-                    .1
-                    .cmp(&left_stats.1)
+                    .open
+                    .cmp(&left_stats.open)
                     .then_with(|| left_file.path.cmp(&right_file.path)),
                 FileSortMode::TotalCountDesc => right_stats
-                    .0
-                    .cmp(&left_stats.0)
+                    .total
+                    .cmp(&left_stats.total)
                     .then_with(|| left_file.path.cmp(&right_file.path)),
             }
         });
@@ -432,6 +439,9 @@ mod tests {
 
         assert!(app.comments_for_file("src/a.rs").is_empty());
         assert_eq!(app.comments_for_file("src/b.rs")[0].id, 4);
+        let stats = app.comment_stats_for_file("src/b.rs");
+        assert_eq!(stats.total, 1);
+        assert_eq!(stats.open, 1);
         Ok(())
     }
 }

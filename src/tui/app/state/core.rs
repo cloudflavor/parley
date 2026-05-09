@@ -15,10 +15,12 @@ impl TuiApp {
         let ai_provider = config.ai.default_provider;
         let side_by_side_diff = config.diff_view.is_side_by_side();
         let comment_indices_by_file = Self::build_comment_index(&review);
+        let comment_stats_by_file = Self::build_comment_stats(&review);
         Self {
             review_name,
             review,
             comment_indices_by_file,
+            comment_stats_by_file,
             diff_source,
             config,
             themes,
