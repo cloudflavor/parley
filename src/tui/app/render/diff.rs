@@ -126,7 +126,11 @@ pub(super) fn draw_diff_view_for_pane(
     };
 
     let (lines, row_map, link_hits) = if let Some(cached) = app.get_diff_render_cache(&cache_key) {
-        (cached.lines, cached.row_map, cached.link_hits)
+        (
+            cached.lines.clone(),
+            cached.row_map.clone(),
+            cached.link_hits.clone(),
+        )
     } else {
         app.ensure_row_cache_for_file(file_index);
         let Some(row_count) = app.row_count_for_file(file_index) else {
@@ -306,14 +310,11 @@ pub(super) fn draw_diff_view_for_pane(
             }
         }
 
-        app.insert_diff_render_cache(
-            cache_key,
-            DiffRenderCacheEntry {
-                lines: lines.clone(),
-                row_map: row_map.clone(),
-                link_hits: link_hits.clone(),
-            },
-        );
+        let entry = DiffRenderCacheEntry::new(lines, row_map, link_hits);
+        let lines = entry.lines.clone();
+        let row_map = entry.row_map.clone();
+        let link_hits = entry.link_hits.clone();
+        app.insert_diff_render_cache(cache_key, entry);
         (lines, row_map, link_hits)
     };
 
@@ -349,12 +350,12 @@ pub(super) fn draw_diff_view_for_pane(
 
     if pane == DiffPane::Primary {
         app.last_diff_scroll = scroll;
-        app.last_diff_row_map = row_map;
-        app.last_diff_link_hits = link_hits;
+        app.last_diff_row_map = row_map.to_vec();
+        app.last_diff_link_hits = link_hits.to_vec();
     } else {
         app.last_diff_scroll_secondary = scroll;
-        app.last_diff_row_map_secondary = row_map;
-        app.last_diff_link_hits_secondary = link_hits;
+        app.last_diff_row_map_secondary = row_map.to_vec();
+        app.last_diff_link_hits_secondary = link_hits.to_vec();
     }
 
     let title = format!(
@@ -369,19 +370,23 @@ pub(super) fn draw_diff_view_for_pane(
     } else {
         colors.thread_border
     };
-    let widget = Paragraph::new(lines)
-        .block(
-            Block::default()
-                .title(title)
-                .borders(borders)
-                .border_style(Style::default().fg(border_color))
-                .title_style(
-                    Style::default()
-                        .fg(colors.accent)
-                        .add_modifier(Modifier::BOLD),
-                ),
-        )
-        .scroll((usize_to_u16_saturating(scroll), 0));
+    let visible_lines = lines
+        .iter()
+        .skip(scroll)
+        .take(viewport_height)
+        .cloned()
+        .collect::<Vec<_>>();
+    let widget = Paragraph::new(visible_lines).block(
+        Block::default()
+            .title(title)
+            .borders(borders)
+            .border_style(Style::default().fg(border_color))
+            .title_style(
+                Style::default()
+                    .fg(colors.accent)
+                    .add_modifier(Modifier::BOLD),
+            ),
+    );
     frame.render_widget(widget, area);
 
     if is_active && app.inline_comment.is_some() {

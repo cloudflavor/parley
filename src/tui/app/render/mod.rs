@@ -7,6 +7,8 @@ mod sidebar;
 mod status;
 mod threads;
 
+use std::sync::Arc;
+
 use ratatui::{
     Frame,
     layout::{Constraint, Direction, Layout},
@@ -61,9 +63,23 @@ pub(crate) struct DiffRenderCacheKey {
 
 #[derive(Debug, Clone)]
 pub(crate) struct DiffRenderCacheEntry {
-    pub(crate) lines: Vec<Line<'static>>,
-    pub(crate) row_map: Vec<usize>,
-    pub(crate) link_hits: Vec<FileReferenceHit>,
+    pub(crate) lines: Arc<[Line<'static>]>,
+    pub(crate) row_map: Arc<[usize]>,
+    pub(crate) link_hits: Arc<[FileReferenceHit]>,
+}
+
+impl DiffRenderCacheEntry {
+    pub(crate) fn new(
+        lines: Vec<Line<'static>>,
+        row_map: Vec<usize>,
+        link_hits: Vec<FileReferenceHit>,
+    ) -> Self {
+        Self {
+            lines: Arc::from(lines.into_boxed_slice()),
+            row_map: Arc::from(row_map.into_boxed_slice()),
+            link_hits: Arc::from(link_hits.into_boxed_slice()),
+        }
+    }
 }
 
 use diff::draw_diff_view_for_pane;

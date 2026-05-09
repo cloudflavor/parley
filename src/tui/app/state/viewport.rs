@@ -335,8 +335,8 @@ impl TuiApp {
     pub(crate) fn get_diff_render_cache(
         &self,
         key: &DiffRenderCacheKey,
-    ) -> Option<DiffRenderCacheEntry> {
-        self.diff_render_cache.get(key).cloned()
+    ) -> Option<&DiffRenderCacheEntry> {
+        self.diff_render_cache.get(key)
     }
 
     pub(crate) fn insert_diff_render_cache(
@@ -376,7 +376,7 @@ fn inline_comment_editor_reserved_rows(area: Rect) -> usize {
 #[cfg(test)]
 mod tests {
     use crate::tui::app::state::tests::{cache_entry, cache_key, make_test_app};
-    use anyhow::Result;
+    use anyhow::{Context, Result};
 
     #[test]
     fn clear_diff_render_cache_for_file_is_scoped() -> Result<()> {
@@ -390,6 +390,24 @@ mod tests {
 
         assert!(!app.diff_render_cache.contains_key(&key_a));
         assert!(app.diff_render_cache.contains_key(&key_b));
+        Ok(())
+    }
+
+    #[test]
+    fn get_diff_render_cache_returns_cached_entry_by_reference() -> Result<()> {
+        let mut app = make_test_app(vec!["src/a.rs"], vec![])?;
+        let key = cache_key(0);
+        app.insert_diff_render_cache(key.clone(), cache_entry());
+
+        let cached = app
+            .get_diff_render_cache(&key)
+            .context("cache entry should exist")?;
+        let stored = app
+            .diff_render_cache
+            .get(&key)
+            .context("stored entry should exist")?;
+
+        assert!(std::ptr::eq(cached, stored));
         Ok(())
     }
 }

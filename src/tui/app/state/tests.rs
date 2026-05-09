@@ -120,9 +120,5 @@ pub(crate) fn cache_key(file_index: usize) -> DiffRenderCacheKey {
 }
 
 pub(crate) fn cache_entry() -> DiffRenderCacheEntry {
-    DiffRenderCacheEntry {
-        lines: vec![],
-        row_map: vec![],
-        link_hits: vec![],
-    }
+    DiffRenderCacheEntry::new(Vec::new(), Vec::new(), Vec::new())
 }
