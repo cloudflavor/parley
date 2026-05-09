@@ -1,5 +1,7 @@
 use super::*;
 
+use crate::domain::review::CommentStatus;
+
 impl TuiApp {
     pub(super) async fn handle_normal_key(
         &mut self,
@@ -281,54 +283,27 @@ impl TuiApp {
                 }
             }
             KeyCode::Char('a') => {
-                if let Some(comment) = self.selected_comment_details() {
-                    let comment_id = comment.id;
-                    match service
-                        .mark_addressed(&self.review_name, comment_id, Author::User)
-                        .await
-                    {
-                        Ok(_) => {
-                            self.refresh_review_and_diff(service).await?;
-                            self.status_line = format!("comment #{comment_id} marked addressed");
-                        }
-                        Err(error) => {
-                            self.status_line = format!("mark addressed failed: {error}");
-                        }
-                    }
+                if let Err(error) = self
+                    .mark_selected_comment_status(service, CommentStatus::Addressed, false)
+                    .await
+                {
+                    self.status_line = format!("mark addressed failed: {error}");
                 }
             }
             KeyCode::Char('f') => {
-                if let Some(comment) = self.selected_comment_details() {
-                    let comment_id = comment.id;
-                    match service
-                        .force_mark_addressed(&self.review_name, comment_id)
-                        .await
-                    {
-                        Ok(_) => {
-                            self.refresh_review_and_diff(service).await?;
-                            self.status_line = format!("comment #{comment_id} force-addressed");
-                        }
-                        Err(error) => {
-                            self.status_line = format!("force address failed: {error}");
-                        }
-                    }
+                if let Err(error) = self
+                    .mark_selected_comment_status(service, CommentStatus::Addressed, true)
+                    .await
+                {
+                    self.status_line = format!("force address failed: {error}");
                 }
             }
             KeyCode::Char('o') => {
-                if let Some(comment) = self.selected_comment_details() {
-                    let comment_id = comment.id;
-                    match service
-                        .mark_open(&self.review_name, comment_id, Author::User)
-                        .await
-                    {
-                        Ok(_) => {
-                            self.refresh_review_and_diff(service).await?;
-                            self.status_line = format!("comment #{comment_id} marked open");
-                        }
-                        Err(error) => {
-                            self.status_line = format!("mark open failed: {error}");
-                        }
-                    }
+                if let Err(error) = self
+                    .mark_selected_comment_status(service, CommentStatus::Open, false)
+                    .await
+                {
+                    self.status_line = format!("mark open failed: {error}");
                 }
             }
             KeyCode::Char('s') => {

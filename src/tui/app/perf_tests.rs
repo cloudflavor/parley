@@ -9,6 +9,8 @@ use crate::domain::review::{
     Author, CommentStatus, DiffSide, LineAnchorSnapshot, LineComment, ReviewSession, ReviewState,
 };
 use crate::git::diff::DiffSource;
+use crate::persistence::store::Store;
+use crate::services::review_service::ReviewService;
 use crate::tui::theme::{default_theme_name, load_themes, resolve_theme_index};
 
 use super::{AppConfig, DiffDocument, TuiApp, TuiAppInit, render};
@@ -19,6 +21,12 @@ const PERF_DRAW_COMMENTS: usize = 800;
 const PERF_LARGE_FILE_LINES: usize = 12_000;
 const PERF_COMMENT_LOOKUP_FILES: usize = 1_000;
 const PERF_COMMENT_LOOKUP_COMMENTS: usize = 40_000;
+const PERF_STATUS_COMMENTS: usize = 10_000;
+const PERF_DRAW_LARGE_REVIEW_MAX_MS: f64 = 50.0;
+const PERF_REBUILD_ROW_CACHE_MAX_MS: f64 = 20.0;
+const PERF_VISIBLE_FILE_INDICES_MAX_MS: f64 = 20.0;
+const PERF_COMMENTS_FOR_FILE_TOTAL_MAX_MS: f64 = 20.0;
+const PERF_MARK_STATUS_MAX_MS: f64 = if cfg!(debug_assertions) { 250.0 } else { 100.0 };
 
 #[test]
 fn rebuild_row_cache_should_defer_syntax_highlighting() -> Result<()> {
@@ -55,7 +63,6 @@ fn rebuild_row_cache_should_defer_syntax_highlighting() -> Result<()> {
     Ok(())
 }
 
-#[ignore = "performance benchmark; run with: cargo test --release perf_ -- --ignored --nocapture"]
 #[test]
 fn perf_tui_draw_large_review() -> Result<()> {
     let mut app = make_perf_app(
@@ -76,11 +83,15 @@ fn perf_tui_draw_large_review() -> Result<()> {
         Ok(())
     })?;
 
-    print_perf_result("tui_draw_large_review", 40, elapsed);
+    assert_perf_under(
+        "tui_draw_large_review",
+        40,
+        elapsed,
+        PERF_DRAW_LARGE_REVIEW_MAX_MS,
+    );
     Ok(())
 }
 
-#[ignore = "performance benchmark; run with: cargo test --release perf_ -- --ignored --nocapture"]
 #[test]
 fn perf_rebuild_row_cache_large_file() -> Result<()> {
     let file = make_diff_file("src/large.rs", PERF_LARGE_FILE_LINES);
@@ -93,11 +104,15 @@ fn perf_rebuild_row_cache_large_file() -> Result<()> {
         Ok(())
     })?;
 
-    print_perf_result("rebuild_row_cache_large_file", 20, elapsed);
+    assert_perf_under(
+        "rebuild_row_cache_large_file",
+        20,
+        elapsed,
+        PERF_REBUILD_ROW_CACHE_MAX_MS,
+    );
     Ok(())
 }
 
-#[ignore = "performance benchmark; run with: cargo test --release perf_ -- --ignored --nocapture"]
 #[test]
 fn perf_visible_file_indices_many_files_and_comments() -> Result<()> {
     let app = make_perf_app(2_000, 8, 4_000)?;
@@ -107,11 +122,15 @@ fn perf_visible_file_indices_many_files_and_comments() -> Result<()> {
         Ok(())
     })?;
 
-    print_perf_result("visible_file_indices_many_files_and_comments", 200, elapsed);
+    assert_perf_under(
+        "visible_file_indices_many_files_and_comments",
+        200,
+        elapsed,
+        PERF_VISIBLE_FILE_INDICES_MAX_MS,
+    );
     Ok(())
 }
 
-#[ignore = "performance benchmark; run with: cargo test --release perf_ -- --ignored --nocapture"]
 #[test]
 fn perf_comments_for_file_many_comments() -> Result<()> {
     let app = make_perf_app(PERF_COMMENT_LOOKUP_FILES, 1, PERF_COMMENT_LOOKUP_COMMENTS)?;
@@ -122,7 +141,40 @@ fn perf_comments_for_file_many_comments() -> Result<()> {
         Ok(())
     })?;
 
-    print_perf_result("comments_for_file_many_comments", 2_000, elapsed);
+    assert_total_perf_under(
+        "comments_for_file_many_comments",
+        2_000,
+        elapsed,
+        PERF_COMMENTS_FOR_FILE_TOTAL_MAX_MS,
+    );
+    Ok(())
+}
+
+#[tokio::test]
+async fn perf_mark_selected_comment_status_many_comments() -> Result<()> {
+    let tempdir = tempfile::tempdir()?;
+    let service = ReviewService::new(Store::from_project_root(tempdir.path()));
+    let mut app = make_perf_app(50, 4, PERF_STATUS_COMMENTS)?;
+    app.selected_file = 0;
+    app.selected_comment = 0;
+    service.save_review(&app.review).await?;
+
+    let started_at = Instant::now();
+    for _ in 0..20 {
+        app.review.comments[0].status = CommentStatus::Pending;
+        app.rebuild_comment_index();
+        app.mark_selected_comment_status(&service, CommentStatus::Addressed, false)
+            .await?;
+        black_box(app.review.comments[0].status.clone());
+    }
+    let elapsed = started_at.elapsed();
+
+    assert_perf_under(
+        "mark_selected_comment_status_many_comments",
+        20,
+        elapsed,
+        PERF_MARK_STATUS_MAX_MS,
+    );
     Ok(())
 }
 
@@ -134,10 +186,26 @@ fn measure(iterations: usize, mut run: impl FnMut() -> Result<()>) -> Result<Dur
     Ok(started_at.elapsed())
 }
 
-fn print_perf_result(name: &str, iterations: usize, elapsed: Duration) {
+fn assert_perf_under(name: &str, iterations: usize, elapsed: Duration, max_ms: f64) {
     let per_iter = elapsed.as_secs_f64() * 1_000.0 / iterations as f64;
     eprintln!(
         "PERF {name}: {iterations} iteration(s), total={elapsed:?}, per_iter={per_iter:.3}ms"
+    );
+    assert!(
+        per_iter <= max_ms,
+        "{name} exceeded threshold: {per_iter:.3}ms > {max_ms:.3}ms"
+    );
+}
+
+fn assert_total_perf_under(name: &str, iterations: usize, elapsed: Duration, max_total_ms: f64) {
+    let total_ms = elapsed.as_secs_f64() * 1_000.0;
+    let per_iter = total_ms / iterations as f64;
+    eprintln!(
+        "PERF {name}: {iterations} iteration(s), total={elapsed:?}, per_iter={per_iter:.3}ms"
+    );
+    assert!(
+        total_ms <= max_total_ms,
+        "{name} exceeded threshold: total {total_ms:.3}ms > {max_total_ms:.3}ms"
     );
 }
 
