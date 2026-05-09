@@ -134,6 +134,7 @@ impl TuiApp {
         let secondary_selected_line = self.secondary_selected_line;
         let selected_comment_id = self.selected_comment_id();
         self.review = service.load_review(&self.review_name).await?;
+        self.rebuild_comment_index();
         self.expanded_threads
             .retain(|id| self.review.comments.iter().any(|comment| comment.id == *id));
         self.collapsed_threads
@@ -160,6 +161,7 @@ impl TuiApp {
         let selected_comment_id = self.selected_comment_id();
 
         self.review = service.load_review(&self.review_name).await?;
+        self.rebuild_comment_index();
         self.expanded_threads
             .retain(|id| self.review.comments.iter().any(|comment| comment.id == *id));
         self.collapsed_threads

@@ -17,6 +17,8 @@ const PERF_DRAW_FILES: usize = 120;
 const PERF_DRAW_LINES_PER_FILE: usize = 160;
 const PERF_DRAW_COMMENTS: usize = 800;
 const PERF_LARGE_FILE_LINES: usize = 12_000;
+const PERF_COMMENT_LOOKUP_FILES: usize = 1_000;
+const PERF_COMMENT_LOOKUP_COMMENTS: usize = 40_000;
 
 #[test]
 fn rebuild_row_cache_should_defer_syntax_highlighting() -> Result<()> {
@@ -106,6 +108,21 @@ fn perf_visible_file_indices_many_files_and_comments() -> Result<()> {
     })?;
 
     print_perf_result("visible_file_indices_many_files_and_comments", 200, elapsed);
+    Ok(())
+}
+
+#[ignore = "performance benchmark; run with: cargo test --release perf_ -- --ignored --nocapture"]
+#[test]
+fn perf_comments_for_file_many_comments() -> Result<()> {
+    let app = make_perf_app(PERF_COMMENT_LOOKUP_FILES, 1, PERF_COMMENT_LOOKUP_COMMENTS)?;
+    let target_file = format!("src/module_{:04}.rs", PERF_COMMENT_LOOKUP_FILES - 1);
+
+    let elapsed = measure(2_000, || {
+        black_box(app.comments_for_file(&target_file).len());
+        Ok(())
+    })?;
+
+    print_perf_result("comments_for_file_many_comments", 2_000, elapsed);
     Ok(())
 }
 

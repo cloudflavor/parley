@@ -494,6 +494,7 @@ struct TuiAppInit {
 struct TuiApp {
     review_name: String,
     review: ReviewSession,
+    comment_indices_by_file: HashMap<String, Vec<usize>>,
     diff_source: DiffSource,
     config: AppConfig,
     themes: Vec<UiTheme>,

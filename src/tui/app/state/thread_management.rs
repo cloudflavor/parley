@@ -28,10 +28,8 @@ impl TuiApp {
 
     pub(crate) fn expanded_thread_ids_for_file(&self, file_path: &str) -> Vec<u64> {
         let mut ids = self
-            .review
-            .comments
-            .iter()
-            .filter(|comment| comment.file_path == file_path)
+            .comments_for_file(file_path)
+            .into_iter()
             .filter_map(|comment| {
                 self.expanded_threads
                     .contains(&comment.id)

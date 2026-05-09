@@ -2,7 +2,7 @@
 //!
 //! Handles file selection, filtering, sorting, and group management.
 
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 
 use super::*;
 use crate::utils::cast::offset_index;
@@ -93,11 +93,27 @@ impl TuiApp {
         self.diff.files.get(self.active_file_index())
     }
 
+    pub(crate) fn build_comment_index(review: &ReviewSession) -> HashMap<String, Vec<usize>> {
+        let mut index: HashMap<String, Vec<usize>> = HashMap::new();
+        for (comment_index, comment) in review.comments.iter().enumerate() {
+            index
+                .entry(comment.file_path.clone())
+                .or_default()
+                .push(comment_index);
+        }
+        index
+    }
+
+    pub(crate) fn rebuild_comment_index(&mut self) {
+        self.comment_indices_by_file = Self::build_comment_index(&self.review);
+    }
+
     pub(crate) fn comments_for_file(&self, file_path: &str) -> Vec<&LineComment> {
-        self.review
-            .comments
-            .iter()
-            .filter(|comment| comment.file_path == file_path)
+        self.comment_indices_by_file
+            .get(file_path)
+            .into_iter()
+            .flat_map(|indices| indices.iter())
+            .filter_map(|index| self.review.comments.get(*index))
             .collect()
     }
 
@@ -385,6 +401,36 @@ mod tests {
 
         app.move_file_selection(1);
         assert_eq!(app.active_file_index(), 2);
+        Ok(())
+    }
+
+    #[test]
+    fn comments_for_file_uses_rebuilt_comment_index() -> Result<()> {
+        let comments = vec![
+            make_comment_with_anchor(1, "src/a.rs", CommentStatus::Open, 1, 1),
+            make_comment_with_anchor(2, "src/b.rs", CommentStatus::Pending, 2, 2),
+            make_comment_with_anchor(3, "src/a.rs", CommentStatus::Addressed, 3, 3),
+        ];
+        let mut app = make_test_app(vec!["src/a.rs", "src/b.rs"], comments)?;
+
+        let initial_ids = app
+            .comments_for_file("src/a.rs")
+            .into_iter()
+            .map(|comment| comment.id)
+            .collect::<Vec<_>>();
+        assert_eq!(initial_ids, vec![1, 3]);
+
+        app.review.comments = vec![make_comment_with_anchor(
+            4,
+            "src/b.rs",
+            CommentStatus::Open,
+            4,
+            4,
+        )];
+        app.rebuild_comment_index();
+
+        assert!(app.comments_for_file("src/a.rs").is_empty());
+        assert_eq!(app.comments_for_file("src/b.rs")[0].id, 4);
         Ok(())
     }
 }
