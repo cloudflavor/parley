@@ -1,5 +1,6 @@
 use std::{
     collections::BTreeSet,
+    fs as std_fs,
     path::{Component, Path, PathBuf},
 };
 
@@ -71,8 +72,13 @@ fn load_git_diff_for_repo(
     source: &DiffSource,
 ) -> Result<DiffDocument> {
     let text = load_diff_text(repo, source)?;
-    let mut document = parse_unified_diff(&text)?;
-    let ignore_repo = matches!(source, DiffSource::WorkingTree).then_some(repo);
+    let mut document = if matches!(source, DiffSource::RootDirectory) {
+        load_root_directory_document_sync(repo, config)?
+    } else {
+        parse_unified_diff(&text)?
+    };
+    let ignore_repo =
+        matches!(source, DiffSource::WorkingTree | DiffSource::RootDirectory).then_some(repo);
     filter_ignored_files(&mut document, config, ignore_repo)?;
     Ok(document)
 }
@@ -208,7 +214,7 @@ async fn collect_untracked_file_paths(
             .await
             .with_context(|| format!("failed to inspect {}", path.display()))?;
         if file_type.is_dir() {
-            collect_untracked_file_paths(workdir, &path, config, paths).await?;
+            Box::pin(collect_untracked_file_paths(workdir, &path, config, paths)).await?;
             continue;
         }
         if !file_type.is_file() {
@@ -248,26 +254,92 @@ async fn root_directory_file(workdir: &Path, relative_path: &Path) -> Result<Opt
     Ok(Some(diff_file_from_content(&display_path, &content)))
 }
 
-fn load_git_diff_for_repo_non_root(
+fn load_root_directory_document_sync(
     repo: &Repository,
     config: &AppConfig,
-    source: &DiffSource,
 ) -> Result<DiffDocument> {
-    let text = load_diff_text(repo, source)?;
-    let mut document = parse_unified_diff(&text)?;
-    filter_ignored_files(&mut document, config, Some(repo))?;
-    Ok(document)
-}
-
-#[allow(dead_code)]
-fn load_root_directory_document(repo: &Repository, config: &AppConfig) -> Result<DiffDocument> {
     let workdir = repo
         .workdir()
         .context("root directory reviews require a non-bare git repository")?;
     let mut paths = tracked_file_paths(repo)?;
-    filter_paths_for_root_directory(config, paths.into_iter().collect())?;
-    let _ = workdir;
-    Err(anyhow!("unreachable legacy sync path"))
+    collect_untracked_file_paths_sync(repo, workdir, workdir, config, &mut paths)?;
+
+    let mut files = Vec::new();
+    for path in paths {
+        if should_ignore_file(path.to_string_lossy().as_ref(), config, Some(repo))? {
+            continue;
+        }
+        if let Some(file) = root_directory_file_sync(workdir, &path)? {
+            files.push(file);
+        }
+    }
+
+    Ok(DiffDocument { files })
+}
+
+fn collect_untracked_file_paths_sync(
+    repo: &Repository,
+    workdir: &Path,
+    dir: &Path,
+    config: &AppConfig,
+    paths: &mut BTreeSet<PathBuf>,
+) -> Result<()> {
+    for entry in
+        std_fs::read_dir(dir).with_context(|| format!("failed to read {}", dir.display()))?
+    {
+        let entry = entry.with_context(|| format!("failed to read entry in {}", dir.display()))?;
+        let path = entry.path();
+        let relative_path = path
+            .strip_prefix(workdir)
+            .with_context(|| format!("failed to relativize {}", path.display()))?;
+
+        if should_skip_root_directory_path(relative_path, config) {
+            continue;
+        }
+
+        let file_type = entry
+            .file_type()
+            .with_context(|| format!("failed to inspect {}", path.display()))?;
+        if file_type.is_dir() {
+            if repo.status_should_ignore(relative_path).with_context(|| {
+                format!("failed to evaluate gitignore rules for {}", path.display())
+            })? {
+                continue;
+            }
+            collect_untracked_file_paths_sync(repo, workdir, &path, config, paths)?;
+            continue;
+        }
+        if !file_type.is_file() {
+            continue;
+        }
+        if repo
+            .status_should_ignore(relative_path)
+            .with_context(|| format!("failed to evaluate gitignore rules for {}", path.display()))?
+        {
+            continue;
+        }
+        paths.insert(relative_path.to_path_buf());
+    }
+    Ok(())
+}
+
+fn root_directory_file_sync(workdir: &Path, relative_path: &Path) -> Result<Option<DiffFile>> {
+    let path = workdir.join(relative_path);
+    if !path.is_file() {
+        return Ok(None);
+    }
+
+    let bytes =
+        std_fs::read(&path).with_context(|| format!("failed to read {}", path.display()))?;
+    if bytes.contains(&0) {
+        return Ok(None);
+    }
+    let content = match String::from_utf8(bytes) {
+        Ok(content) => content,
+        Err(_) => return Ok(None),
+    };
+    let display_path = normalize_relative_path(relative_path);
+    Ok(Some(diff_file_from_content(&display_path, &content)))
 }
 
 fn diff_file_from_content(path: &str, content: &str) -> DiffFile {

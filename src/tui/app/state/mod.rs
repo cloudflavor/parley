@@ -9,3 +9,5 @@ pub(crate) mod tests;
 mod text_buffer;
 pub(crate) mod thread_management;
 pub(crate) mod viewport;
+
+pub(super) use super::*;
