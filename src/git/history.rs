@@ -69,11 +69,7 @@ pub fn recent_commits(limit: usize) -> Result<Vec<CommitSummary>> {
 /// # Errors
 ///
 /// Returns an error when the git repository cannot be found or commit diffs cannot be read.
-pub fn file_heatmap(limit: usize) -> Result<Vec<FileHeatmapEntry>> {
-    if limit == 0 {
-        return Ok(Vec::new());
-    }
-
+pub fn file_heatmap() -> Result<Vec<FileHeatmapEntry>> {
     let repo = Repository::discover(".").context("failed to locate git repository")?;
     let mut revwalk = repo.revwalk().context("failed to create git revwalk")?;
     revwalk
@@ -84,7 +80,7 @@ pub fn file_heatmap(limit: usize) -> Result<Vec<FileHeatmapEntry>> {
         .context("failed to start git revwalk from HEAD")?;
 
     let mut stats: HashMap<String, FileHeatmapStats> = HashMap::new();
-    for oid_result in revwalk.take(limit) {
+    for oid_result in revwalk {
         let oid = oid_result.context("failed to walk git history")?;
         let commit = repo
             .find_commit(oid)
@@ -232,7 +228,7 @@ mod tests {
 
         let previous_dir = std::env::current_dir()?;
         std::env::set_current_dir(temp.path())?;
-        let entries = file_heatmap(100);
+        let entries = file_heatmap();
         std::env::set_current_dir(previous_dir)?;
         let entries = entries?;
 

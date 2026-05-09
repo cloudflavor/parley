@@ -20,7 +20,7 @@ use crate::domain::diff::DiffLineKind;
 
 use super::ThreadDensityMode;
 use super::{
-    CommandPromptMode, DiffPane, InlineDraftMode, InlineFileMentionState,
+    CommandPromptMode, DiffPane, FileHeatmapSortMode, InlineDraftMode, InlineFileMentionState,
     InlineFileReferencePickerState, SettingsEditorKind, TuiApp,
 };
 

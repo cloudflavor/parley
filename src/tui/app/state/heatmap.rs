@@ -2,8 +2,6 @@
 
 use super::*;
 
-const FILE_HEATMAP_COMMIT_LIMIT: usize = 1_000;
-
 impl TuiApp {
     pub(crate) fn start_file_heatmap(&mut self) {
         self.dismiss_ai_progress_popup();
@@ -19,9 +17,7 @@ impl TuiApp {
             loaded_at: None,
         });
         self.file_heatmap_started_at = Some(Instant::now());
-        self.file_heatmap_task = Some(task::spawn_blocking(|| {
-            file_heatmap(FILE_HEATMAP_COMMIT_LIMIT)
-        }));
+        self.file_heatmap_task = Some(task::spawn_blocking(file_heatmap));
         self.status_line = "loading git file heatmap".into();
     }
 

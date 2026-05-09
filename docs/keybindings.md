@@ -73,9 +73,10 @@
 - Command palette `Open Commit Picker`: open recent commits, filter by message or SHA, and apply the selected commit as the active diff source
 - Command palette `Open Review Picker`: open reviews, filter by name or state, and apply the selected review as the active comment context
 - Command palette `Create Review`: create a new review context and switch to it
-- `M` or command palette `Show Git File Heatmap`: scan git history on demand and show file hotspots
+- `M` or command palette `Show Git File Heatmap`: scan full git history on demand and show file hotspots
 - Heatmap `s`: cycle sort (`churn`, `added`, `removed`, `commits`, `net-growth`, `net-shrink`, `volatility`, `path`)
 - Heatmap `S`: reverse sort direction
+- Heatmap color follows the active sort metric
 - `Ctrl+f`: file filter input
 - `Shift+U`: edit user name
 - `V`: toggle split diff

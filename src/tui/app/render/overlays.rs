@@ -9,7 +9,7 @@ use ratatui::{
 use super::super::helpers::{format_comment_reference, slice_chars};
 use super::helpers::{compute_scroll, fit_to_width, wrap_markdown_lines};
 use super::status::spinner_frame;
-use super::{CommandPromptMode, TuiApp};
+use super::{CommandPromptMode, FileHeatmapSortMode, TuiApp};
 use crate::git::history::FileHeatmapEntry;
 use crate::tui::app::help_docs::HELP_DOCS;
 use crate::tui::theme::ThemeColors;
@@ -201,7 +201,7 @@ pub(super) fn draw_file_heatmap_overlay(frame: &mut Frame<'_>, app: &mut TuiApp)
     let content_width = usize::from(area.width.saturating_sub(2)).max(1);
     let list_rows = inner_height.saturating_sub(3).max(1);
     let loading = app.file_heatmap_is_loading();
-    let (entries, raw_scroll, loaded_at, sort_label, sort_direction) = app
+    let (entries, raw_scroll, loaded_at, sort_mode, sort_label, sort_direction) = app
         .file_heatmap
         .as_ref()
         .map(|heatmap| {
@@ -209,11 +209,21 @@ pub(super) fn draw_file_heatmap_overlay(frame: &mut Frame<'_>, app: &mut TuiApp)
                 heatmap.entries.clone(),
                 heatmap.scroll,
                 heatmap.loaded_at.is_some(),
+                heatmap.sort_mode,
                 heatmap.sort_mode.label(),
                 heatmap.sort_direction_label(),
             )
         })
-        .unwrap_or_else(|| (Vec::new(), 0, false, "churn", "desc"));
+        .unwrap_or_else(|| {
+            (
+                Vec::new(),
+                0,
+                false,
+                FileHeatmapSortMode::Churn,
+                "churn",
+                "desc",
+            )
+        });
     let max_scroll = entries.len().saturating_sub(list_rows);
     let scroll = raw_scroll.min(max_scroll);
     if let Some(heatmap) = app.file_heatmap.as_mut() {
@@ -248,10 +258,14 @@ pub(super) fn draw_file_heatmap_overlay(frame: &mut Frame<'_>, app: &mut TuiApp)
             Style::default().fg(colors.text_muted),
         )));
     } else {
-        let max_changes = entries.iter().map(|entry| entry.changes).max().unwrap_or(1);
+        let max_heat = entries
+            .iter()
+            .map(|entry| heatmap_metric_value(entry, sort_mode))
+            .max()
+            .unwrap_or(1);
         lines.push(Line::from(Span::styled(
             format!(
-                "sort: {sort_label} {sort_direction} | heat: red hottest, blue high, green medium, gray low"
+                "sort: {sort_label} {sort_direction} | heat follows sort metric: red hottest, blue high, green medium, gray low"
             ),
             Style::default().fg(colors.text_muted),
         )));
@@ -260,7 +274,8 @@ pub(super) fn draw_file_heatmap_overlay(frame: &mut Frame<'_>, app: &mut TuiApp)
             lines.push(file_heatmap_line(
                 index + 1,
                 entry,
-                max_changes,
+                sort_mode,
+                max_heat,
                 content_width,
                 &colors,
             ));
@@ -299,7 +314,8 @@ pub(super) fn draw_file_heatmap_overlay(frame: &mut Frame<'_>, app: &mut TuiApp)
 fn file_heatmap_line(
     rank: usize,
     entry: &FileHeatmapEntry,
-    max_changes: usize,
+    sort_mode: FileHeatmapSortMode,
+    max_heat: isize,
     width: usize,
     colors: &ThemeColors,
 ) -> Line<'static> {
@@ -317,7 +333,11 @@ fn file_heatmap_line(
         format!("{rank:>4} "),
         Style::default().fg(colors.text_muted),
     )];
-    spans.push(heatmap_cell(entry.changes, max_changes, colors));
+    spans.push(heatmap_cell(
+        heatmap_metric_value(entry, sort_mode),
+        max_heat,
+        colors,
+    ));
     spans.push(Span::raw(format!(
         " {changes:>8} {commits:>7} +{insertions}/-{deletions} ",
         changes = entry.changes,
@@ -327,6 +347,19 @@ fn file_heatmap_line(
     )));
     spans.push(Span::styled(path, Style::default().fg(colors.text_primary)));
     Line::from(spans)
+}
+
+fn heatmap_metric_value(entry: &FileHeatmapEntry, sort_mode: FileHeatmapSortMode) -> isize {
+    match sort_mode {
+        FileHeatmapSortMode::Churn => entry.changes as isize,
+        FileHeatmapSortMode::Added => entry.insertions as isize,
+        FileHeatmapSortMode::Removed => entry.deletions as isize,
+        FileHeatmapSortMode::Commits => entry.commits as isize,
+        FileHeatmapSortMode::NetGrowth => entry.insertions as isize - entry.deletions as isize,
+        FileHeatmapSortMode::NetShrink => entry.deletions as isize - entry.insertions as isize,
+        FileHeatmapSortMode::Volatility => entry.changes.saturating_mul(entry.commits) as isize,
+        FileHeatmapSortMode::Path => entry.changes as isize,
+    }
 }
 
 fn file_heatmap_header(colors: &ThemeColors) -> Line<'static> {
@@ -340,15 +373,15 @@ fn file_heatmap_header(colors: &ThemeColors) -> Line<'static> {
     ])
 }
 
-fn heatmap_cell(value: usize, max_value: usize, colors: &ThemeColors) -> Span<'static> {
+fn heatmap_cell(value: isize, max_value: isize, colors: &ThemeColors) -> Span<'static> {
     Span::styled(
         "  ".to_string(),
         heat_cell_style(heat_level(value, max_value), colors),
     )
 }
 
-fn heat_level(value: usize, max_value: usize) -> usize {
-    if value == 0 || max_value == 0 {
+fn heat_level(value: isize, max_value: isize) -> usize {
+    if value <= 0 || max_value <= 0 {
         return 0;
     }
 
@@ -847,7 +880,7 @@ mod heatmap_tests {
         let themes = crate::tui::theme::load_themes()?;
         let colors = &themes[0].colors;
 
-        let line = file_heatmap_line(1, &entry, 4, 80, colors);
+        let line = file_heatmap_line(1, &entry, FileHeatmapSortMode::Churn, 4, 80, colors);
 
         assert_eq!(line.spans.len(), 4);
         Ok(())
@@ -860,5 +893,26 @@ mod heatmap_tests {
         assert_eq!(heat_level(2, 10), 2);
         assert_eq!(heat_level(4, 10), 3);
         assert_eq!(heat_level(10, 10), 4);
+    }
+
+    #[test]
+    fn heatmap_metric_value_follows_sort_mode() {
+        let entry = FileHeatmapEntry {
+            path: "src/hot.rs".to_string(),
+            commits: 3,
+            changes: 10,
+            insertions: 7,
+            deletions: 3,
+        };
+
+        assert_eq!(heatmap_metric_value(&entry, FileHeatmapSortMode::Added), 7);
+        assert_eq!(
+            heatmap_metric_value(&entry, FileHeatmapSortMode::Volatility),
+            30
+        );
+        assert_eq!(
+            heatmap_metric_value(&entry, FileHeatmapSortMode::NetShrink),
+            -4
+        );
     }
 }
