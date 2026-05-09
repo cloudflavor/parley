@@ -128,6 +128,7 @@ mod tests {
         diff::{DiffDocument, DiffFile, DiffHunk, DiffLine, DiffLineKind},
         review::{LineAnchorSnapshot, ReviewSession, ReviewState},
     };
+    use crate::git::diff::DiffSource;
     use crate::persistence::store::Store;
     use crate::tui::app::{InlineFileReferencePickerState, TuiAppInit};
     use crate::tui::theme::load_themes;
@@ -349,6 +350,37 @@ mod tests {
             .ok_or_else(|| anyhow!("active row should exist"))?;
         assert_eq!(active_row.new_line, Some(11));
         assert_eq!(app.status_line, "opened src/target.rs:11");
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn code_search_hydrates_root_placeholder_before_opening_match_line() -> Result<()> {
+        let path = "src/tui/app/input/code_search.rs";
+        let mut app = make_test_app(vec![path])?;
+        app.diff_source = DiffSource::RootDirectory;
+        app.code_search = Some(CodeSearchState {
+            query: "use".into(),
+            cursor_col: 3,
+            results: vec![CodeSearchResult {
+                path: path.into(),
+                line: 1,
+                column: 1,
+                text: "use std::io::ErrorKind;".into(),
+            }],
+            selected_index: 0,
+            scroll: 0,
+            engine: Some("rg"),
+            message: "1 match via rg".into(),
+        });
+
+        app.open_code_search_result_at_index(0).await?;
+
+        let active_row = app
+            .current_rows()
+            .get(app.active_line_index())
+            .ok_or_else(|| anyhow!("active row should exist"))?;
+        assert_eq!(active_row.new_line, Some(1));
+        assert!(app.root_hydrated_files.contains(&0));
         Ok(())
     }
 

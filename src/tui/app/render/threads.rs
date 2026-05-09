@@ -4,13 +4,14 @@ use ratatui::{
 };
 
 use crate::domain::reference::parse_file_references;
+use crate::domain::review::DiffSide;
+use crate::git::diff::DiffSource;
 use crate::tui::theme::ThemeColors;
 
 use super::super::helpers::{format_comment_reference, format_timestamp_utc};
 use super::helpers::{
-    CompactThreadRowSpec, compact_preview, compute_compact_thread_content_width,
-    compute_thread_inner_width, fit_to_width, line_plain_text, push_compact_thread_row,
-    wrap_markdown_lines,
+    CompactThreadRowSpec, compact_preview, compute_compact_thread_content_width, fit_to_width,
+    line_plain_text, push_compact_thread_row, wrap_markdown_lines,
 };
 use super::status::{comment_status_label, comment_status_style};
 use super::{FileReferenceHit, TuiApp};
@@ -34,6 +35,11 @@ pub(super) fn render_comment_thread(
     let comment = spec.comment;
     let colors = &app.theme().colors;
     let expanded = app.is_thread_expanded(comment.id, spec.selected_comment_id);
+    let layout = comment_thread_layout(
+        app.side_by_side_diff && !matches!(app.diff_source, DiffSource::RootDirectory),
+        comment.side.clone(),
+        spec.pane_inner_width,
+    );
 
     if matches!(app.thread_density_mode, super::ThreadDensityMode::Compact) && !expanded {
         let comment_preview = format!(
@@ -50,8 +56,9 @@ pub(super) fn render_comment_thread(
             link_hits,
             CompactThreadRowSpec {
                 source_row_index: spec.source_row_index,
-                indent: 8,
-                width: compute_compact_thread_content_width(spec.pane_inner_width, 8),
+                indent: layout.indent,
+                width: compute_compact_thread_content_width(spec.pane_inner_width, layout.indent)
+                    .min(layout.outer_width),
                 text: &comment_preview,
                 style: Style::default().fg(colors.comment_title),
                 colors,
@@ -71,8 +78,12 @@ pub(super) fn render_comment_thread(
                 link_hits,
                 CompactThreadRowSpec {
                     source_row_index: spec.source_row_index,
-                    indent: 10,
-                    width: compute_compact_thread_content_width(spec.pane_inner_width, 10),
+                    indent: layout.reply_indent,
+                    width: compute_compact_thread_content_width(
+                        spec.pane_inner_width,
+                        layout.reply_indent,
+                    )
+                    .min(layout.reply_outer_width),
                     text: &reply_preview,
                     style: Style::default().fg(colors.reply_title),
                     colors,
@@ -83,7 +94,6 @@ pub(super) fn render_comment_thread(
     }
 
     let status = comment_status_label(&comment.status);
-    let inner_width = compute_thread_inner_width(spec.pane_inner_width, 12);
     let comment_title_prefix = format!("comment #{} [", comment.id);
     let comment_header = format!(
         "{} | {}",
@@ -96,8 +106,8 @@ pub(super) fn render_comment_thread(
         link_hits,
         ThreadBoxSpec {
             source_row_index: spec.source_row_index,
-            indent: 12,
-            inner_width,
+            indent: layout.indent,
+            inner_width: layout.inner_width,
             header: &comment_header,
             title_prefix: &comment_title_prefix,
             title_status: Some(status),
@@ -123,8 +133,8 @@ pub(super) fn render_comment_thread(
             link_hits,
             ThreadBoxSpec {
                 source_row_index: spec.source_row_index,
-                indent: 14,
-                inner_width: compute_thread_inner_width(spec.pane_inner_width, 14),
+                indent: layout.reply_indent,
+                inner_width: layout.reply_inner_width,
                 header: &reply_header,
                 title_prefix: &reply_title,
                 title_status: None,
@@ -136,6 +146,63 @@ pub(super) fn render_comment_thread(
                 colors,
             },
         );
+    }
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) struct CommentThreadLayout {
+    pub(super) indent: usize,
+    pub(super) inner_width: usize,
+    pub(super) outer_width: usize,
+    pub(super) reply_indent: usize,
+    pub(super) reply_inner_width: usize,
+    pub(super) reply_outer_width: usize,
+}
+
+pub(super) fn comment_thread_layout(
+    side_by_side_diff: bool,
+    side: DiffSide,
+    pane_inner_width: usize,
+) -> CommentThreadLayout {
+    let (indent, outer_width) = if side_by_side_diff {
+        let fixed_cols = 20usize;
+        let code_cols = pane_inner_width.saturating_sub(fixed_cols).max(2);
+        let left_width = (code_cols / 2).max(1);
+        let right_width = (code_cols - left_width).max(1);
+        match side {
+            DiffSide::Left => (1, left_width.saturating_add(8).min(pane_inner_width)),
+            DiffSide::Right => {
+                let right_start = left_width.saturating_add(11);
+                (
+                    right_start.min(pane_inner_width.saturating_sub(8)),
+                    right_width.saturating_add(8),
+                )
+            }
+        }
+    } else {
+        (12, pane_inner_width.saturating_sub(12))
+    };
+
+    let outer_width = outer_width
+        .min(pane_inner_width.saturating_sub(indent))
+        .max(12);
+    let inner_width = outer_width.saturating_sub(4).max(8);
+    let reply_indent = indent
+        .saturating_add(2)
+        .min(pane_inner_width.saturating_sub(8));
+    let reply_outer_width = outer_width
+        .saturating_sub(2)
+        .min(pane_inner_width.saturating_sub(reply_indent))
+        .max(10);
+    let reply_inner_width = reply_outer_width.saturating_sub(4).max(8);
+
+    CommentThreadLayout {
+        indent,
+        inner_width,
+        outer_width,
+        reply_indent,
+        reply_inner_width,
+        reply_outer_width,
     }
 }
 

@@ -4,7 +4,7 @@ use anyhow::{Context, Result};
 use tokio::process::Command;
 
 use super::*;
-use crate::git::diff::load_root_directory_file;
+use crate::git::diff::{DiffSource, load_root_directory_file};
 
 const CODE_SEARCH_MAX_RESULTS: usize = 200;
 const GREP_FILE_CHUNK_SIZE: usize = 200;
@@ -209,6 +209,8 @@ impl TuiApp {
             return Ok(());
         };
 
+        self.hydrate_code_search_file_if_needed(file_index, &result.path)
+            .await?;
         self.select_file(file_index);
         self.ensure_row_cache_for_file(file_index);
         let opened = self.goto_line_number(result.line);
@@ -218,6 +220,35 @@ impl TuiApp {
         } else {
             format!("opened {} (line {} not in view)", result.path, result.line)
         };
+        Ok(())
+    }
+
+    async fn hydrate_code_search_file_if_needed(
+        &mut self,
+        file_index: usize,
+        path: &str,
+    ) -> Result<()> {
+        if !matches!(self.diff_source, DiffSource::RootDirectory)
+            || self.root_hydrated_files.contains(&file_index)
+            || self
+                .diff
+                .files
+                .get(file_index)
+                .is_some_and(|file| !file.hunks.is_empty())
+        {
+            return Ok(());
+        }
+
+        if let Some(file) = load_root_directory_file(&self.config, path.to_string())
+            .await
+            .with_context(|| format!("failed to load {path}"))?
+            && let Some(slot) = self.diff.files.get_mut(file_index)
+        {
+            *slot = file;
+            self.root_hydrated_files.insert(file_index);
+            self.row_cache.remove(&file_index);
+            self.clear_diff_render_cache_for_file(file_index);
+        }
         Ok(())
     }
 }

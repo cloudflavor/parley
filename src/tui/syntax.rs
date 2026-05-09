@@ -122,6 +122,9 @@ fn fallback_known_syntax(
         Some("ts" | "tsx") => {
             syntax_by_name_or_extension(&["TypeScript", "JavaScript"], &["ts", "js"])
         }
+        Some("svelte" | "vue" | "astro") => {
+            syntax_by_name_or_extension(&["HTML", "JavaScript"], &["html", "js"])
+        }
         Some("go") => syntax_by_name_or_extension(&["Go"], &["go"]),
         Some("java") => syntax_by_name_or_extension(&["Java"], &["java"]),
         Some("kt" | "kts") => syntax_by_name_or_extension(&["Kotlin", "Java"], &["kt", "java"]),
@@ -275,6 +278,9 @@ mod tests {
             "component.jsx",
             "lib.ts",
             "component.tsx",
+            "page.svelte",
+            "component.vue",
+            "page.astro",
             "main.go",
             "Main.java",
             "main.cpp",
@@ -318,6 +324,40 @@ mod tests {
             foregrounds.len() > 1,
             "TypeScript should receive multiple syntect foreground colors"
         );
+        Ok(())
+    }
+
+    #[test]
+    fn syntax_painter_highlights_svelte_and_jsx_family_files() -> Result<()> {
+        let themes = crate::tui::theme::load_themes()?;
+        let colors = &themes
+            .first()
+            .ok_or_else(|| anyhow!("expected at least one theme"))?
+            .colors;
+
+        for (path, line) in [
+            ("vindue/src/routes/sql/+page.svelte", "<script lang=\"ts\">"),
+            (
+                "src/components/button.jsx",
+                "export function Button() { return <button>Save</button>; }",
+            ),
+            (
+                "src/components/button.tsx",
+                "export function Button(): JSX.Element { return <button>Save</button>; }",
+            ),
+        ] {
+            let mut painter = SyntaxPainter::for_path(path, colors);
+            let parts = painter.highlight(line, colors);
+            let foregrounds = parts
+                .iter()
+                .filter_map(|(style, _)| style.fg)
+                .collect::<HashSet<_>>();
+
+            assert!(
+                foregrounds.len() > 1,
+                "{path} should receive multiple syntax foreground colors"
+            );
+        }
         Ok(())
     }
 }

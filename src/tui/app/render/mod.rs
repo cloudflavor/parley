@@ -234,13 +234,16 @@ mod tests {
     use anyhow::{Result, anyhow};
 
     use super::diff::{
-        build_unified_row_lines, inline_comment_editor_area, keep_source_row_range_visible,
-        source_row_visual_range,
+        build_side_by_side_row_lines, build_unified_row_lines, editor_cursor_visual_position,
+        inline_comment_editor_area, keep_source_row_range_visible, source_row_visual_range,
+        wrap_editor_buffer_lines,
     };
     use super::helpers::line_plain_text;
     use super::status::{build_status_field_line, truncate_with_ellipsis};
+    use super::threads::comment_thread_layout;
     use super::*;
     use crate::domain::diff::DiffLineKind;
+    use crate::domain::review::DiffSide;
     use crate::tui::app::state::tests::{
         diff_file_with_context_lines, make_test_app_with_files_and_comments,
     };
@@ -409,6 +412,72 @@ mod tests {
 
         assert_eq!(rendered[0].style.bg, Some(colors.selected_line_bg));
         Ok(())
+    }
+
+    #[test]
+    fn side_by_side_added_background_stays_on_right_side() -> Result<()> {
+        let colors = test_colors()?;
+        let highlighted_segments =
+            vec![(Style::default().fg(colors.text_primary), "changed".into())];
+        let row = DisplayRow {
+            kind: DiffLineKind::Added,
+            old_line: None,
+            new_line: Some(8),
+            raw: "+changed".to_string(),
+            code: "changed".to_string(),
+        };
+
+        let rendered =
+            build_side_by_side_row_lines(&row, &highlighted_segments, false, false, 80, &colors);
+
+        let text = line_plain_text(&rendered[0]);
+        let separator_index = text
+            .find(" │ ")
+            .ok_or_else(|| anyhow!("side-by-side separator should exist"))?;
+        let mut seen_columns = 0usize;
+        for span in &rendered[0].spans {
+            let span_width = span.content.chars().count();
+            if seen_columns + span_width <= separator_index {
+                assert!(
+                    span.style.bg.is_none(),
+                    "left side of added row should not be shaded"
+                );
+            } else if seen_columns > separator_index {
+                assert!(
+                    span.style.bg.is_some(),
+                    "right side of added row should be shaded"
+                );
+            }
+            seen_columns = seen_columns.saturating_add(span_width);
+        }
+        Ok(())
+    }
+
+    #[test]
+    fn inline_comment_editor_wraps_long_logical_lines() {
+        let lines = vec!["alpha beta infest".to_string()];
+
+        let wrapped = wrap_editor_buffer_lines(&lines, 11);
+        let wrapped_text = wrapped
+            .iter()
+            .map(|line| line.text.as_str())
+            .collect::<Vec<_>>();
+
+        assert_eq!(wrapped_text, vec!["alpha beta ", "infest"]);
+        assert_eq!(editor_cursor_visual_position(&lines, 0, 15, 11), (1, 4));
+    }
+
+    #[test]
+    fn side_by_side_comment_thread_layout_stays_with_comment_side() {
+        let pane_inner_width = 100usize;
+
+        let left = comment_thread_layout(true, DiffSide::Left, pane_inner_width);
+        let right = comment_thread_layout(true, DiffSide::Right, pane_inner_width);
+
+        assert!(left.indent < pane_inner_width / 2);
+        assert!(left.indent + left.outer_width <= pane_inner_width / 2);
+        assert!(right.indent >= pane_inner_width / 2);
+        assert!(right.indent + right.outer_width <= pane_inner_width);
     }
 
     #[test]

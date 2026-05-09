@@ -585,7 +585,7 @@ pub(super) fn build_unified_row_lines(
     out
 }
 
-fn build_side_by_side_row_lines(
+pub(super) fn build_side_by_side_row_lines(
     row: &DisplayRow,
     highlighted_segments: &[(Style, String)],
     is_selected: bool,
@@ -612,7 +612,23 @@ fn build_side_by_side_row_lines(
     let code_cols = pane_inner_width.saturating_sub(fixed_cols).max(2);
     let left_width = (code_cols / 2).max(1);
     let right_width = (code_cols - left_width).max(1);
-    let row_background = diff_line_background(&row.kind, colors);
+    let left_background = side_by_side_line_background(
+        &row.kind,
+        DiffSideColumn::Left,
+        is_selected,
+        is_active,
+        colors,
+    );
+    let right_background = side_by_side_line_background(
+        &row.kind,
+        DiffSideColumn::Right,
+        is_selected,
+        is_active,
+        colors,
+    );
+    let separator_background =
+        (is_selected && is_active && matches!(row.kind, DiffLineKind::Context))
+            .then_some(colors.selected_line_bg);
 
     let left_sign_style = if matches!(row.kind, DiffLineKind::Removed) {
         Style::default()
@@ -671,7 +687,7 @@ fn build_side_by_side_row_lines(
                 } else {
                     " ".repeat(6)
                 },
-                Style::default().fg(colors.text_muted),
+                apply_background(Style::default().fg(colors.text_muted), left_background),
             ),
             Span::styled(
                 if visual_index == 0 && matches!(row.kind, DiffLineKind::Removed) {
@@ -679,9 +695,9 @@ fn build_side_by_side_row_lines(
                 } else {
                     " "
                 },
-                left_sign_style,
+                apply_background(left_sign_style, left_background),
             ),
-            Span::raw(" "),
+            Span::styled(" ", apply_background(Style::default(), left_background)),
         ];
 
         spans.extend(
@@ -690,11 +706,15 @@ fn build_side_by_side_row_lines(
                 .cloned()
                 .unwrap_or_else(|| blank_line(left_width, Style::default().fg(colors.text_primary)))
                 .spans
-                .into_iter(),
+                .into_iter()
+                .map(|span| apply_span_background(span, left_background)),
         );
         spans.push(Span::styled(
             " │ ",
-            Style::default().fg(colors.thread_border),
+            apply_background(
+                Style::default().fg(colors.thread_border),
+                separator_background,
+            ),
         ));
         spans.push(Span::styled(
             if visual_index == 0 {
@@ -702,7 +722,7 @@ fn build_side_by_side_row_lines(
             } else {
                 " ".repeat(6)
             },
-            Style::default().fg(colors.text_muted),
+            apply_background(Style::default().fg(colors.text_muted), right_background),
         ));
         spans.push(Span::styled(
             if visual_index == 0 && matches!(row.kind, DiffLineKind::Added) {
@@ -710,9 +730,12 @@ fn build_side_by_side_row_lines(
             } else {
                 " "
             },
-            right_sign_style,
+            apply_background(right_sign_style, right_background),
         ));
-        spans.push(Span::raw(" "));
+        spans.push(Span::styled(
+            " ",
+            apply_background(Style::default(), right_background),
+        ));
         spans.extend(
             right_lines
                 .get(visual_index)
@@ -721,26 +744,59 @@ fn build_side_by_side_row_lines(
                     blank_line(right_width, Style::default().fg(colors.text_primary))
                 })
                 .spans
-                .into_iter(),
+                .into_iter()
+                .map(|span| apply_span_background(span, right_background)),
         );
 
-        let line_style = if is_selected && is_active {
-            Some(
-                Style::default()
-                    .bg(colors.selected_line_bg)
-                    .add_modifier(Modifier::BOLD),
-            )
-        } else {
-            row_background.map(|background| Style::default().bg(background))
-        };
-        let line = if let Some(style) = line_style {
-            Line::from(spans).patch_style(style)
+        let line = if is_selected && is_active {
+            Line::from(spans).patch_style(Style::default().add_modifier(Modifier::BOLD))
         } else {
             Line::from(spans)
         };
         out.push(line);
     }
     out
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum DiffSideColumn {
+    Left,
+    Right,
+}
+
+fn side_by_side_line_background(
+    kind: &DiffLineKind,
+    column: DiffSideColumn,
+    is_selected: bool,
+    is_active: bool,
+    colors: &ThemeColors,
+) -> Option<Color> {
+    if is_selected && is_active {
+        return match (kind, column) {
+            (DiffLineKind::Removed | DiffLineKind::Context, DiffSideColumn::Left)
+            | (DiffLineKind::Added | DiffLineKind::Context, DiffSideColumn::Right) => {
+                Some(colors.selected_line_bg)
+            }
+            _ => None,
+        };
+    }
+
+    match (kind, column) {
+        (DiffLineKind::Removed, DiffSideColumn::Left) => diff_line_background(kind, colors),
+        (DiffLineKind::Added, DiffSideColumn::Right) => diff_line_background(kind, colors),
+        _ => None,
+    }
+}
+
+fn apply_span_background(mut span: Span<'static>, background: Option<Color>) -> Span<'static> {
+    if let Some(background) = background {
+        span.style = span.style.bg(background);
+    }
+    span
+}
+
+fn apply_background(style: Style, background: Option<Color>) -> Style {
+    background.map_or(style, |background| style.bg(background))
 }
 
 fn diff_line_background(kind: &DiffLineKind, colors: &ThemeColors) -> Option<Color> {
@@ -893,22 +949,23 @@ pub(super) fn draw_inline_comment_editor(frame: &mut Frame<'_>, app: &TuiApp, ar
 
     let inner_width = usize::from(editor_area.width.saturating_sub(2));
     let inner_height = usize::from(editor_area.height.saturating_sub(2));
-    let text_height = inner_height.saturating_sub(1).max(1);
+    let footer_rows = if line_picker.is_some() { 2 } else { 1 };
+    let text_height = inner_height.saturating_sub(footer_rows).max(1);
 
-    let cursor_line = inline.buffer.cursor_line;
-    let cursor_col = inline.buffer.cursor_col;
-    let vertical_scroll = cursor_line.saturating_sub(text_height.saturating_sub(1));
-    let horizontal_scroll = cursor_col.saturating_sub(inner_width.saturating_sub(1));
+    let wrapped_lines = wrap_editor_buffer_lines(&inline.buffer.lines, inner_width);
+    let (cursor_visual_line, cursor_visual_col) = editor_cursor_visual_position(
+        &inline.buffer.lines,
+        inline.buffer.cursor_line,
+        inline.buffer.cursor_col,
+        inner_width,
+    );
+    let vertical_scroll = cursor_visual_line.saturating_sub(text_height.saturating_sub(1));
 
     let mut content = Vec::new();
     for offset in 0..text_height {
-        let idx = vertical_scroll + offset;
-        if let Some(line) = inline.buffer.lines.get(idx) {
-            content.push(Line::from(super::super::helpers::slice_chars(
-                line,
-                horizontal_scroll,
-                inner_width,
-            )));
+        let visual_idx = vertical_scroll + offset;
+        if let Some(line) = wrapped_lines.get(visual_idx) {
+            content.push(Line::from(line.text.clone()));
         } else {
             content.push(Line::from(""));
         }
@@ -931,14 +988,12 @@ pub(super) fn draw_inline_comment_editor(frame: &mut Frame<'_>, app: &TuiApp, ar
     let cursor_x = editor_area
         .x
         .saturating_add(1)
-        .saturating_add(usize_to_u16_saturating(
-            cursor_col.saturating_sub(horizontal_scroll),
-        ));
+        .saturating_add(usize_to_u16_saturating(cursor_visual_col));
     let cursor_y = editor_area
         .y
         .saturating_add(1)
         .saturating_add(usize_to_u16_saturating(
-            cursor_line.saturating_sub(vertical_scroll),
+            cursor_visual_line.saturating_sub(vertical_scroll),
         ));
 
     if let Some(mention) = inline.file_mention.as_ref() {
@@ -946,6 +1001,103 @@ pub(super) fn draw_inline_comment_editor(frame: &mut Frame<'_>, app: &TuiApp, ar
     }
 
     frame.set_cursor_position((cursor_x, cursor_y));
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub(super) struct WrappedEditorLine {
+    pub(super) text: String,
+    start_col: usize,
+    end_col: usize,
+}
+
+pub(super) fn wrap_editor_buffer_lines(lines: &[String], width: usize) -> Vec<WrappedEditorLine> {
+    let width = width.max(1);
+    let mut out = Vec::new();
+    for line in lines {
+        out.extend(wrap_editor_line(line, width));
+    }
+    if out.is_empty() {
+        out.push(WrappedEditorLine {
+            text: String::new(),
+            start_col: 0,
+            end_col: 0,
+        });
+    }
+    out
+}
+
+fn wrap_editor_line(line: &str, width: usize) -> Vec<WrappedEditorLine> {
+    let chars = line.chars().collect::<Vec<_>>();
+    if chars.is_empty() {
+        return vec![WrappedEditorLine {
+            text: String::new(),
+            start_col: 0,
+            end_col: 0,
+        }];
+    }
+
+    let mut out = Vec::new();
+    let mut start = 0usize;
+    while start < chars.len() {
+        let hard_end = (start + width).min(chars.len());
+        if hard_end == chars.len() {
+            out.push(WrappedEditorLine {
+                text: chars[start..hard_end].iter().collect(),
+                start_col: start,
+                end_col: hard_end,
+            });
+            break;
+        }
+
+        let break_after = chars[start + 1..hard_end]
+            .iter()
+            .rposition(|ch| ch.is_whitespace())
+            .map(|position| start + 1 + position + 1);
+        let (end, next_start) = break_after.map_or((hard_end, hard_end), |end| {
+            let mut next = end;
+            while next < chars.len() && chars[next].is_whitespace() {
+                next += 1;
+            }
+            (end, next)
+        });
+
+        out.push(WrappedEditorLine {
+            text: chars[start..end].iter().collect(),
+            start_col: start,
+            end_col: next_start,
+        });
+        start = next_start;
+    }
+    out
+}
+
+pub(super) fn editor_cursor_visual_position(
+    lines: &[String],
+    cursor_line: usize,
+    cursor_col: usize,
+    width: usize,
+) -> (usize, usize) {
+    let width = width.max(1);
+    let mut visual_line = 0usize;
+    for (line_index, line) in lines.iter().enumerate() {
+        if line_index == cursor_line {
+            let wrapped = wrap_editor_line(line, width);
+            let char_count = line.chars().count();
+            let cursor_col = cursor_col.min(char_count);
+            for (offset, wrapped_line) in wrapped.iter().enumerate() {
+                let is_last = offset == wrapped.len().saturating_sub(1);
+                if cursor_col < wrapped_line.end_col || is_last {
+                    return (
+                        visual_line.saturating_add(offset),
+                        cursor_col.saturating_sub(wrapped_line.start_col),
+                    );
+                }
+            }
+            return (visual_line, 0);
+        }
+        visual_line = visual_line.saturating_add(wrap_editor_line(line, width).len());
+    }
+    (visual_line, 0)
 }
 
 pub(super) fn inline_comment_editor_area(area: Rect) -> Option<Rect> {

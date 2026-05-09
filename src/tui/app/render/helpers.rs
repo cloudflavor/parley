@@ -132,6 +132,50 @@ pub(super) fn wrap_styled_line(line: &Line<'_>, width: usize) -> Vec<Line<'stati
     out
 }
 
+pub(super) fn wrap_styled_line_words(line: &Line<'_>, width: usize) -> Vec<Line<'static>> {
+    if width == 0 {
+        return vec![Line::from("")];
+    }
+
+    let mut styled_chars: Vec<(Style, char)> = Vec::new();
+    let mut column = 0usize;
+    for span in &line.spans {
+        for ch in span.content.chars() {
+            push_render_char(&mut styled_chars, span.style, ch, &mut column);
+        }
+    }
+
+    if styled_chars.is_empty() {
+        return vec![Line::from("")];
+    }
+
+    let mut out = Vec::new();
+    let mut start = 0usize;
+    while start < styled_chars.len() {
+        let hard_end = (start + width).min(styled_chars.len());
+        if hard_end == styled_chars.len() {
+            out.push(line_from_styled_chars(&styled_chars[start..hard_end]));
+            break;
+        }
+
+        let break_after = styled_chars[start + 1..hard_end]
+            .iter()
+            .rposition(|(_, ch)| ch.is_whitespace())
+            .map(|position| start + 1 + position + 1);
+
+        let (end, next_start) = break_after.map_or((hard_end, hard_end), |end| {
+            let mut next = end;
+            while next < styled_chars.len() && styled_chars[next].1.is_whitespace() {
+                next += 1;
+            }
+            (end, next)
+        });
+        out.push(line_from_styled_chars(&styled_chars[start..end]));
+        start = next_start;
+    }
+    out
+}
+
 pub(super) fn line_from_styled_chars(chars: &[(Style, char)]) -> Line<'static> {
     if chars.is_empty() {
         return Line::from("");
@@ -302,7 +346,7 @@ pub(super) fn wrap_markdown_lines(
 
     let mut out = Vec::new();
     for line in super::markdown::render_markdown(input, colors) {
-        out.extend(wrap_styled_line(&line, width));
+        out.extend(wrap_styled_line_words(&line, width));
     }
     if out.is_empty() {
         out.push(Line::from(""));
@@ -333,7 +377,7 @@ pub(super) fn push_compact_thread_row(
         text_style,
         spec.colors,
     );
-    let wrapped = wrap_styled_line(&Line::from(text_spans), spec.width.max(1));
+    let wrapped = wrap_styled_line_words(&Line::from(text_spans), spec.width.max(1));
 
     for wrapped_line in wrapped {
         let rendered_row_index = lines.len();
