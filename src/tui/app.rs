@@ -474,7 +474,21 @@ struct CommandPaletteItem {
 struct FileHeatmapState {
     entries: Vec<FileHeatmapEntry>,
     scroll: usize,
+    sort_mode: FileHeatmapSortMode,
+    sort_descending: bool,
     loaded_at: Option<Instant>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum FileHeatmapSortMode {
+    Churn,
+    Added,
+    Removed,
+    Commits,
+    NetGrowth,
+    NetShrink,
+    Volatility,
+    Path,
 }
 
 #[derive(Debug, Clone)]

@@ -18,6 +18,12 @@ impl TuiApp {
             KeyCode::PageDown => {
                 self.scroll_file_heatmap(10);
             }
+            KeyCode::Char('s') => {
+                self.cycle_file_heatmap_sort();
+            }
+            KeyCode::Char('S') if key.modifiers.contains(KeyModifiers::SHIFT) => {
+                self.toggle_file_heatmap_sort_direction();
+            }
             KeyCode::Home | KeyCode::Char('g') => {
                 if let Some(heatmap) = self.file_heatmap.as_mut() {
                     heatmap.scroll = 0;

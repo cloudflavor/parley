@@ -337,6 +337,7 @@ impl TuiApp {
 mod tests {
     use super::*;
     use crate::git::history::FileHeatmapEntry;
+    use crate::tui::app::FileHeatmapSortMode;
     use crate::tui::app::FileHeatmapState;
     use crate::tui::app::state::tests::make_test_app;
     use anyhow::Result;
@@ -379,6 +380,8 @@ mod tests {
                 deletions: 1,
             }],
             scroll: 0,
+            sort_mode: FileHeatmapSortMode::Churn,
+            sort_descending: true,
             loaded_at: None,
         });
         app.last_file_heatmap_area = Some(Rect {

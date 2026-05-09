@@ -201,7 +201,7 @@ pub(super) fn draw_file_heatmap_overlay(frame: &mut Frame<'_>, app: &mut TuiApp)
     let content_width = usize::from(area.width.saturating_sub(2)).max(1);
     let list_rows = inner_height.saturating_sub(3).max(1);
     let loading = app.file_heatmap_is_loading();
-    let (entries, raw_scroll, loaded_at) = app
+    let (entries, raw_scroll, loaded_at, sort_label, sort_direction) = app
         .file_heatmap
         .as_ref()
         .map(|heatmap| {
@@ -209,9 +209,11 @@ pub(super) fn draw_file_heatmap_overlay(frame: &mut Frame<'_>, app: &mut TuiApp)
                 heatmap.entries.clone(),
                 heatmap.scroll,
                 heatmap.loaded_at.is_some(),
+                heatmap.sort_mode.label(),
+                heatmap.sort_direction_label(),
             )
         })
-        .unwrap_or_else(|| (Vec::new(), 0, false));
+        .unwrap_or_else(|| (Vec::new(), 0, false, "churn", "desc"));
     let max_scroll = entries.len().saturating_sub(list_rows);
     let scroll = raw_scroll.min(max_scroll);
     if let Some(heatmap) = app.file_heatmap.as_mut() {
@@ -246,7 +248,9 @@ pub(super) fn draw_file_heatmap_overlay(frame: &mut Frame<'_>, app: &mut TuiApp)
     } else {
         let max_changes = entries.iter().map(|entry| entry.changes).max().unwrap_or(1);
         lines.push(Line::from(Span::styled(
-            "ordered by total line churn | heat: red hottest, blue high, green medium, gray low",
+            format!(
+                "sort: {sort_label} {sort_direction} | heat: red hottest, blue high, green medium, gray low"
+            ),
             Style::default().fg(colors.text_muted),
         )));
         lines.push(file_heatmap_header(&colors));
@@ -262,7 +266,7 @@ pub(super) fn draw_file_heatmap_overlay(frame: &mut Frame<'_>, app: &mut TuiApp)
     }
     lines.push(Line::from(""));
     let footer = if loaded_at {
-        "M/Esc close | j/k/PgUp/PgDn scroll | one square per file, ranked by changed lines"
+        "M/Esc close | s sort | S reverse | j/k/PgUp/PgDn scroll | one square per file"
     } else {
         "M/Esc close | scanning runs only on explicit request"
     };
