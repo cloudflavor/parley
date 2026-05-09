@@ -1,9 +1,10 @@
 # Agent Rules
 
-- **Always use the `worktree` skill to create and delete worktrees.** Load it with `skill({ name: "worktree" })` at the start of every task. Never create or remove worktrees manually.
-- Each body of work must begin in a new git worktree, not a branch in the main checkout.
+- Each body of work must begin in a new git worktree created with `git worktree`, not a branch in the main checkout.
+- Create each worktree inside the repository root under `worktrees/<body-of-work>`.
 - Run ALL commands from inside the worktree directory, never from the root checkout.
-- When work is complete and merged, clean up the worktree using the `worktree` skill.
+- When work is complete and merged, remove only the specific `worktrees/<body-of-work>` directory created for that body of work.
+- Do not delete, prune, or modify any other directories under `worktrees/`.
 - Use `fff-mcp` to find files.
 - Use the git-commit skill for creating commits. Always use -sS
 - Use context7 to search for documentation and verify implementation
