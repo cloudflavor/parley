@@ -96,7 +96,7 @@
 **Issue**: 80+ uses of `.expect()` in tests
 **Fix**: While acceptable in tests, consider using `assert!()` with custom messages for better failure diagnostics
 **Priority**: LOW - Tests are allowed to panic
-**Status**: ⏳ **PENDING** (low priority)
+**Status**: ✅ **COMPLETED** - Converted fallible test setup to `anyhow::Result` and removed `.expect()` calls from `src/`.
 
 ## Priority 4: Architecture
 
@@ -287,14 +287,17 @@ src/services/
 #### 7.1 Add `#[must_use]` attributes (16 instances)
 - Pure functions like `as_str()`, `is_side_by_side()`, `find_doc()`
 - **Benefit**: Compiler warnings if return values ignored
+- **Status**: ✅ **COMPLETED**
 
 #### 7.2 Add `# Errors` sections (40 instances)
 - Public API functions returning `Result<T>`
 - **Benefit**: Better API documentation
+- **Status**: ✅ **COMPLETED**
 
 #### 7.3 Replace `map().unwrap_or()` patterns (33 instances)
 - Use `map_or()` / `map_or_else()` instead
 - **Benefit**: Cleaner code, minor performance gain
+- **Status**: ✅ **COMPLETED**
 
 ---
 
@@ -305,10 +308,12 @@ src/services/
 - `usize` → `isize` (8 instances) - scroll calculations
 - `usize` → `u32` (4 instances) - line numbers
 - **Fix**: Use `.try_into().expect("...")` or safe cast helpers
+- **Status**: ✅ **COMPLETED** - Added saturating conversion helpers and removed targeted integer `as` casts.
 
 #### 8.2 Update `Lazy` to `LazyLock` (3 instances)
 - Use `std::sync::LazyLock` instead of `once_cell::sync::Lazy`
 - **Benefit**: Standard library, no external dependency
+- **Status**: ✅ **COMPLETED**
 
 ---
 
@@ -328,8 +333,8 @@ src/services/
 12. ✅ Split input.rs into submodules (Priority 6.2) - **COMPLETED**
 13. ✅ Split ai_session.rs into submodules (Priority 6.3) - **COMPLETED**
 14. ✅ Downsize command_palette.rs and inline_comment.rs (Priority 6.4) - **COMPLETED**
-15. ⏳ Add #[must_use] attributes (Priority 7.1) - **PENDING**
-16. ⏳ Add # Errors documentation (Priority 7.2) - **PENDING**
-17. ⏳ Replace map().unwrap_or() patterns (Priority 7.3) - **PENDING**
-18. ⏳ Add safe casting helpers (Priority 8.1) - **PENDING**
-19. ⏳ Update Lazy to LazyLock (Priority 8.2) - **PENDING**
+15. ✅ Add #[must_use] attributes (Priority 7.1) - **COMPLETED**
+16. ✅ Add # Errors documentation (Priority 7.2) - **COMPLETED**
+17. ✅ Replace map().unwrap_or() patterns (Priority 7.3) - **COMPLETED**
+18. ✅ Add safe casting helpers (Priority 8.1) - **COMPLETED**
+19. ✅ Update Lazy to LazyLock (Priority 8.2) - **COMPLETED**
