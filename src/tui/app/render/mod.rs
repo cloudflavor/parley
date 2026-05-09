@@ -290,6 +290,38 @@ mod tests {
     }
 
     #[test]
+    fn unified_rows_expand_tabs_before_rendering() -> Result<()> {
+        let colors = test_colors()?;
+        let pane_inner_width = 40usize;
+        let content = "\treturn\tvalue";
+        let row = DisplayRow {
+            kind: DiffLineKind::Context,
+            old_line: Some(7),
+            new_line: Some(7),
+            raw: format!(" {content}"),
+            code: content.to_string(),
+        };
+        let highlighted_segments = vec![(
+            Style::default().fg(colors.text_primary),
+            content.to_string(),
+        )];
+
+        let rendered = build_unified_row_lines(
+            &row,
+            &highlighted_segments,
+            false,
+            false,
+            pane_inner_width,
+            &colors,
+        );
+        let rendered_text = rendered.iter().map(line_plain_text).collect::<String>();
+
+        assert!(!rendered_text.contains('\t'));
+        assert!(rendered_text.contains("    return  value"));
+        Ok(())
+    }
+
+    #[test]
     fn status_panel_height_grows_when_terminal_has_room() {
         assert_eq!(compute_status_height(11), 3);
         assert_eq!(compute_status_height(12), 4);

@@ -8,6 +8,8 @@ use crate::tui::theme::ThemeColors;
 
 use super::FileReferenceHit;
 
+const TAB_WIDTH: usize = 4;
+
 pub(super) fn compute_scroll(selected_index: usize, viewport_height: usize) -> usize {
     if viewport_height == 0 {
         return 0;
@@ -34,9 +36,10 @@ pub(super) fn fit_spans_to_width(
     pad_style: Style,
 ) -> Vec<Span<'static>> {
     let mut styled_chars: Vec<(Style, char)> = Vec::new();
+    let mut column = 0usize;
     for span in spans {
         for ch in span.content.chars() {
-            styled_chars.push((span.style, ch));
+            push_render_char(&mut styled_chars, span.style, ch, &mut column);
         }
     }
 
@@ -74,7 +77,7 @@ pub(super) fn styled_segments_line(
     }
     let spans: Vec<Span<'static>> = segments
         .iter()
-        .map(|(style, text)| Span::styled(text.clone(), *style))
+        .flat_map(|(style, text)| spans_with_expanded_tabs(*style, text))
         .collect();
     Line::from(spans)
 }
@@ -108,9 +111,10 @@ pub(super) fn wrap_styled_line(line: &Line<'_>, width: usize) -> Vec<Line<'stati
     }
 
     let mut styled_chars: Vec<(Style, char)> = Vec::new();
+    let mut column = 0usize;
     for span in &line.spans {
         for ch in span.content.chars() {
-            styled_chars.push((span.style, ch));
+            push_render_char(&mut styled_chars, span.style, ch, &mut column);
         }
     }
 
@@ -179,9 +183,10 @@ pub(super) fn apply_search_highlighting(
     }
 
     let mut styled_chars: Vec<(Style, char)> = Vec::new();
+    let mut column = 0usize;
     for (style, text) in segments {
         for ch in text.chars() {
-            styled_chars.push((*style, ch));
+            push_render_char(&mut styled_chars, *style, ch, &mut column);
         }
     }
 
@@ -210,6 +215,27 @@ pub(super) fn apply_search_highlighting(
         .into_iter()
         .map(|span| (span.style, span.content.to_string()))
         .collect()
+}
+
+fn spans_with_expanded_tabs(style: Style, text: &str) -> Vec<Span<'static>> {
+    let mut styled_chars = Vec::new();
+    let mut column = 0usize;
+    for ch in text.chars() {
+        push_render_char(&mut styled_chars, style, ch, &mut column);
+    }
+    line_from_styled_chars(&styled_chars).spans
+}
+
+fn push_render_char(out: &mut Vec<(Style, char)>, style: Style, ch: char, column: &mut usize) {
+    if ch == '\t' {
+        let spaces = TAB_WIDTH - (*column % TAB_WIDTH);
+        out.extend(std::iter::repeat_n((style, ' '), spaces));
+        *column += spaces;
+        return;
+    }
+
+    out.push((style, ch));
+    *column += 1;
 }
 
 fn find_case_insensitive_match_ranges(input: &str, query: &str) -> Vec<(usize, usize)> {
