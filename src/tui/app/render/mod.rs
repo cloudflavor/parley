@@ -69,8 +69,8 @@ pub(crate) struct DiffRenderCacheEntry {
 use diff::draw_diff_view_for_pane;
 use modals::{draw_commit_picker, draw_review_picker, draw_settings_editor, draw_theme_picker};
 use overlays::{
-    draw_ai_progress_popup, draw_command_palette, draw_command_prompt, draw_shortcuts_modal,
-    draw_thread_navigator_overlay,
+    draw_ai_progress_popup, draw_command_palette, draw_command_prompt, draw_file_heatmap_overlay,
+    draw_shortcuts_modal, draw_thread_navigator_overlay,
 };
 use sidebar::draw_file_sidebar;
 use status::{compute_status_height, draw_status_panel, draw_status_toast};
@@ -84,7 +84,9 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &mut TuiApp) {
         || app.commit_picker.is_some()
         || app.review_picker.is_some()
         || app.settings_editor.is_some()
-        || app.shortcuts_modal_visible;
+        || app.shortcuts_modal_visible
+        || app.file_heatmap.is_some()
+        || app.file_heatmap_started_at.is_some();
     app.last_shortcuts_modal_area = None;
     app.last_thread_nav_area = None;
     app.last_thread_nav_scroll = 0;
@@ -135,6 +137,9 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &mut TuiApp) {
         }
         if app.shortcuts_modal_visible {
             draw_shortcuts_modal(frame, app);
+        }
+        if app.file_heatmap.is_some() || app.file_heatmap_started_at.is_some() {
+            draw_file_heatmap_overlay(frame, app);
         }
         return;
     }
@@ -191,6 +196,9 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &mut TuiApp) {
     }
     if app.shortcuts_modal_visible {
         draw_shortcuts_modal(frame, app);
+    }
+    if app.file_heatmap.is_some() || app.file_heatmap_started_at.is_some() {
+        draw_file_heatmap_overlay(frame, app);
     }
 }
 

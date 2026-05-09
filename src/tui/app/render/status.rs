@@ -207,6 +207,8 @@ pub(super) fn truncate_with_ellipsis(input: &str, max_len: usize) -> String {
 fn status_footer_context(app: &TuiApp) -> String {
     if app.shortcuts_modal_visible {
         "Help open · tab switch docs · esc close".to_string()
+    } else if app.file_heatmap.is_some() || app.file_heatmap_started_at.is_some() {
+        "Git file heatmap · j/k scroll · M/Esc close".to_string()
     } else if app.command_palette.is_some() {
         "Command palette · enter run · esc close".to_string()
     } else if app.theme_picker.is_some() {

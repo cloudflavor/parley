@@ -73,6 +73,9 @@ impl TuiApp {
             ai_progress_lines_by_file: HashMap::new(),
             ai_progress_scroll: 0,
             ai_progress_follow_tail: true,
+            file_heatmap: None,
+            file_heatmap_task: None,
+            file_heatmap_started_at: None,
             root_diff_load_task: None,
             root_file_load_task: None,
             root_hydrated_files: std::collections::HashSet::new(),
@@ -124,6 +127,7 @@ impl TuiApp {
 
     pub(crate) fn requires_periodic_redraw(&self) -> bool {
         !self.ai_tasks.is_empty()
+            || self.file_heatmap_started_at.is_some()
             || self.root_diff_load_started_at.is_some()
             || self.pending_z_prefix_at.is_some()
             || self

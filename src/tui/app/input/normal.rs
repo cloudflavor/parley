@@ -126,6 +126,9 @@ impl TuiApp {
                     self.status_line = "thread navigator hidden".into();
                 }
             }
+            KeyCode::Char('M') => {
+                self.start_file_heatmap();
+            }
             KeyCode::Char('F') if key.modifiers.contains(KeyModifiers::SHIFT) => {
                 self.cycle_file_filter_mode();
             }

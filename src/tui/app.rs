@@ -21,6 +21,7 @@ use crate::domain::review::{
 use crate::git::diff::{
     DiffSource, load_git_diff, load_root_directory_file, load_root_directory_file_list,
 };
+use crate::git::history::{FileHeatmapEntry, file_heatmap};
 use crate::services::ai_session::{
     AiProgressEvent, RunAiSessionInput, run_ai_session_with_progress,
 };
@@ -185,6 +186,10 @@ async fn run_loop(
         if ai_changed {
             app.invalidate_redraw();
         }
+        let heatmap_changed = app.poll_file_heatmap().await?;
+        if heatmap_changed {
+            app.invalidate_redraw();
+        }
         let diff_load_updated = app.poll_root_directory_diff_load(service).await?;
         if diff_load_updated {
             app.invalidate_redraw();
@@ -256,6 +261,7 @@ struct FileCommentStats {
 }
 
 type RootFileLoadResult = Result<(usize, Option<DiffFile>)>;
+type FileHeatmapLoadResult = Result<Vec<FileHeatmapEntry>>;
 
 #[derive(Debug, Clone)]
 struct CommentTarget {
@@ -451,6 +457,7 @@ enum CommandPaletteAction {
     CycleFileSort,
     ToggleActiveFileGroup,
     CollapseAllFileGroups,
+    ShowFileHeatmap,
     CycleThreadDensityMode,
     ToggleSelectedThreadExpansion,
     OpenShortcuts,
@@ -461,6 +468,13 @@ struct CommandPaletteItem {
     action: CommandPaletteAction,
     label: &'static str,
     keywords: &'static str,
+}
+
+#[derive(Debug, Clone)]
+struct FileHeatmapState {
+    entries: Vec<FileHeatmapEntry>,
+    scroll: usize,
+    loaded_at: Option<Instant>,
 }
 
 #[derive(Debug, Clone)]
@@ -560,6 +574,9 @@ struct TuiApp {
     ai_progress_lines_by_file: HashMap<String, VecDeque<String>>,
     ai_progress_scroll: usize,
     ai_progress_follow_tail: bool,
+    file_heatmap: Option<FileHeatmapState>,
+    file_heatmap_task: Option<JoinHandle<FileHeatmapLoadResult>>,
+    file_heatmap_started_at: Option<Instant>,
     root_diff_load_task: Option<JoinHandle<Result<DiffDocument>>>,
     root_file_load_task: Option<JoinHandle<RootFileLoadResult>>,
     root_hydrated_files: HashSet<usize>,

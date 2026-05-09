@@ -118,6 +118,9 @@ impl TuiApp {
             CommandPaletteAction::CollapseAllFileGroups => {
                 self.collapse_all_visible_file_groups();
             }
+            CommandPaletteAction::ShowFileHeatmap => {
+                self.start_file_heatmap();
+            }
             CommandPaletteAction::CycleThreadDensityMode => {
                 self.cycle_thread_density_mode();
             }

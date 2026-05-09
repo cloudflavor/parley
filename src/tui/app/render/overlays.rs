@@ -10,6 +10,7 @@ use super::super::helpers::{format_comment_reference, slice_chars};
 use super::helpers::{compute_scroll, fit_to_width, wrap_markdown_lines};
 use super::status::spinner_frame;
 use super::{CommandPromptMode, TuiApp};
+use crate::git::history::FileHeatmapEntry;
 use crate::tui::app::help_docs::HELP_DOCS;
 use crate::tui::theme::ThemeColors;
 use crate::utils::cast::{i32_to_u16_saturating, usize_to_u16_saturating};
@@ -178,6 +179,176 @@ pub(super) fn draw_ai_progress_popup(frame: &mut Frame<'_>, app: &mut TuiApp) {
             .wrap(Wrap { trim: false }),
         area,
     );
+}
+
+pub(super) fn draw_file_heatmap_overlay(frame: &mut Frame<'_>, app: &mut TuiApp) {
+    let colors = app.theme().colors.clone();
+    let root = frame.area();
+    if root.width < 60 || root.height < 12 {
+        return;
+    }
+
+    let width = root.width.saturating_sub(4).clamp(72, 132);
+    let height = root.height.saturating_sub(4).clamp(12, 32);
+    let area = Rect {
+        x: root.x + root.width.saturating_sub(width) / 2,
+        y: root.y + root.height.saturating_sub(height) / 2,
+        width,
+        height,
+    };
+    let inner_height = usize::from(area.height.saturating_sub(2)).max(1);
+    let content_width = usize::from(area.width.saturating_sub(2)).max(1);
+    let list_rows = inner_height.saturating_sub(3).max(1);
+    let loading = app.file_heatmap_is_loading();
+    let (entries, raw_scroll, loaded_at) = app
+        .file_heatmap
+        .as_ref()
+        .map(|heatmap| {
+            (
+                heatmap.entries.clone(),
+                heatmap.scroll,
+                heatmap.loaded_at.is_some(),
+            )
+        })
+        .unwrap_or_else(|| (Vec::new(), 0, false));
+    let max_scroll = entries.len().saturating_sub(list_rows);
+    let scroll = raw_scroll.min(max_scroll);
+    if let Some(heatmap) = app.file_heatmap.as_mut() {
+        heatmap.scroll = scroll;
+    }
+
+    let title = if loading {
+        app.file_heatmap_started_at.map_or_else(
+            || "Git File Heatmap".to_string(),
+            |started_at| {
+                format!(
+                    "Git File Heatmap {} scanning history",
+                    spinner_frame(started_at)
+                )
+            },
+        )
+    } else {
+        "Git File Heatmap".to_string()
+    };
+
+    let mut lines = Vec::new();
+    if entries.is_empty() {
+        let message = if loading {
+            "Scanning git history for touched-file hotspots..."
+        } else {
+            "No git file history found."
+        };
+        lines.push(Line::from(Span::styled(
+            message,
+            Style::default().fg(colors.text_muted),
+        )));
+    } else {
+        lines.push(Line::from(vec![
+            Span::styled("rank ", Style::default().fg(colors.text_muted)),
+            Span::styled("heat         ", Style::default().fg(colors.text_muted)),
+            Span::styled("commits ", Style::default().fg(colors.text_muted)),
+            Span::styled("changes ", Style::default().fg(colors.text_muted)),
+            Span::styled("+/- ", Style::default().fg(colors.text_muted)),
+            Span::styled("path", Style::default().fg(colors.text_muted)),
+        ]));
+        let max_commits = entries.iter().map(|entry| entry.commits).max().unwrap_or(1);
+        for (index, entry) in entries.iter().enumerate().skip(scroll).take(list_rows) {
+            lines.push(file_heatmap_line(
+                index + 1,
+                entry,
+                max_commits,
+                content_width,
+                &colors,
+            ));
+        }
+    }
+    lines.push(Line::from(""));
+    let footer = if loaded_at {
+        "M/Esc close | j/k/PgUp/PgDn scroll | ranked by commits, then line churn"
+    } else {
+        "M/Esc close | scanning runs only on explicit request"
+    };
+    lines.push(Line::from(Span::styled(
+        footer,
+        Style::default().fg(colors.status_help),
+    )));
+
+    frame.render_widget(Clear, area);
+    frame.render_widget(
+        Paragraph::new(lines)
+            .block(
+                Block::default()
+                    .title(title)
+                    .borders(Borders::ALL)
+                    .border_style(Style::default().fg(colors.thread_border))
+                    .title_style(
+                        Style::default()
+                            .fg(colors.accent)
+                            .add_modifier(Modifier::BOLD),
+                    ),
+            )
+            .wrap(Wrap { trim: false }),
+        area,
+    );
+}
+
+fn file_heatmap_line(
+    rank: usize,
+    entry: &FileHeatmapEntry,
+    max_commits: usize,
+    width: usize,
+    colors: &ThemeColors,
+) -> Line<'static> {
+    const BAR_WIDTH: usize = 12;
+    let filled = if max_commits == 0 {
+        0
+    } else {
+        (entry.commits * BAR_WIDTH).div_ceil(max_commits).max(1)
+    };
+    let bar = format!(
+        "{}{}",
+        "#".repeat(filled.min(BAR_WIDTH)),
+        ".".repeat(BAR_WIDTH.saturating_sub(filled))
+    );
+    let prefix = format!(
+        "{rank:>4} {bar} {commits:>7} {changes:>7} +{insertions}/-{deletions} ",
+        commits = entry.commits,
+        changes = entry.changes,
+        insertions = entry.insertions,
+        deletions = entry.deletions,
+    );
+    let remaining = width.saturating_sub(prefix.chars().count()).max(8);
+    let path = fit_to_width(&entry.path, remaining);
+    Line::from(vec![
+        Span::styled(
+            format!("{rank:>4} "),
+            Style::default().fg(colors.text_muted),
+        ),
+        Span::styled(bar, heat_style(entry.commits, max_commits, colors)),
+        Span::raw(format!(
+            " {commits:>7} {changes:>7} +{insertions}/-{deletions} ",
+            commits = entry.commits,
+            changes = entry.changes,
+            insertions = entry.insertions,
+            deletions = entry.deletions,
+        )),
+        Span::styled(path, Style::default().fg(colors.text_primary)),
+    ])
+}
+
+fn heat_style(value: usize, max_value: usize, colors: &ThemeColors) -> Style {
+    if max_value == 0 {
+        return Style::default().fg(colors.text_muted);
+    }
+    let level = value.saturating_mul(4) / max_value.max(1);
+    let fg = match level {
+        0 => colors.text_muted,
+        1 => colors.context_sign,
+        2 => colors.hunk_header,
+        3 => colors.comment_title,
+        _ => colors.removed_sign,
+    };
+    Style::default().fg(fg).add_modifier(Modifier::BOLD)
 }
 
 fn wrap_plain_styled_lines(input: &str, width: usize, style: Style) -> Vec<Line<'static>> {

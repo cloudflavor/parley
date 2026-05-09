@@ -28,6 +28,7 @@ use super::{
 mod command_actions;
 mod command_palette;
 mod file_reference;
+mod heatmap;
 mod help;
 mod inline_comment;
 mod inline_file_picker;
@@ -57,6 +58,9 @@ impl TuiApp {
         key: KeyEvent,
         service: &ReviewService,
     ) -> Result<()> {
+        if self.file_heatmap.is_some() || self.file_heatmap_started_at.is_some() {
+            return self.handle_file_heatmap_key(key);
+        }
         if self.shortcuts_modal_visible {
             return self.handle_shortcuts_modal_key(key);
         }

@@ -95,6 +95,11 @@ impl TuiApp {
                 keywords: "files group collapse all",
             },
             CommandPaletteItem {
+                action: CommandPaletteAction::ShowFileHeatmap,
+                label: "Show Git File Heatmap",
+                keywords: "git history hotspots churn touched files heatmap",
+            },
+            CommandPaletteItem {
                 action: CommandPaletteAction::OpenUserNameEditor,
                 label: "Edit User Name",
                 keywords: "settings profile",

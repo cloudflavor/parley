@@ -2,6 +2,7 @@ pub(crate) mod ai_session;
 mod anchor;
 pub(crate) mod core;
 pub(crate) mod file_navigation;
+pub(crate) mod heatmap;
 pub(crate) mod review;
 pub(crate) mod settings;
 #[cfg(test)]
