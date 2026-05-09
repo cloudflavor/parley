@@ -125,6 +125,39 @@ impl TuiApp {
         self.comment_stats_by_file = Self::build_comment_stats(&self.review);
     }
 
+    pub(crate) fn update_comment_stats_for_status_change(
+        &mut self,
+        file_path: &str,
+        previous: &CommentStatus,
+        next: &CommentStatus,
+    ) {
+        if previous == next {
+            return;
+        }
+        let entry = self
+            .comment_stats_by_file
+            .entry(file_path.to_string())
+            .or_default();
+        match previous {
+            CommentStatus::Open => {
+                entry.open = entry.open.saturating_sub(1);
+            }
+            CommentStatus::Pending => {
+                entry.pending = entry.pending.saturating_sub(1);
+            }
+            CommentStatus::Addressed => {}
+        }
+        match next {
+            CommentStatus::Open => {
+                entry.open = entry.open.saturating_add(1);
+            }
+            CommentStatus::Pending => {
+                entry.pending = entry.pending.saturating_add(1);
+            }
+            CommentStatus::Addressed => {}
+        }
+    }
+
     pub(crate) fn comments_for_file(&self, file_path: &str) -> Vec<&LineComment> {
         self.comment_indices_by_file
             .get(file_path)

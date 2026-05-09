@@ -100,6 +100,9 @@ impl TuiApp {
             return Ok(());
         };
         let comment_id = comment.id;
+        let file_path = comment.file_path.clone();
+        let previous_status = comment.status.clone();
+        let active_file_index = self.active_file_index();
         if force {
             self.review
                 .set_comment_status_force(comment_id, status.clone(), now_ms()?)
@@ -110,8 +113,8 @@ impl TuiApp {
                 .map_err(|error| anyhow!(error))?;
         }
         service.save_review(&self.review).await?;
-        self.rebuild_comment_index();
-        self.clear_diff_render_cache();
+        self.update_comment_stats_for_status_change(&file_path, &previous_status, &status);
+        self.clear_diff_render_cache_for_file(active_file_index);
         self.status_line = status_message(comment_id, &status, force);
         Ok(())
     }
@@ -141,18 +144,16 @@ mod tests {
         let tempdir = tempdir()?;
         let service = ReviewService::new(Store::from_project_root(tempdir.path()));
         let mut app = make_test_app(
-            vec!["src/a.rs"],
-            vec![make_comment_with_anchor(
-                1,
-                "src/a.rs",
-                CommentStatus::Pending,
-                1,
-                1,
-            )],
+            vec!["src/a.rs", "src/b.rs"],
+            vec![
+                make_comment_with_anchor(1, "src/a.rs", CommentStatus::Pending, 1, 1),
+                make_comment_with_anchor(2, "src/b.rs", CommentStatus::Pending, 1, 1),
+            ],
         )?;
         service.save_review(&app.review).await?;
         app.ensure_row_cache();
         app.insert_diff_render_cache(cache_key(0), cache_entry());
+        app.insert_diff_render_cache(cache_key(1), cache_entry());
 
         app.mark_selected_comment_status(&service, CommentStatus::Addressed, false)
             .await?;
@@ -163,7 +164,8 @@ mod tests {
             Some(&CommentStatus::Addressed)
         );
         assert!(app.row_cache.contains_key(&0));
-        assert!(app.diff_render_cache.is_empty());
+        assert!(!app.diff_render_cache.contains_key(&cache_key(0)));
+        assert!(app.diff_render_cache.contains_key(&cache_key(1)));
         let stats = app.comment_stats_for_file("src/a.rs");
         assert_eq!(stats.total, 1);
         assert_eq!(stats.pending, 0);
