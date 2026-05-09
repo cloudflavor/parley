@@ -6,7 +6,7 @@ use ratatui::{
     widgets::{Block, Borders, Clear, Paragraph, Wrap},
 };
 
-use super::super::helpers::{format_line_reference, slice_chars};
+use super::super::helpers::{format_comment_reference, slice_chars};
 use super::helpers::{compute_scroll, fit_to_width, wrap_markdown_lines};
 use super::status::spinner_frame;
 use super::{CommandPromptMode, TuiApp};
@@ -50,7 +50,7 @@ pub(super) fn draw_thread_navigator_overlay(frame: &mut Frame<'_>, app: &mut Tui
             let line = format!(
                 "#{} {} {}",
                 comment.id,
-                format_line_reference(comment.old_line, comment.new_line),
+                format_comment_reference(comment),
                 preview
             );
             let clipped_line = fit_to_width(&line, inner_width);
@@ -107,15 +107,18 @@ pub(super) fn draw_ai_progress_popup(frame: &mut Frame<'_>, app: &mut TuiApp) {
     };
     app.last_ai_progress_area = Some(area);
 
-    let title = if let Some(task) = app.ai_task.as_ref() {
+    let file_path = app.ai_log_file_path();
+    let running_count = app.running_ai_tasks_for_file(&file_path);
+    let title = if let Some(task) = app.first_running_ai_task_for_file(&file_path) {
         format!(
-            "AI Stream {} {}:{}",
+            "AI Logs {} {}:{} ({running_count} running) - {}",
             spinner_frame(task.started_at),
             task.provider.as_str(),
-            task.mode.as_str()
+            task.mode.as_str(),
+            file_path
         )
     } else {
-        "AI Stream".to_string()
+        format!("AI Logs - {file_path}")
     };
 
     let inner_height = area.height.saturating_sub(2) as usize;
@@ -124,17 +127,21 @@ pub(super) fn draw_ai_progress_popup(frame: &mut Frame<'_>, app: &mut TuiApp) {
     }
     let log_rows = inner_height.saturating_sub(1).max(1);
 
-    let total = app.ai_progress_lines.len();
+    let log_entries = app
+        .ai_progress_lines_for_file(&file_path)
+        .cloned()
+        .unwrap_or_default();
+    let total = log_entries.len();
     let mut lines = Vec::new();
     if total == 0 {
         lines.push(Line::from(Span::styled(
-            "(no AI progress yet)",
+            "(no AI logs for this file yet)",
             Style::default().fg(colors.text_muted),
         )));
     } else {
         let content_width = usize::from(area.width.saturating_sub(2)).max(1);
         let mut wrapped_entries = Vec::new();
-        for entry in &app.ai_progress_lines {
+        for entry in &log_entries {
             let style = if entry.starts_with("stderr: ") || entry.contains(" stderr: ") {
                 Style::default().fg(colors.removed_sign)
             } else if entry.contains(" system: ") {
@@ -150,7 +157,7 @@ pub(super) fn draw_ai_progress_popup(frame: &mut Frame<'_>, app: &mut TuiApp) {
         lines.extend(wrapped_entries.into_iter().skip(scroll).take(end - scroll));
     }
     lines.push(Line::from(Span::styled(
-        "H hide/show | K cancel run | L open full logs | PgUp/PgDn/Home/End scroll",
+        "H hide/show | K cancel current-file runs | PgUp/PgDn/Home/End scroll",
         Style::default().fg(colors.status_help),
     )));
 

@@ -48,11 +48,21 @@ pub struct LineAnchorSnapshot {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct CommentLineRange {
+    pub start_old_line: Option<u32>,
+    pub start_new_line: Option<u32>,
+    pub end_old_line: Option<u32>,
+    pub end_new_line: Option<u32>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct LineComment {
     pub id: u64,
     pub file_path: String,
     pub old_line: Option<u32>,
     pub new_line: Option<u32>,
+    #[serde(default)]
+    pub line_range: Option<CommentLineRange>,
     pub side: DiffSide,
     #[serde(default)]
     pub line_anchor: Option<LineAnchorSnapshot>,
@@ -84,6 +94,7 @@ pub struct NewLineComment {
     pub file_path: String,
     pub old_line: Option<u32>,
     pub new_line: Option<u32>,
+    pub line_range: Option<CommentLineRange>,
     pub side: DiffSide,
     pub line_anchor: Option<LineAnchorSnapshot>,
     pub body: String,
@@ -95,6 +106,7 @@ pub struct ReanchorLineComment {
     pub file_path: String,
     pub old_line: Option<u32>,
     pub new_line: Option<u32>,
+    pub line_range: Option<CommentLineRange>,
     pub side: DiffSide,
     pub line_anchor: Option<LineAnchorSnapshot>,
 }
@@ -166,6 +178,7 @@ impl ReviewSession {
             file_path: new_comment.file_path,
             old_line: new_comment.old_line,
             new_line: new_comment.new_line,
+            line_range: new_comment.line_range,
             side: new_comment.side,
             line_anchor: new_comment.line_anchor,
             detached: false,
@@ -240,6 +253,7 @@ impl ReviewSession {
         comment.file_path = target.file_path;
         comment.old_line = target.old_line;
         comment.new_line = target.new_line;
+        comment.line_range = target.line_range;
         comment.side = target.side;
         comment.line_anchor = target.line_anchor;
         comment.detached = false;
@@ -376,6 +390,7 @@ mod tests {
                 file_path: "src/lib.rs".into(),
                 old_line: None,
                 new_line: Some(1),
+                line_range: None,
                 side: DiffSide::Right,
                 line_anchor: None,
                 body: "needs refactor".into(),
@@ -396,6 +411,7 @@ mod tests {
                 file_path: "src/lib.rs".into(),
                 old_line: None,
                 new_line: Some(1),
+                line_range: None,
                 side: DiffSide::Right,
                 line_anchor: None,
                 body: "needs refactor".into(),
@@ -423,6 +439,7 @@ mod tests {
                 file_path: "src/lib.rs".into(),
                 old_line: None,
                 new_line: Some(1),
+                line_range: None,
                 side: DiffSide::Right,
                 line_anchor: None,
                 body: "new thread".into(),
@@ -444,6 +461,7 @@ mod tests {
                 file_path: "src/lib.rs".into(),
                 old_line: None,
                 new_line: Some(1),
+                line_range: None,
                 side: DiffSide::Right,
                 line_anchor: None,
                 body: "needs refactor".into(),
@@ -469,6 +487,7 @@ mod tests {
                 file_path: "src/lib.rs".into(),
                 old_line: None,
                 new_line: Some(1),
+                line_range: None,
                 side: DiffSide::Right,
                 line_anchor: None,
                 body: "needs refactor".into(),
@@ -497,6 +516,7 @@ mod tests {
                 file_path: "src/lib.rs".into(),
                 old_line: None,
                 new_line: Some(1),
+                line_range: None,
                 side: DiffSide::Right,
                 line_anchor: None,
                 body: "needs refactor".into(),
@@ -518,6 +538,7 @@ mod tests {
                 file_path: "src/lib.rs".into(),
                 old_line: None,
                 new_line: Some(1),
+                line_range: None,
                 side: DiffSide::Right,
                 line_anchor: None,
                 body: "needs refactor".into(),
@@ -541,6 +562,7 @@ mod tests {
                 file_path: "src/lib.rs".into(),
                 old_line: None,
                 new_line: Some(1),
+                line_range: None,
                 side: DiffSide::Right,
                 line_anchor: None,
                 body: "needs refactor".into(),

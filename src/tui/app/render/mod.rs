@@ -52,6 +52,7 @@ pub(crate) struct DiffRenderCacheKey {
     pub(crate) search_query: Option<String>,
     pub(crate) thread_density_mode: ThreadDensityMode,
     pub(crate) selected_line: usize,
+    pub(crate) selected_row_range: Option<(usize, usize)>,
     pub(crate) selected_comment_id: Option<u64>,
     pub(crate) expanded_thread_ids: Vec<u64>,
     pub(crate) review_state_code: u8,

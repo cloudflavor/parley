@@ -3,9 +3,73 @@
 //! Handles review state transitions, reloading, and persistence.
 
 use super::*;
-use crate::utils::cast::{i16_to_u16_saturating, u16_to_i16_saturating, usize_to_i16_saturating};
+use crate::utils::cast::{i16_to_u16_saturating, u16_to_i16_saturating};
 
 impl TuiApp {
+    pub(crate) async fn poll_root_directory_diff_load(
+        &mut self,
+        service: &ReviewService,
+    ) -> Result<bool> {
+        let Some(task) = self.root_diff_load_task.as_ref() else {
+            return Ok(false);
+        };
+        if !task.is_finished() {
+            return Ok(false);
+        }
+
+        let task = self
+            .root_diff_load_task
+            .take()
+            .context("root directory diff load task missing")?;
+        self.root_diff_load_started_at = None;
+        let result = task
+            .await
+            .context("failed to join root directory diff load task")?
+            .context("root directory diff load failed")?;
+
+        let previous_primary_path = self
+            .file_for_pane(DiffPane::Primary)
+            .map(|f| f.path.clone());
+        let previous_secondary_path = self
+            .file_for_pane(DiffPane::Secondary)
+            .map(|f| f.path.clone());
+        let selected_line = self.selected_line;
+        let secondary_selected_line = self.secondary_selected_line;
+        let selected_comment_id = self.selected_comment_id();
+
+        self.diff = result;
+        self.row_cache.clear();
+        self.clear_diff_render_cache();
+        if self.remap_comment_anchors() {
+            service.save_review(&self.review).await?;
+        }
+
+        self.selected_file = previous_primary_path
+            .and_then(|path| self.diff.files.iter().position(|f| f.path == path))
+            .unwrap_or(0);
+        self.secondary_selected_file = previous_secondary_path
+            .and_then(|path| self.diff.files.iter().position(|f| f.path == path))
+            .unwrap_or(self.selected_file);
+
+        self.selected_line = selected_line;
+        self.secondary_selected_line = secondary_selected_line;
+        self.ensure_row_cache_for_file(self.selected_file);
+        if self.split_diff_view {
+            self.ensure_row_cache_for_file(self.secondary_selected_file);
+        }
+        self.constrain_selection();
+        if let Some(comment_id) = selected_comment_id {
+            self.select_comment_by_id(comment_id);
+        }
+        self.status_line = if self.diff.files.is_empty() {
+            "root directory loaded; no reviewable files found".to_string()
+        } else {
+            format!("loaded {} root files", self.diff.files.len())
+        };
+
+        Ok(true)
+    }
+
     pub(crate) fn review_state_code(&self) -> u8 {
         match self.review.state {
             ReviewState::Open => 0,
@@ -35,17 +99,11 @@ impl TuiApp {
     }
 
     pub(crate) fn computed_file_pane_width(&self, total_width: u16) -> u16 {
-        let longest_path = usize_to_i16_saturating(
-            self.diff
-                .files
-                .iter()
-                .map(|file| file.path.chars().count())
-                .max()
-                .unwrap_or(16),
-        );
-        let base = longest_path + 8;
         let min_width = 16i16;
-        let max_width = (u16_to_i16_saturating(total_width) - 30).clamp(min_width, 90);
+        let base = 28i16;
+        let max_by_screen = u16_to_i16_saturating(total_width.saturating_mul(2) / 5);
+        let max_by_content = u16_to_i16_saturating(total_width).saturating_sub(30);
+        let max_width = max_by_screen.min(max_by_content).clamp(min_width, 56);
         let computed = (base + self.file_pane_width_delta).clamp(min_width, max_width);
         i16_to_u16_saturating(computed)
     }
@@ -257,6 +315,17 @@ mod tests {
             app.selected_comment_details().map(|comment| comment.id),
             Some(2)
         );
+        Ok(())
+    }
+
+    #[test]
+    fn computed_file_pane_width_stays_compact_for_long_paths() -> Result<()> {
+        let app = make_test_app(
+            vec!["src/a/really/deep/path/with/a/very/long/file/name.rs"],
+            Vec::new(),
+        )?;
+
+        assert_eq!(app.computed_file_pane_width(120), 28);
         Ok(())
     }
 }

@@ -7,6 +7,7 @@ use ratatui::{
 };
 
 use crate::domain::diff::DiffLineKind;
+use crate::git::diff::DiffSource;
 use crate::tui::theme::ThemeColors;
 use crate::utils::cast::usize_to_u16_saturating;
 
@@ -21,12 +22,15 @@ use super::{
 };
 
 use super::super::helpers::{
-    comment_matches_display_row, format_line_reference, format_timestamp_utc,
+    comment_matches_display_row, format_comment_reference, format_line_range_reference,
+    format_timestamp_utc,
 };
 use super::helpers::{
     compact_preview, compute_compact_thread_content_width, compute_thread_inner_width,
 };
-use super::status::{comment_status_label, comment_status_style, review_state_label};
+use super::status::{
+    comment_status_label, comment_status_style, review_state_label, spinner_frame,
+};
 use super::threads::{RenderCommentThreadSpec, render_comment_thread};
 
 pub(super) fn draw_diff_view_for_pane(
@@ -54,10 +58,17 @@ pub(super) fn draw_diff_view_for_pane(
             "Diff B"
         };
         let borders = diff_pane_borders(app.split_diff_view, pane);
-        let message = if matches!(app.diff_source, crate::git::diff::DiffSource::RootDirectory) {
-            "No reviewable files found in the current root directory."
+        let message = if matches!(app.diff_source, DiffSource::RootDirectory) {
+            if let Some(started_at) = app.root_diff_load_started_at {
+                format!(
+                    "{} Loading reviewable files in root directory",
+                    spinner_frame(started_at)
+                )
+            } else {
+                "No reviewable files found in the current root directory.".to_string()
+            }
         } else {
-            "No git changes against HEAD."
+            "No git changes against HEAD.".to_string()
         };
         frame.render_widget(
             Paragraph::new(message).block(
@@ -90,6 +101,9 @@ pub(super) fn draw_diff_view_for_pane(
     };
 
     let selected_line = app.line_for_pane(pane);
+    let selected_row_range = app.comment_selection_row_range_for_pane(pane);
+    let effective_side_by_side_diff =
+        app.side_by_side_diff && !matches!(app.diff_source, DiffSource::RootDirectory);
     let selected_comment_id = if app.active_file_index() == file_index {
         app.selected_comment_details().map(|comment| comment.id)
     } else {
@@ -100,10 +114,11 @@ pub(super) fn draw_diff_view_for_pane(
     let cache_key = DiffRenderCacheKey {
         file_index,
         pane_inner_width,
-        side_by_side_diff: app.side_by_side_diff,
+        side_by_side_diff: effective_side_by_side_diff,
         search_query: app.search_query.clone(),
         thread_density_mode: app.thread_density_mode,
         selected_line,
+        selected_row_range,
         selected_comment_id,
         expanded_thread_ids: app.expanded_thread_ids_for_file(&file_path),
         review_state_code: app.review_state_code(),
@@ -125,10 +140,12 @@ pub(super) fn draw_diff_view_for_pane(
         let mut rendered_comment_ids = std::collections::HashSet::new();
 
         for (index, row) in rows.iter().enumerate() {
-            let is_selected = index == selected_line;
+            let is_selected = index == selected_line
+                || selected_row_range
+                    .is_some_and(|(start, end)| is_active && index >= start && index <= end);
             let highlighted_segments =
                 apply_search_highlighting(&highlights[index], app.search_query.as_deref(), &colors);
-            let rendered = if app.side_by_side_diff
+            let rendered = if effective_side_by_side_diff
                 && matches!(
                     row.kind,
                     DiffLineKind::Added | DiffLineKind::Removed | DiffLineKind::Context
@@ -195,7 +212,7 @@ pub(super) fn draw_diff_view_for_pane(
                 app.author_label(&comment.author),
                 format_timestamp_utc(comment.created_at_ms),
                 anchor_state,
-                format_line_reference(comment.old_line, comment.new_line)
+                format_comment_reference(comment)
             );
             if matches!(app.thread_density_mode, super::ThreadDensityMode::Compact)
                 && !app.is_thread_expanded(comment.id, selected_comment_id)
@@ -214,7 +231,7 @@ pub(super) fn draw_diff_view_for_pane(
                             comment_status_label(&comment.status),
                             app.author_label(&comment.author),
                             anchor_state,
-                            format_line_reference(comment.old_line, comment.new_line),
+                            format_comment_reference(comment),
                             compact_preview(&comment.body)
                         ),
                         style: Style::default()
@@ -286,7 +303,14 @@ pub(super) fn draw_diff_view_for_pane(
         (lines, row_map, link_hits)
     };
 
-    let selected_visual_range = source_row_visual_range(&row_map, selected_line).unwrap_or((0, 0));
+    let selected_visual_row = app.visual_row_for_pane(pane);
+    let selected_visual_row_is_exact = selected_visual_row.is_some_and(|visual_row| {
+        row_map
+            .get(visual_row)
+            .is_some_and(|row_index| *row_index == selected_line)
+    });
+    let selected_visual_range =
+        selected_visual_range(&row_map, selected_line, selected_visual_row).unwrap_or((0, 0));
 
     let viewport_height = app.effective_viewport_height_for_pane(pane);
     let max_scroll = lines.len().saturating_sub(viewport_height);
@@ -301,8 +325,9 @@ pub(super) fn draw_diff_view_for_pane(
     scroll = scroll.min(max_scroll);
 
     let end_proximity_threshold = (lines.len() as f64 * 0.8) as usize;
-    if selected_visual_range.1 >= end_proximity_threshold
-        || selected_visual_range.0 >= end_proximity_threshold
+    if !selected_visual_row_is_exact
+        && (selected_visual_range.1 >= end_proximity_threshold
+            || selected_visual_range.0 >= end_proximity_threshold)
     {
         scroll = max_scroll;
     }
@@ -374,6 +399,22 @@ pub(super) fn source_row_visual_range(
         .next_back()
         .unwrap_or(start);
     Some((start, end))
+}
+
+pub(super) fn selected_visual_range(
+    row_map: &[usize],
+    source_row: usize,
+    visual_row: Option<usize>,
+) -> Option<(usize, usize)> {
+    if let Some(visual_row) = visual_row
+        && row_map
+            .get(visual_row)
+            .is_some_and(|row_index| *row_index == source_row)
+    {
+        return Some((visual_row, visual_row));
+    }
+
+    source_row_visual_range(row_map, source_row)
 }
 
 pub(super) fn keep_source_row_range_visible(
@@ -688,7 +729,10 @@ pub(super) fn draw_inline_comment_editor(frame: &mut Frame<'_>, app: &TuiApp, ar
     let (title_kind, line_ref) = match &inline.mode {
         InlineDraftMode::Comment(target) => (
             "Comment Box".to_string(),
-            format_editor_line_reference(target.old_line, target.new_line),
+            target.line_range.as_ref().map_or_else(
+                || format_editor_line_reference(target.old_line, target.new_line),
+                format_line_range_reference,
+            ),
         ),
         InlineDraftMode::Reply {
             comment_id,
@@ -955,5 +999,19 @@ fn format_editor_line_reference(old_line: Option<u32>, new_line: Option<u32>) ->
         (Some(old), None) => format!("{old} (left)"),
         (None, Some(new)) => format!("{new} (right)"),
         (None, None) => "-".to_string(),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn selected_visual_range_prefers_exact_visual_row_inside_thread() {
+        let row_map = vec![0, 1, 1, 1, 1, 2];
+
+        let range = selected_visual_range(&row_map, 1, Some(3));
+
+        assert_eq!(range, Some((3, 3)));
     }
 }

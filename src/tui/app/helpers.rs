@@ -11,7 +11,7 @@ use time::{OffsetDateTime, UtcOffset};
 
 use crate::domain::{
     diff::DiffLineKind,
-    review::{DiffSide, LineComment},
+    review::{CommentLineRange, DiffSide, LineComment},
 };
 
 use super::DisplayRow;
@@ -57,6 +57,30 @@ pub(super) fn format_line_reference(old_line: Option<u32>, new_line: Option<u32>
         (Some(old), None) => format!("{old}:_"),
         (None, Some(new)) => format!("_:{new}"),
         (None, None) => "_:_".to_string(),
+    }
+}
+
+pub(super) fn format_line_range_reference(range: &CommentLineRange) -> String {
+    format!(
+        "{}:{}",
+        format_optional_line_range(range.start_old_line, range.end_old_line),
+        format_optional_line_range(range.start_new_line, range.end_new_line)
+    )
+}
+
+pub(super) fn format_comment_reference(comment: &LineComment) -> String {
+    comment.line_range.as_ref().map_or_else(
+        || format_line_reference(comment.old_line, comment.new_line),
+        format_line_range_reference,
+    )
+}
+
+fn format_optional_line_range(start: Option<u32>, end: Option<u32>) -> String {
+    match (start, end) {
+        (Some(start), Some(end)) if start != end => format!("{start}-{end}"),
+        (Some(start), _) => start.to_string(),
+        (None, Some(end)) => end.to_string(),
+        (None, None) => "_".to_string(),
     }
 }
 
@@ -292,6 +316,7 @@ mod tests {
             file_path: "src/lib.rs".to_string(),
             old_line,
             new_line,
+            line_range: None,
             side,
             line_anchor: None,
             detached: false,

@@ -2,7 +2,10 @@
 //!
 //! Handles AI task lifecycle, progress tracking, and session management.
 
+use std::collections::VecDeque;
 use std::time::Instant;
+
+use tokio::sync::mpsc;
 
 use super::*;
 
@@ -60,17 +63,48 @@ impl TuiApp {
         clamped
     }
 
-    pub(crate) fn push_ai_progress_line(&mut self, line: String) {
-        self.ai_progress_lines.push_back(line);
-        while self.ai_progress_lines.len() > AI_PROGRESS_MAX_LINES {
-            self.ai_progress_lines.pop_front();
+    pub(crate) fn push_ai_progress_line_for_file(&mut self, file_path: &str, line: String) {
+        let lines = self
+            .ai_progress_lines_by_file
+            .entry(file_path.to_string())
+            .or_insert_with(|| VecDeque::with_capacity(AI_PROGRESS_MAX_LINES));
+        lines.push_back(line);
+        while lines.len() > AI_PROGRESS_MAX_LINES {
+            lines.pop_front();
         }
         if self.ai_progress_follow_tail {
             self.ai_progress_scroll = usize::MAX;
         }
     }
 
-    pub(crate) fn record_ai_progress(&mut self, event: AiProgressEvent) -> bool {
+    pub(crate) fn ai_log_file_path(&self) -> String {
+        self.current_file()
+            .map(|file| file.path.clone())
+            .unwrap_or_else(|| "(no file)".to_string())
+    }
+
+    pub(crate) fn ai_progress_lines_for_file(&self, file_path: &str) -> Option<&VecDeque<String>> {
+        self.ai_progress_lines_by_file.get(file_path)
+    }
+
+    pub(crate) fn running_ai_tasks_for_file(&self, file_path: &str) -> usize {
+        self.ai_tasks
+            .iter()
+            .filter(|task| task.file_path == file_path)
+            .count()
+    }
+
+    pub(crate) fn first_running_ai_task_for_file(&self, file_path: &str) -> Option<&AiRunTask> {
+        self.ai_tasks
+            .iter()
+            .find(|task| task.file_path == file_path)
+    }
+
+    pub(crate) fn record_ai_progress_for_file(
+        &mut self,
+        file_path: &str,
+        event: AiProgressEvent,
+    ) -> bool {
         let Some(message) = Self::normalized_ai_stream_message(&event.stream, &event.message)
         else {
             return false;
@@ -87,122 +121,146 @@ impl TuiApp {
                 message
             ),
         };
-        self.push_ai_progress_line(line);
+        self.push_ai_progress_line_for_file(file_path, line);
         true
     }
 
     pub(crate) fn drain_ai_progress(&mut self) -> bool {
         let mut changed = false;
         let mut events = Vec::new();
-        if let Some(task) = self.ai_task.as_mut() {
+        for task in &mut self.ai_tasks {
+            let file_path = task.file_path.clone();
             while let Ok(event) = task.progress_rx.try_recv() {
-                events.push(event);
+                events.push((file_path.clone(), event));
             }
         }
-        for event in events {
-            changed |= self.record_ai_progress(event);
+        for (file_path, event) in events {
+            changed |= self.record_ai_progress_for_file(&file_path, event);
         }
         changed
     }
 
     pub(crate) fn cancel_ai_task(&mut self) {
-        let Some(task) = self.ai_task.take() else {
-            self.status_line = "no ai session running".into();
-            return;
-        };
-
-        while let Ok(event) = task.progress_rx.try_recv() {
-            self.record_ai_progress(event);
+        let file_path = self.ai_log_file_path();
+        let mut remaining = Vec::with_capacity(self.ai_tasks.len());
+        let mut cancelled = Vec::new();
+        for task in self.ai_tasks.drain(..) {
+            if task.file_path == file_path {
+                cancelled.push(task);
+            } else {
+                remaining.push(task);
+            }
         }
-        let provider = task.provider;
-        let mode = task.mode;
-        let elapsed_ms = task.started_at.elapsed().as_millis();
-        task.handle.abort();
-        self.push_ai_progress_line(format!(
-            "[{}] {} system: cancelled after {}ms",
-            format_timestamp_utc(anchor::now_ms_utc()),
-            provider.as_str(),
-            elapsed_ms
-        ));
-        self.last_ai_detail = Some(format!(
-            "ai session cancelled: {} ({}) after {}ms",
-            provider.as_str(),
-            mode.as_str(),
-            elapsed_ms
-        ));
-        self.status_line = format!(
-            "ai session cancelled: provider={} mode={}",
-            provider.as_str(),
-            mode.as_str()
-        );
+        self.ai_tasks = remaining;
+
+        if cancelled.is_empty() {
+            self.status_line = "no ai sessions running for current file".into();
+            return;
+        }
+
+        let cancelled_count = cancelled.len();
+        for mut task in cancelled {
+            while let Ok(event) = task.progress_rx.try_recv() {
+                self.record_ai_progress_for_file(&file_path, event);
+            }
+            let provider = task.provider;
+            let elapsed_ms = task.started_at.elapsed().as_millis();
+            task.handle.abort();
+            self.push_ai_progress_line_for_file(
+                &file_path,
+                format!(
+                    "[{}] {} system: cancelled after {}ms",
+                    format_timestamp_utc(anchor::now_ms_utc()),
+                    provider.as_str(),
+                    elapsed_ms
+                ),
+            );
+        }
+        self.status_line = format!("cancelled {cancelled_count} ai session(s) for current file");
     }
 
     pub(crate) async fn poll_ai_task(&mut self, service: &ReviewService) -> Result<bool> {
         let mut changed = self.drain_ai_progress();
-
-        let Some(task) = self.ai_task.as_ref() else {
-            return Ok(changed);
-        };
-        if !task.handle.is_finished() {
+        let mut finished_indices = self
+            .ai_tasks
+            .iter()
+            .enumerate()
+            .filter_map(|(index, task)| task.handle.is_finished().then_some(index))
+            .collect::<Vec<_>>();
+        if finished_indices.is_empty() {
             return Ok(changed);
         }
 
-        let task = self
-            .ai_task
-            .take()
-            .ok_or_else(|| anyhow!("ai task vanished after check"))?;
-        while let Ok(event) = task.progress_rx.try_recv() {
-            self.record_ai_progress(event);
+        let mut refresh_needed = false;
+        finished_indices.reverse();
+        for index in finished_indices {
+            let mut task = self.ai_tasks.remove(index);
+            let file_path = task.file_path.clone();
+            while let Ok(event) = task.progress_rx.try_recv() {
+                self.record_ai_progress_for_file(&file_path, event);
+            }
+            match task.handle.await {
+                Ok(Ok(result)) => {
+                    refresh_needed = true;
+                    let failed = result.items.iter().find(|item| item.status == "failed");
+                    self.status_line = if let Some(item) = failed {
+                        format!("ai failed on #{}: {}", item.comment_id, item.message)
+                    } else {
+                        format!(
+                            "ai session {} ({}) processed {} | skipped {} | failed {}",
+                            result.provider,
+                            result.mode,
+                            result.processed,
+                            result.skipped,
+                            result.failed
+                        )
+                    };
+                    self.last_ai_detail = Some(if result.processed > 0 {
+                        format!("ai processed {} thread(s)", result.processed)
+                    } else {
+                        "ai session had no actionable threads".to_string()
+                    });
+                    self.push_ai_progress_line_for_file(
+                        &file_path,
+                        format!(
+                            "[{}] {} system: finished (processed={} skipped={} failed={})",
+                            format_timestamp_utc(anchor::now_ms_utc()),
+                            result.provider,
+                            result.processed,
+                            result.skipped,
+                            result.failed
+                        ),
+                    );
+                    changed = true;
+                }
+                Ok(Err(error)) => {
+                    self.last_ai_detail = Some(format!("ai run failed: {error}"));
+                    self.status_line = format!("run ai session failed: {error}");
+                    self.push_ai_progress_line_for_file(
+                        &file_path,
+                        format!(
+                            "[{}] system: run failed: {error}",
+                            format_timestamp_utc(anchor::now_ms_utc())
+                        ),
+                    );
+                    changed = true;
+                }
+                Err(error) => {
+                    self.last_ai_detail = Some(format!("ai task join failed: {error}"));
+                    self.status_line = format!("run ai session failed: {error}");
+                    self.push_ai_progress_line_for_file(
+                        &file_path,
+                        format!(
+                            "[{}] system: task join failed: {error}",
+                            format_timestamp_utc(anchor::now_ms_utc())
+                        ),
+                    );
+                    changed = true;
+                }
+            }
         }
-        match task.handle.await {
-            Ok(Ok(result)) => {
-                self.refresh_review_and_diff(service).await?;
-                let failed = result.items.iter().find(|item| item.status == "failed");
-                self.status_line = if let Some(item) = failed {
-                    format!("ai failed on #{}: {}", item.comment_id, item.message)
-                } else {
-                    format!(
-                        "ai session {} ({}) processed {} | skipped {} | failed {}",
-                        result.provider,
-                        result.mode,
-                        result.processed,
-                        result.skipped,
-                        result.failed
-                    )
-                };
-                self.last_ai_detail = Some(if result.processed > 0 {
-                    format!("ai processed {} thread(s)", result.processed)
-                } else {
-                    "ai session had no actionable threads".to_string()
-                });
-                self.push_ai_progress_line(format!(
-                    "[{}] {} system: finished (processed={} skipped={} failed={})",
-                    format_timestamp_utc(anchor::now_ms_utc()),
-                    result.provider,
-                    result.processed,
-                    result.skipped,
-                    result.failed
-                ));
-                changed = true;
-            }
-            Ok(Err(error)) => {
-                self.last_ai_detail = Some(format!("ai run failed: {error}"));
-                self.status_line = format!("run ai session failed: {error}");
-                self.push_ai_progress_line(format!(
-                    "[{}] system: run failed: {error}",
-                    format_timestamp_utc(anchor::now_ms_utc())
-                ));
-                changed = true;
-            }
-            Err(error) => {
-                self.last_ai_detail = Some(format!("ai task join failed: {error}"));
-                self.status_line = format!("run ai session failed: {error}");
-                self.push_ai_progress_line(format!(
-                    "[{}] system: task join failed: {error}",
-                    format_timestamp_utc(anchor::now_ms_utc())
-                ));
-                changed = true;
-            }
+        if refresh_needed {
+            self.refresh_review_and_diff(service).await?;
         }
         Ok(changed)
     }
@@ -213,16 +271,12 @@ impl TuiApp {
         selected_only: bool,
         mode: AiSessionMode,
     ) -> Result<()> {
-        if self.ai_task.is_some() {
-            self.status_line = "ai session already running".into();
-            return Ok(());
-        }
-
         if matches!(self.review.state, ReviewState::Done) {
             self.status_line = "review is done; reopen it before running ai".into();
             return Ok(());
         }
 
+        let file_path = self.ai_log_file_path();
         let mut comment_ids = Vec::new();
         if selected_only {
             let Some(comment) = self.selected_comment_details() else {
@@ -258,25 +312,29 @@ impl TuiApp {
             mode,
             diff_source: self.diff_source.clone(),
         };
-        let (progress_tx, progress_rx) = mpsc::channel();
+        let (progress_tx, progress_rx) = mpsc::unbounded_channel();
         let service_clone = service.clone();
         let handle = tokio::spawn(async move {
             run_ai_session_with_progress(&service_clone, input, progress_tx).await
         });
 
-        self.ai_task = Some(AiRunTask {
+        self.ai_tasks.push(AiRunTask {
             started_at: Instant::now(),
+            file_path: file_path.clone(),
             provider,
             mode,
             handle,
             progress_rx,
         });
-        self.push_ai_progress_line(format!(
-            "[{}] {} system: started session ({})",
-            format_timestamp_utc(anchor::now_ms_utc()),
-            provider.as_str(),
-            mode.as_str()
-        ));
+        self.push_ai_progress_line_for_file(
+            &file_path,
+            format!(
+                "[{}] {} system: started session ({})",
+                format_timestamp_utc(anchor::now_ms_utc()),
+                provider.as_str(),
+                mode.as_str()
+            ),
+        );
         self.last_ai_detail = Some(if selected_only {
             format!(
                 "ai is processing selected thread with {} ({})",
@@ -309,5 +367,86 @@ impl TuiApp {
         service.save_config(&self.config).await?;
         self.status_line = format!("ai provider set to {}", self.ai_provider.as_str());
         Ok(())
+    }
+
+    fn normalized_ai_stream_message(stream: &str, message: &str) -> Option<String> {
+        if !matches!(stream, "stdout" | "stderr") {
+            return Some(message.to_string());
+        }
+
+        let trimmed = message.trim();
+        if trimmed.is_empty() {
+            return None;
+        }
+
+        let json_candidate = trimmed.strip_prefix("data:").map_or(trimmed, str::trim);
+        if let Ok(value) = serde_json::from_str::<serde_json::Value>(json_candidate) {
+            let parts = Self::collect_ai_text_fragments(&value, None);
+            let merged = parts.join("");
+            let normalized = merged.trim();
+            if !normalized.is_empty() {
+                return Some(normalized.to_string());
+            }
+
+            let tag = Self::extract_ai_activity_tag(&value).unwrap_or_else(|| "event".to_string());
+            if tag.ends_with(".started") || tag.ends_with(".completed") {
+                return None;
+            }
+            return Some(format!("[{tag}]"));
+        }
+
+        Some(message.to_string())
+    }
+
+    fn collect_ai_text_fragments(
+        value: &serde_json::Value,
+        parent_key: Option<&str>,
+    ) -> Vec<String> {
+        let mut fragments = Vec::new();
+
+        match value {
+            serde_json::Value::String(s) => {
+                if Self::is_text_field(parent_key) && !s.trim().is_empty() {
+                    fragments.push(s.clone());
+                }
+            }
+            serde_json::Value::Object(map) => {
+                for (key, val) in map {
+                    fragments.extend(Self::collect_ai_text_fragments(val, Some(key.as_str())));
+                }
+            }
+            serde_json::Value::Array(arr) => {
+                for item in arr {
+                    fragments.extend(Self::collect_ai_text_fragments(item, parent_key));
+                }
+            }
+            _ => {}
+        }
+
+        fragments
+    }
+
+    fn is_text_field(parent_key: Option<&str>) -> bool {
+        matches!(
+            parent_key,
+            Some("content" | "text" | "body" | "message" | "reply" | "output" | "input")
+        )
+    }
+
+    fn extract_ai_activity_tag(value: &serde_json::Value) -> Option<String> {
+        let map = value.as_object()?;
+        for key in ["type", "event", "status", "phase", "kind", "name"] {
+            let Some(raw) = map.get(key) else {
+                continue;
+            };
+            let Some(text) = raw.as_str() else {
+                continue;
+            };
+            let normalized = text.trim();
+            if !normalized.is_empty() {
+                return Some(normalized.to_string());
+            }
+        }
+        None
     }
 }

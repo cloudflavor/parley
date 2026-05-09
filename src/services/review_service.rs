@@ -4,8 +4,8 @@ use anyhow::{Context, Result, anyhow};
 
 use crate::domain::config::AppConfig;
 use crate::domain::review::{
-    Author, CommentStatus, DiffSide, LineAnchorSnapshot, NewLineComment, ReanchorLineComment,
-    ReviewSession, ReviewState,
+    Author, CommentLineRange, CommentStatus, DiffSide, LineAnchorSnapshot, NewLineComment,
+    ReanchorLineComment, ReviewSession, ReviewState,
 };
 use crate::persistence::store::{Store, StoreError};
 use crate::utils::time::now_ms;
@@ -20,6 +20,7 @@ pub struct AddCommentInput {
     pub file_path: String,
     pub old_line: Option<u32>,
     pub new_line: Option<u32>,
+    pub line_range: Option<CommentLineRange>,
     pub side: DiffSide,
     pub line_anchor: Option<LineAnchorSnapshot>,
     pub body: String,
@@ -39,6 +40,7 @@ pub struct ReanchorCommentInput {
     pub file_path: String,
     pub old_line: Option<u32>,
     pub new_line: Option<u32>,
+    pub line_range: Option<CommentLineRange>,
     pub side: DiffSide,
     pub line_anchor: Option<LineAnchorSnapshot>,
 }
@@ -165,6 +167,7 @@ impl ReviewService {
                 file_path: input.file_path,
                 old_line: input.old_line,
                 new_line: input.new_line,
+                line_range: input.line_range,
                 side: input.side,
                 line_anchor: input.line_anchor,
                 body: input.body,
@@ -256,6 +259,7 @@ impl ReviewService {
                     file_path: input.file_path,
                     old_line: input.old_line,
                     new_line: input.new_line,
+                    line_range: input.line_range,
                     side: input.side,
                     line_anchor: input.line_anchor,
                 },

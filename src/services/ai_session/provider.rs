@@ -1,5 +1,4 @@
 use std::process::Stdio;
-use std::sync::mpsc;
 use std::time::Duration;
 
 use anyhow::{Context, Result, anyhow};
@@ -7,6 +6,7 @@ use serde_json::Value;
 use tokio::fs;
 use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWriteExt, BufReader};
 use tokio::process::Command;
+use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 use tokio::time::timeout;
 use tracing::{debug, info, warn};
@@ -29,7 +29,7 @@ pub(super) async fn invoke_provider(
     provider: AiProvider,
     mode: AiSessionMode,
     prompt: &str,
-    progress_sender: Option<mpsc::Sender<AiProgressEvent>>,
+    progress_sender: Option<mpsc::UnboundedSender<AiProgressEvent>>,
 ) -> Result<ProviderInvocation> {
     let provider_cfg = config.ai.provider_config(provider);
     if provider_cfg.client.trim().is_empty() {
@@ -405,7 +405,7 @@ async fn read_stream<R>(
     reader: R,
     provider: AiProvider,
     stream: &'static str,
-    progress_sender: Option<mpsc::Sender<AiProgressEvent>>,
+    progress_sender: Option<mpsc::UnboundedSender<AiProgressEvent>>,
 ) -> String
 where
     R: AsyncRead + Unpin + Send + 'static,

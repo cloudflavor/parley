@@ -17,11 +17,13 @@ impl TuiApp {
         if self.split_diff_view && matches!(self.active_diff_pane, DiffPane::Secondary) {
             if self.secondary_selected_line != index {
                 self.pending_scroll_anchor_row_secondary = None;
+                self.secondary_selected_visual_row = None;
             }
             self.secondary_selected_line = index;
         } else {
             if self.selected_line != index {
                 self.pending_scroll_anchor_row = None;
+                self.selected_visual_row = None;
             }
             self.selected_line = index;
         }
@@ -32,16 +34,76 @@ impl TuiApp {
             DiffPane::Primary => {
                 if self.selected_line != index {
                     self.pending_scroll_anchor_row = None;
+                    self.selected_visual_row = None;
                 }
                 self.selected_line = index;
             }
             DiffPane::Secondary => {
                 if self.secondary_selected_line != index {
                     self.pending_scroll_anchor_row_secondary = None;
+                    self.secondary_selected_visual_row = None;
                 }
                 self.secondary_selected_line = index;
             }
         }
+    }
+
+    pub(crate) fn visual_row_for_pane(&self, pane: DiffPane) -> Option<usize> {
+        match pane {
+            DiffPane::Primary => self.selected_visual_row,
+            DiffPane::Secondary => self.secondary_selected_visual_row,
+        }
+    }
+
+    pub(crate) fn set_visual_row_for_pane(&mut self, pane: DiffPane, visual_row: Option<usize>) {
+        match pane {
+            DiffPane::Primary => {
+                self.selected_visual_row = visual_row;
+            }
+            DiffPane::Secondary => {
+                self.secondary_selected_visual_row = visual_row;
+            }
+        }
+    }
+
+    pub(crate) fn comment_selection_row_range_for_pane(
+        &self,
+        pane: DiffPane,
+    ) -> Option<(usize, usize)> {
+        let (anchor_pane, anchor_row) = self.comment_selection_anchor?;
+        if anchor_pane != pane {
+            return None;
+        }
+        let active_row = self.line_for_pane(pane);
+        Some(if anchor_row <= active_row {
+            (anchor_row, active_row)
+        } else {
+            (active_row, anchor_row)
+        })
+    }
+
+    pub(crate) fn clear_comment_line_selection(&mut self) {
+        self.comment_selection_anchor = None;
+    }
+
+    pub(crate) fn toggle_comment_line_selection(&mut self) {
+        let pane = self.active_diff_pane;
+        let active_row = self.line_for_pane(pane);
+        if self.comment_selection_anchor == Some((pane, active_row)) {
+            self.comment_selection_anchor = None;
+            self.status_line = "line range selection cleared".into();
+            return;
+        }
+        self.comment_selection_anchor = Some((pane, active_row));
+        self.status_line = "line range selection started".into();
+    }
+
+    pub(crate) fn extend_comment_line_selection_to(&mut self, pane: DiffPane, row_index: usize) {
+        if !matches!(self.comment_selection_anchor, Some((anchor_pane, _)) if anchor_pane == pane) {
+            self.comment_selection_anchor = Some((pane, self.line_for_pane(pane)));
+        }
+        self.set_line_for_pane(pane, row_index);
+        self.status_line = "line range selection extended".into();
     }
 
     pub(crate) fn viewport_top_for_pane(&self, pane: DiffPane) -> usize {

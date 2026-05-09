@@ -200,18 +200,29 @@ impl TuiApp {
             side,
             old_line,
             new_line,
+            line_range: None,
             file_path: file.path.clone(),
             line_anchor,
         })
     }
 
     pub(super) fn toggle_inline_comment_for_selected_line(&mut self) {
-        self.toggle_inline_comment_for_row(self.active_line_index());
+        if let Some((start_row, end_row)) =
+            self.comment_selection_row_range_for_pane(self.active_diff_pane)
+        {
+            self.toggle_inline_comment_for_row_range(start_row, end_row);
+        } else {
+            self.toggle_inline_comment_for_row(self.active_line_index());
+        }
     }
 
     fn toggle_inline_comment_for_row(&mut self, row_index: usize) {
+        self.toggle_inline_comment_for_row_range(row_index, row_index);
+    }
+
+    fn toggle_inline_comment_for_row_range(&mut self, start_row: usize, end_row: usize) {
         if let Some(inline) = self.inline_comment.as_ref()
-            && inline.row_index == row_index
+            && inline.row_index == end_row
             && matches!(inline.mode, InlineDraftMode::Comment(_))
         {
             self.inline_comment = None;
@@ -219,21 +230,74 @@ impl TuiApp {
             return;
         }
 
-        let Some(target) = self.comment_target_for_row(row_index) else {
+        let Some(target) = self.comment_target_for_row_range(start_row, end_row) else {
             self.inline_comment = None;
             self.status_line = "selected line cannot receive comments".into();
             return;
         };
+        let range_label = format_comment_target_reference(&target);
 
         self.inline_comment = Some(InlineCommentState {
-            row_index,
+            row_index: end_row,
             mode: InlineDraftMode::Comment(target),
             buffer: TextBuffer::new(),
             preview_mode: false,
             file_mention: None,
             file_reference_picker: None,
         });
-        self.status_line = "comment box expanded".into();
+        self.status_line = format!("comment box expanded at {range_label}");
+    }
+
+    fn comment_target_for_row_range(
+        &self,
+        start_row: usize,
+        end_row: usize,
+    ) -> Option<CommentTarget> {
+        if start_row == end_row {
+            return self.comment_target_for_row(start_row);
+        }
+
+        let file = self.current_file()?;
+        let rows = self.current_rows();
+        let range_start = start_row.min(end_row);
+        let range_end = start_row.max(end_row);
+        let mut first_target: Option<(usize, DiffSide, Option<u32>, Option<u32>)> = None;
+        let mut old_lines = Vec::new();
+        let mut new_lines = Vec::new();
+
+        for row_index in range_start..=range_end {
+            let Some(row) = rows.get(row_index) else {
+                continue;
+            };
+            let Some((side, old_line, new_line)) = comment_anchor_for_row(row) else {
+                continue;
+            };
+            if first_target.is_none() {
+                first_target = Some((row_index, side, old_line, new_line));
+            }
+            if let Some(old_line) = old_line {
+                old_lines.push(old_line);
+            }
+            if let Some(new_line) = new_line {
+                new_lines.push(new_line);
+            }
+        }
+
+        let (anchor_row, side, old_line, new_line) = first_target?;
+        let line_anchor = self.line_anchor_snapshot_for_row(anchor_row)?;
+        Some(CommentTarget {
+            side,
+            old_line,
+            new_line,
+            line_range: Some(CommentLineRange {
+                start_old_line: old_lines.iter().min().copied(),
+                start_new_line: new_lines.iter().min().copied(),
+                end_old_line: old_lines.iter().max().copied(),
+                end_new_line: new_lines.iter().max().copied(),
+            }),
+            file_path: file.path.clone(),
+            line_anchor,
+        })
     }
 
     pub(super) fn start_inline_reply_for_selected_comment(&mut self) {
@@ -343,6 +407,7 @@ impl TuiApp {
                             file_path: target.file_path,
                             old_line: target.old_line,
                             new_line: target.new_line,
+                            line_range: target.line_range,
                             side: target.side,
                             line_anchor: Some(target.line_anchor),
                             body,
@@ -382,6 +447,7 @@ impl TuiApp {
         if let Some(comment_id) = select_comment_id {
             self.select_comment_by_id(comment_id);
         }
+        self.clear_comment_line_selection();
         Ok(())
     }
 
@@ -406,6 +472,7 @@ impl TuiApp {
                     file_path: target.file_path,
                     old_line: target.old_line,
                     new_line: target.new_line,
+                    line_range: None,
                     side: target.side,
                     line_anchor: Some(target.line_anchor),
                 },
@@ -420,4 +487,20 @@ impl TuiApp {
         );
         Ok(())
     }
+}
+
+fn comment_anchor_for_row(row: &DisplayRow) -> Option<(DiffSide, Option<u32>, Option<u32>)> {
+    match row.kind {
+        DiffLineKind::Added => Some((DiffSide::Right, None, row.new_line)),
+        DiffLineKind::Removed => Some((DiffSide::Left, row.old_line, None)),
+        DiffLineKind::Context => Some((DiffSide::Right, row.old_line, row.new_line)),
+        _ => None,
+    }
+}
+
+fn format_comment_target_reference(target: &CommentTarget) -> String {
+    target.line_range.as_ref().map_or_else(
+        || format_line_reference(target.old_line, target.new_line),
+        format_line_range_reference,
+    )
 }

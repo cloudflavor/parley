@@ -1,4 +1,4 @@
-use std::sync::mpsc;
+use tokio::sync::mpsc;
 
 use crate::domain::ai::AiProvider;
 use crate::utils::cast::u128_to_u64_saturating;
@@ -6,7 +6,7 @@ use crate::utils::cast::u128_to_u64_saturating;
 use super::AiProgressEvent;
 
 pub(super) fn emit_progress(
-    progress_sender: Option<&mpsc::Sender<AiProgressEvent>>,
+    progress_sender: Option<&mpsc::UnboundedSender<AiProgressEvent>>,
     provider: AiProvider,
     stream: &str,
     message: impl Into<String>,

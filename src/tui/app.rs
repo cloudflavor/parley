@@ -2,20 +2,21 @@ use std::{
     collections::{HashMap, HashSet, VecDeque},
     io,
     path::PathBuf,
-    sync::mpsc::{self, Receiver},
     time::{Duration, Instant},
 };
 
-use anyhow::{Context, Result, anyhow};
+use anyhow::{Context, Result};
 use crossterm::event::{self, Event};
 use ratatui::{Terminal, backend::CrosstermBackend, layout::Rect};
-use tokio::task::JoinHandle;
+use tokio::sync::mpsc::UnboundedReceiver;
+use tokio::task::{self, JoinHandle};
 
 use crate::domain::ai::{AiProvider, AiSessionMode};
 use crate::domain::config::{AppConfig, default_user_name};
 use crate::domain::diff::{DiffDocument, DiffFile, DiffLineKind};
 use crate::domain::review::{
-    Author, CommentStatus, DiffSide, LineAnchorSnapshot, LineComment, ReviewSession, ReviewState,
+    Author, CommentLineRange, CommentStatus, DiffSide, LineAnchorSnapshot, LineComment,
+    ReviewSession, ReviewState,
 };
 use crate::git::diff::{DiffSource, load_git_diff};
 use crate::services::ai_session::{
@@ -26,6 +27,23 @@ use crate::services::review_service::ReviewService;
 use super::syntax::SyntaxPainter;
 use super::terminal::TerminalSession;
 use super::theme::{UiTheme, default_theme_name, load_themes, resolve_theme_index};
+
+mod help_docs;
+mod helpers;
+mod input;
+mod render;
+mod state;
+
+use helpers::{
+    MOUSE_WHEEL_FILE_SCROLL_FILES, MOUSE_WHEEL_SCROLL_LINES, comment_matches_display_row,
+    format_comment_reference, format_line_range_reference, format_line_reference,
+    format_timestamp_utc, insert_char_at, open_log_in_less, point_in_rect, remove_char_at,
+    suspend_tui_process,
+};
+use render::draw;
+pub(super) use render::{
+    DiffRenderCacheEntry, DiffRenderCacheKey, DisplayRow, FileReferenceHit, HighlightParts,
+};
 
 /// # Errors
 ///
@@ -53,7 +71,11 @@ pub async fn run_tui(
     };
     let themes = load_themes()?;
     let mut config = service.load_config().await?;
-    let diff = load_git_diff(&config, &diff_source).await?;
+    let diff = if matches!(diff_source, DiffSource::RootDirectory) {
+        DiffDocument { files: Vec::new() }
+    } else {
+        load_git_diff(&config, &diff_source).await?
+    };
 
     if config.user_name.trim().is_empty() || config.user_name == "User" {
         config.user_name = default_user_name();
@@ -77,7 +99,17 @@ pub async fn run_tui(
         theme_index,
         log_path,
     });
-    app.refresh_review_and_diff(&service).await?;
+    if matches!(app.diff_source, DiffSource::RootDirectory) {
+        app.root_diff_load_started_at = Some(Instant::now());
+        app.status_line = "Loading reviewable root files...".into();
+        let config = app.config.clone();
+        let diff_source = app.diff_source.clone();
+        app.root_diff_load_task = Some(task::spawn(async move {
+            load_git_diff(&config, &diff_source).await
+        }));
+    } else {
+        app.refresh_review_and_diff(&service).await?;
+    }
     let mouse_capture_enabled = terminal_session.mouse_capture_enabled();
     run_loop(
         terminal_session.terminal_mut(),
@@ -148,6 +180,10 @@ async fn run_loop(
         if ai_changed {
             app.invalidate_redraw();
         }
+        let diff_load_updated = app.poll_root_directory_diff_load(service).await?;
+        if diff_load_updated {
+            app.invalidate_redraw();
+        }
 
         if let Some(action) = app.pending_action.take() {
             match action {
@@ -192,22 +228,6 @@ async fn run_loop(
     Ok(())
 }
 
-pub(super) mod help_docs;
-mod helpers;
-mod input;
-mod render;
-mod state;
-
-use helpers::{
-    MOUSE_WHEEL_FILE_SCROLL_FILES, MOUSE_WHEEL_SCROLL_LINES, comment_matches_display_row,
-    format_line_reference, format_timestamp_utc, insert_char_at, open_log_in_less, point_in_rect,
-    remove_char_at, suspend_tui_process,
-};
-use render::draw;
-pub(super) use render::{
-    DiffRenderCacheEntry, DiffRenderCacheKey, DisplayRow, FileReferenceHit, HighlightParts,
-};
-
 const AI_PROGRESS_MAX_LINES: usize = 300;
 const DIFF_RENDER_CACHE_MAX_ENTRIES: usize = 64;
 const INLINE_FILE_MENTION_MAX_VISIBLE_ROWS: usize = 6;
@@ -224,6 +244,7 @@ struct CommentTarget {
     side: DiffSide,
     old_line: Option<u32>,
     new_line: Option<u32>,
+    line_range: Option<CommentLineRange>,
     file_path: String,
     line_anchor: LineAnchorSnapshot,
 }
@@ -441,10 +462,11 @@ enum PendingUiAction {
 #[derive(Debug)]
 struct AiRunTask {
     started_at: Instant,
+    file_path: String,
     provider: AiProvider,
     mode: AiSessionMode,
     handle: JoinHandle<Result<crate::services::ai_session::AiSessionResult>>,
-    progress_rx: Receiver<AiProgressEvent>,
+    progress_rx: UnboundedReceiver<AiProgressEvent>,
 }
 
 #[derive(Debug, Clone)]
@@ -487,6 +509,9 @@ struct TuiApp {
     thread_nav_visible: bool,
     selected_line: usize,
     secondary_selected_line: usize,
+    selected_visual_row: Option<usize>,
+    secondary_selected_visual_row: Option<usize>,
+    comment_selection_anchor: Option<(DiffPane, usize)>,
     primary_viewport_top_row: usize,
     secondary_viewport_top_row: usize,
     selected_comment: usize,
@@ -510,11 +535,13 @@ struct TuiApp {
     settings_editor: Option<SettingsEditorState>,
     command_prompt: Option<CommandPromptState>,
     pending_action: Option<PendingUiAction>,
-    ai_task: Option<AiRunTask>,
+    ai_tasks: Vec<AiRunTask>,
     ai_progress_visible: bool,
-    ai_progress_lines: VecDeque<String>,
+    ai_progress_lines_by_file: HashMap<String, VecDeque<String>>,
     ai_progress_scroll: usize,
     ai_progress_follow_tail: bool,
+    root_diff_load_task: Option<JoinHandle<Result<DiffDocument>>>,
+    root_diff_load_started_at: Option<Instant>,
     shortcuts_modal_visible: bool,
     shortcuts_modal_scroll: usize,
     shortcuts_modal_doc_index: usize,

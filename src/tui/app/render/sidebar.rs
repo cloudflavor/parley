@@ -189,6 +189,7 @@ pub(super) fn draw_file_sidebar(frame: &mut Frame<'_>, app: &mut TuiApp, area: R
             selected_row,
             usize::from(list_area.height.saturating_sub(2)),
         );
+        *state.offset_mut() = app.last_file_scroll;
     } else {
         app.last_file_scroll = 0;
     }
@@ -274,4 +275,5 @@ pub(super) fn draw_file_sidebar(frame: &mut Frame<'_>, app: &mut TuiApp, area: R
         .highlight_symbol("▶ ");
 
     frame.render_stateful_widget(list, list_area, &mut state);
+    app.last_file_scroll = state.offset();
 }

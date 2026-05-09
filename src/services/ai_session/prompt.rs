@@ -33,7 +33,7 @@ pub(super) fn build_thread_prompt(
     let mut thread = String::new();
     thread.push_str(&format!("Review: {review_name}\n"));
     thread.push_str(&format!(
-        "Thread comment id: {}\nFile: {}\nLine: {}:{}\nStatus: {:?}\n",
+        "Thread comment id: {}\nFile: {}\nLine: {}:{}\nSelected line range: {}\nStatus: {:?}\n",
         comment.id,
         comment.file_path,
         comment
@@ -42,6 +42,7 @@ pub(super) fn build_thread_prompt(
         comment
             .new_line
             .map_or_else(|| "_".to_string(), |value| value.to_string()),
+        format_comment_line_range(comment),
         comment.status
     ));
     thread.push_str("\nOriginal comment:\n");
@@ -136,7 +137,12 @@ fn append_target_file_and_diff_context(
     diff_document: Option<&DiffDocument>,
 ) {
     prompt.push_str("\n\nPrimary target context:\n");
-    let target_line = comment.new_line.or(comment.old_line);
+    let target_line = comment
+        .line_range
+        .as_ref()
+        .and_then(|range| range.start_new_line.or(range.start_old_line))
+        .or(comment.new_line)
+        .or(comment.old_line);
     match target_line {
         Some(line) => {
             prompt.push_str(&format!(
@@ -144,10 +150,15 @@ fn append_target_file_and_diff_context(
                 comment.file_path, line
             ));
             if let Some(resolved) = resolve_workspace_path(&comment.file_path) {
-                if let Some(snippet) = file_line_snippet(&resolved, line) {
+                let snippet = comment
+                    .line_range
+                    .as_ref()
+                    .and_then(|range| file_range_snippet_for_comment(&resolved, range))
+                    .or_else(|| file_line_snippet(&resolved, line));
+                if let Some(snippet) = snippet {
                     prompt.push_str(&format!(
-                        "  file snippet around {}:{}:\n{}",
-                        comment.file_path, line, snippet
+                        "  file snippet for selected context in {}:\n{}",
+                        comment.file_path, snippet
                     ));
                 } else {
                     prompt.push_str("  file snippet: unavailable for requested line\n");
@@ -335,6 +346,74 @@ fn file_line_snippet(path: &Path, line: u32) -> Option<String> {
         out.push_str(&format!("    {absolute:>5} | {content}\n"));
     }
     Some(out)
+}
+
+fn file_range_snippet_for_comment(
+    path: &Path,
+    range: &crate::domain::review::CommentLineRange,
+) -> Option<String> {
+    let start = range.start_new_line.or(range.start_old_line)?;
+    let end = range.end_new_line.or(range.end_old_line).unwrap_or(start);
+    file_range_snippet(path, start.min(end), start.max(end))
+}
+
+fn file_range_snippet(path: &Path, start_line: u32, end_line: u32) -> Option<String> {
+    if start_line == 0 || end_line == 0 {
+        return None;
+    }
+    let text = read_to_string(path).ok()?;
+    let lines: Vec<&str> = text.lines().collect();
+    let start = usize::try_from(start_line.saturating_sub(1)).ok()?;
+    let end = usize::try_from(end_line).ok()?;
+    if start >= lines.len() || start >= end {
+        return None;
+    }
+
+    let context_start = start.saturating_sub(2);
+    let context_end = (end + 2).min(lines.len());
+    let mut out = String::new();
+    for (idx, content) in lines[context_start..context_end].iter().enumerate() {
+        let absolute = context_start + idx + 1;
+        let marker = if absolute >= usize::try_from(start_line).ok()?
+            && absolute <= usize::try_from(end_line).ok()?
+        {
+            ">"
+        } else {
+            " "
+        };
+        out.push_str(&format!("  {marker} {absolute:>5} | {content}\n"));
+    }
+    Some(out)
+}
+
+fn format_comment_line_range(comment: &LineComment) -> String {
+    comment.line_range.as_ref().map_or_else(
+        || format_line_pair(comment.old_line, comment.new_line),
+        |range| {
+            format!(
+                "{}:{}",
+                format_optional_line_range(range.start_old_line, range.end_old_line),
+                format_optional_line_range(range.start_new_line, range.end_new_line)
+            )
+        },
+    )
+}
+
+fn format_line_pair(old_line: Option<u32>, new_line: Option<u32>) -> String {
+    format!(
+        "{}:{}",
+        old_line.map_or_else(|| "_".to_string(), |value| value.to_string()),
+        new_line.map_or_else(|| "_".to_string(), |value| value.to_string())
+    )
+}
+
+fn format_optional_line_range(start: Option<u32>, end: Option<u32>) -> String {
+    match (start, end) {
+        (Some(start), Some(end)) if start != end => format!("{start}-{end}"),
+        (Some(start), _) => start.to_string(),
+        (None, Some(end)) => end.to_string(),
+        (None, None) => "_".to_string(),
+    }
 }
 
 fn prompt_template(path: &str) -> &'static str {

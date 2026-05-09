@@ -65,7 +65,7 @@ impl TuiApp {
                             self.status_line = format!(
                                 "selected thread #{} at {}",
                                 comment.id,
-                                format_line_reference(comment.old_line, comment.new_line)
+                                format_comment_reference(comment)
                             );
                         }
                     }
@@ -177,22 +177,19 @@ impl TuiApp {
                     }
                     if let Some(row_index) = self.last_diff_row_map.get(visible_row_index).copied()
                     {
-                        self.set_active_line_index(row_index);
+                        if mouse.modifiers.contains(KeyModifiers::SHIFT) {
+                            self.extend_comment_line_selection_to(DiffPane::Primary, row_index);
+                        } else {
+                            self.set_active_line_index(row_index);
+                        }
+                        self.set_visual_row_for_pane(DiffPane::Primary, Some(visible_row_index));
                     }
                 }
                 MouseEventKind::ScrollUp => {
-                    self.set_active_line_index(
-                        self.active_line_index()
-                            .saturating_sub(MOUSE_WHEEL_SCROLL_LINES),
-                    );
+                    self.scroll_active_pane_visual_lines(false, MOUSE_WHEEL_SCROLL_LINES);
                 }
                 MouseEventKind::ScrollDown => {
-                    let max = self.current_rows().len().saturating_sub(1);
-                    self.set_active_line_index(
-                        self.active_line_index()
-                            .saturating_add(MOUSE_WHEEL_SCROLL_LINES)
-                            .min(max),
-                    );
+                    self.scroll_active_pane_visual_lines(true, MOUSE_WHEEL_SCROLL_LINES);
                 }
                 _ => {}
             }
@@ -227,22 +224,19 @@ impl TuiApp {
                         .get(visible_row_index)
                         .copied()
                     {
-                        self.set_active_line_index(row_index);
+                        if mouse.modifiers.contains(KeyModifiers::SHIFT) {
+                            self.extend_comment_line_selection_to(DiffPane::Secondary, row_index);
+                        } else {
+                            self.set_active_line_index(row_index);
+                        }
+                        self.set_visual_row_for_pane(DiffPane::Secondary, Some(visible_row_index));
                     }
                 }
                 MouseEventKind::ScrollUp => {
-                    self.set_active_line_index(
-                        self.active_line_index()
-                            .saturating_sub(MOUSE_WHEEL_SCROLL_LINES),
-                    );
+                    self.scroll_active_pane_visual_lines(false, MOUSE_WHEEL_SCROLL_LINES);
                 }
                 MouseEventKind::ScrollDown => {
-                    let max = self.current_rows().len().saturating_sub(1);
-                    self.set_active_line_index(
-                        self.active_line_index()
-                            .saturating_add(MOUSE_WHEEL_SCROLL_LINES)
-                            .min(max),
-                    );
+                    self.scroll_active_pane_visual_lines(true, MOUSE_WHEEL_SCROLL_LINES);
                 }
                 _ => {}
             }
@@ -269,22 +263,15 @@ impl TuiApp {
                     if let Some(row_index) = self.last_diff_row_map.get(visible_row_index).copied()
                     {
                         self.set_active_line_index(row_index);
+                        self.set_visual_row_for_pane(DiffPane::Primary, Some(visible_row_index));
                         let _ = self.accept_inline_file_reference_line_selection();
                     }
                 }
                 MouseEventKind::ScrollUp => {
-                    self.set_active_line_index(
-                        self.active_line_index()
-                            .saturating_sub(MOUSE_WHEEL_SCROLL_LINES),
-                    );
+                    self.scroll_active_pane_visual_lines(false, MOUSE_WHEEL_SCROLL_LINES);
                 }
                 MouseEventKind::ScrollDown => {
-                    let max = self.current_rows().len().saturating_sub(1);
-                    self.set_active_line_index(
-                        self.active_line_index()
-                            .saturating_add(MOUSE_WHEEL_SCROLL_LINES)
-                            .min(max),
-                    );
+                    self.scroll_active_pane_visual_lines(true, MOUSE_WHEEL_SCROLL_LINES);
                 }
                 _ => {}
             }
@@ -309,25 +296,51 @@ impl TuiApp {
                         .copied()
                     {
                         self.set_active_line_index(row_index);
+                        self.set_visual_row_for_pane(DiffPane::Secondary, Some(visible_row_index));
                         let _ = self.accept_inline_file_reference_line_selection();
                     }
                 }
                 MouseEventKind::ScrollUp => {
-                    self.set_active_line_index(
-                        self.active_line_index()
-                            .saturating_sub(MOUSE_WHEEL_SCROLL_LINES),
-                    );
+                    self.scroll_active_pane_visual_lines(false, MOUSE_WHEEL_SCROLL_LINES);
                 }
                 MouseEventKind::ScrollDown => {
-                    let max = self.current_rows().len().saturating_sub(1);
-                    self.set_active_line_index(
-                        self.active_line_index()
-                            .saturating_add(MOUSE_WHEEL_SCROLL_LINES)
-                            .min(max),
-                    );
+                    self.scroll_active_pane_visual_lines(true, MOUSE_WHEEL_SCROLL_LINES);
                 }
                 _ => {}
             }
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::tui::app::state::tests::make_test_app;
+    use anyhow::Result;
+    use crossterm::event::KeyModifiers;
+    use ratatui::layout::Rect;
+
+    #[test]
+    fn clicking_visible_file_row_selects_scrolled_file() -> Result<()> {
+        let mut app = make_test_app(vec!["src/a.rs", "src/b.rs", "src/c.rs"], Vec::new())?;
+        app.last_file_area = Some(Rect {
+            x: 0,
+            y: 0,
+            width: 24,
+            height: 4,
+        });
+        app.last_file_scroll = 1;
+        app.last_file_row_map = vec![Some(0), Some(1), Some(2)];
+        app.last_file_group_map = vec![None, None, None];
+
+        app.handle_mouse(MouseEvent {
+            kind: MouseEventKind::Down(MouseButton::Left),
+            column: 1,
+            row: 1,
+            modifiers: KeyModifiers::empty(),
+        })?;
+
+        assert_eq!(app.active_file_index(), 1);
+        Ok(())
     }
 }

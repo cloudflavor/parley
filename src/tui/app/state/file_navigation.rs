@@ -21,12 +21,16 @@ impl TuiApp {
             if self.secondary_selected_file != index {
                 self.pending_scroll_anchor_row_secondary = None;
                 self.secondary_viewport_top_row = 0;
+                self.secondary_selected_visual_row = None;
+                self.clear_comment_line_selection();
             }
             self.secondary_selected_file = index;
         } else {
             if self.selected_file != index {
                 self.pending_scroll_anchor_row = None;
                 self.primary_viewport_top_row = 0;
+                self.selected_visual_row = None;
+                self.clear_comment_line_selection();
             }
             self.selected_file = index;
         }
@@ -53,6 +57,7 @@ impl TuiApp {
 
         self.set_active_file_index(clamped);
         self.set_active_line_index(0);
+        self.clear_comment_line_selection();
         self.selected_comment = 0;
         self.inline_comment = None;
     }

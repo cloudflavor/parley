@@ -6,7 +6,7 @@ use ratatui::{
 use crate::domain::reference::parse_file_references;
 use crate::tui::theme::ThemeColors;
 
-use super::super::helpers::{format_line_reference, format_timestamp_utc};
+use super::super::helpers::{format_comment_reference, format_timestamp_utc};
 use super::helpers::{
     CompactThreadRowSpec, compact_preview, compute_compact_thread_content_width,
     compute_thread_inner_width, fit_to_width, line_plain_text, push_compact_thread_row,
@@ -41,7 +41,7 @@ pub(super) fn render_comment_thread(
             comment.id,
             comment_status_label(&comment.status),
             app.author_label(&comment.author),
-            format_line_reference(comment.old_line, comment.new_line),
+            format_comment_reference(comment),
             compact_preview(&comment.body)
         );
         push_compact_thread_row(

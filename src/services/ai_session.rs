@@ -1,7 +1,6 @@
-use std::sync::mpsc;
-
 use anyhow::Result;
 use serde::Serialize;
+use tokio::sync::mpsc;
 use tracing::{debug, error, info, warn};
 
 use crate::domain::ai::{AiProvider, AiSessionMode};
@@ -89,7 +88,7 @@ pub async fn run_ai_session(
 pub async fn run_ai_session_with_progress(
     service: &ReviewService,
     input: RunAiSessionInput,
-    progress_sender: mpsc::Sender<AiProgressEvent>,
+    progress_sender: mpsc::UnboundedSender<AiProgressEvent>,
 ) -> Result<AiSessionResult> {
     run_ai_session_inner(service, input, Some(progress_sender)).await
 }
@@ -97,7 +96,7 @@ pub async fn run_ai_session_with_progress(
 async fn run_ai_session_inner(
     service: &ReviewService,
     input: RunAiSessionInput,
-    progress_sender: Option<mpsc::Sender<AiProgressEvent>>,
+    progress_sender: Option<mpsc::UnboundedSender<AiProgressEvent>>,
 ) -> Result<AiSessionResult> {
     info!(
         review = %input.review_name,

@@ -1,5 +1,5 @@
-use super::super::helpers::slice_chars;
-use super::TextBuffer;
+use crate::tui::app::TextBuffer;
+use crate::tui::app::helpers::slice_chars;
 
 impl TextBuffer {
     pub(crate) fn new() -> Self {

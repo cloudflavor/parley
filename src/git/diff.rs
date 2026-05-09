@@ -231,7 +231,7 @@ fn diff_file_from_content(path: &str, content: &str) -> DiffFile {
         let line_number = u32::try_from(index + 1).unwrap_or(u32::MAX);
         hunk.lines.push(DiffLine {
             kind: DiffLineKind::Context,
-            old_line: Some(line_number),
+            old_line: None,
             new_line: Some(line_number),
             raw: format!(" {line}"),
             code: line.to_string(),
@@ -788,7 +788,7 @@ mod tests {
         let tracked_lines = &tracked.hunks[0].lines;
         assert!(tracked_lines.iter().any(|line| {
             line.kind == DiffLineKind::Context
-                && line.old_line == Some(1)
+                && line.old_line.is_none()
                 && line.new_line == Some(1)
                 && line.code == "fn tracked() {}"
         }));

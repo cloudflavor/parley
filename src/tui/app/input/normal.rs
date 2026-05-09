@@ -56,6 +56,14 @@ impl TuiApp {
                 self.scroll_active_pane_page(true, false);
                 self.status_line = "paged down".into();
             }
+            KeyCode::Char('V') if key.modifiers.contains(KeyModifiers::SHIFT) => {
+                self.ensure_row_cache();
+                self.toggle_comment_line_selection();
+            }
+            KeyCode::Char('v') => {
+                self.ensure_row_cache();
+                self.toggle_comment_line_selection();
+            }
             KeyCode::Char('V') => {
                 self.toggle_split_diff_view();
                 self.status_line = if self.split_diff_view {
@@ -256,7 +264,7 @@ impl TuiApp {
                     self.status_line = format!(
                         "selected thread #{} at line {}",
                         comment.id,
-                        format_line_reference(comment.old_line, comment.new_line)
+                        format_comment_reference(comment)
                     );
                 }
             }
@@ -268,7 +276,7 @@ impl TuiApp {
                     self.status_line = format!(
                         "selected thread #{} at line {}",
                         comment.id,
-                        format_line_reference(comment.old_line, comment.new_line)
+                        format_comment_reference(comment)
                     );
                 }
             }

@@ -12,7 +12,7 @@ use crate::tui::app::render::helpers::fit_spans_to_width;
 use crate::utils::cast::usize_to_u16_saturating;
 
 use super::super::super::theme::ThemeColors;
-use super::super::helpers::format_line_reference;
+use super::super::helpers::format_comment_reference;
 use super::TuiApp;
 
 pub(super) fn compute_status_height(total_height: u16) -> u16 {
@@ -42,7 +42,7 @@ pub(super) fn draw_status_panel(frame: &mut ratatui::Frame<'_>, app: &TuiApp, ar
                 format!(
                     "#{} {} {}",
                     comment.id,
-                    format_line_reference(comment.old_line, comment.new_line),
+                    format_comment_reference(comment),
                     comment_status_label(&comment.status)
                 ),
                 comment_status_style(&comment.status, colors),
@@ -227,8 +227,8 @@ fn status_footer_context(app: &TuiApp) -> String {
         } else {
             "Comment draft · ctrl+s save · ctrl+p preview".to_string()
         }
-    } else if app.ai_task.is_some() {
-        "AI running · k cancel · h stream · l logs".to_string()
+    } else if !app.ai_tasks.is_empty() {
+        "AI running · k cancel file runs · h file logs · l logs".to_string()
     } else {
         String::new()
     }
