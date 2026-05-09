@@ -22,15 +22,18 @@ test:
   script:
     - cargo test --all-targets --all-features
 
-.release_manual:
+.release_job:
   stage: release
-  when: manual
+  rules:
+    - if: '$CI_COMMIT_TAG'
+      when: on_success
+    - when: manual
   allow_failure: true
   artifacts:
     expire_in: 7 days
 
 build_release_amd64_linux:
-  extends: .release_manual
+  extends: .release_job
   script:
     - cargo build --release --locked --bin parley
     - mkdir -p /dist/x86_64-unknown-linux-gnu
@@ -41,7 +44,7 @@ build_release_amd64_linux:
     expire_in: 7 days
 
 build_release_aarch64_linux:
-  extends: .release_manual
+  extends: .release_job
   script:
     - cargo build --release --locked --bin parley
     - mkdir -p /dist/aarch64-unknown-linux-gnu
@@ -52,7 +55,7 @@ build_release_aarch64_linux:
     expire_in: 7 days
 
 build_release_aarch64_macos:
-  extends: .release_manual
+  extends: .release_job
   tags:
     - macos
     - arm64
