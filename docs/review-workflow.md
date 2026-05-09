@@ -128,6 +128,26 @@ Use `parley tui --root` to review the current repository root without requiring 
 
 Root-directory review mode loads tracked files plus untracked files that are not ignored by gitignore rules. It skips `.git`, `.parley`, and `worktrees/` directories. Each file is shown as context lines so comments can attach to the current file line numbers.
 
+## 11. Custom AI task prompts
+
+Parley's AI prompt has two parts:
+
+- generated review context from the selected thread, replies, target file, diff hunk, and referenced files
+- task instructions for the selected AI mode
+
+Configure markdown files in `.parley/config.toml` to replace the task-instruction part:
+
+```toml
+[ai]
+prompt_path = "prompts/parley-ai.md"
+reply_prompt_path = "prompts/parley-reply.md"
+refactor_prompt_path = "prompts/parley-refactor.md"
+```
+
+`reply_prompt_path` is used for reply mode, and `refactor_prompt_path` is used for refactor mode. If a mode-specific path is absent, Parley falls back to `prompt_path`. If no custom prompt path is configured, Parley uses the built-in prompt for that mode.
+
+Relative paths are resolved from the repository root where Parley is started. If a configured markdown file cannot be read, the AI session fails before invoking the provider.
+
 Inside the TUI, `Ctrl+k` opens the command palette. Select `Open Commit Picker` to choose from recent commits, filter by message or SHA, and press `Enter` to apply the selected commit as the active diff source.
 
 Select `Open Review Picker` from the same command palette to switch review context. This reloads comments, replies, and review state from the selected review while keeping the active working tree, commit, or range diff unchanged.

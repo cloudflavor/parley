@@ -18,7 +18,7 @@ mod provider;
 mod tests;
 
 use progress::emit_progress;
-use prompt::build_thread_prompt;
+use prompt::{build_thread_prompt, load_task_prompt_override};
 use provider::{format_ai_reply_body, invoke_provider};
 
 #[derive(Debug, Clone)]
@@ -174,6 +174,7 @@ async fn run_ai_session_inner(
         return Ok(result);
     }
 
+    let task_prompt_override = load_task_prompt_override(&config, input.mode)?;
     let explicit_selection = !input.comment_ids.is_empty();
     for (step_index, comment_id) in target_ids.into_iter().enumerate() {
         emit_progress(
@@ -255,6 +256,7 @@ async fn run_ai_session_inner(
             &review,
             diff_document.as_ref(),
             input.mode,
+            task_prompt_override.as_deref(),
         );
         let provider_reply = match invoke_provider(
             &config,

@@ -65,6 +65,9 @@ pub struct AiProviderConfig {
 pub struct AiConfig {
     pub timeout_seconds: u64,
     pub default_provider: AiProvider,
+    pub prompt_path: Option<String>,
+    pub reply_prompt_path: Option<String>,
+    pub refactor_prompt_path: Option<String>,
     pub codex: AiProviderConfig,
     pub claude: AiProviderConfig,
     pub opencode: AiProviderConfig,
@@ -143,6 +146,9 @@ impl Default for AiConfig {
         Self {
             timeout_seconds: 120,
             default_provider: AiProvider::Opencode,
+            prompt_path: None,
+            reply_prompt_path: None,
+            refactor_prompt_path: None,
             codex,
             claude,
             opencode,
@@ -159,16 +165,72 @@ impl AiConfig {
             AiProvider::Opencode => &self.opencode,
         }
     }
+
+    #[must_use]
+    pub fn prompt_path_for_mode(&self, mode: crate::domain::ai::AiSessionMode) -> Option<&str> {
+        let mode_path = match mode {
+            crate::domain::ai::AiSessionMode::Reply => self.reply_prompt_path.as_deref(),
+            crate::domain::ai::AiSessionMode::Refactor => self.refactor_prompt_path.as_deref(),
+        };
+        mode_path
+            .or(self.prompt_path.as_deref())
+            .map(str::trim)
+            .filter(|path| !path.is_empty())
+    }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::AppConfig;
+    use crate::domain::ai::AiSessionMode;
+
+    use super::{AiConfig, AppConfig};
 
     #[test]
     fn default_config_ignores_parley_dir() {
         let config = AppConfig::default();
 
         assert!(config.ignore_parley_dir);
+    }
+
+    #[test]
+    fn ai_prompt_path_for_mode_prefers_mode_specific_path() {
+        let config = AiConfig {
+            prompt_path: Some("prompts/default.md".to_string()),
+            reply_prompt_path: Some("prompts/reply.md".to_string()),
+            refactor_prompt_path: None,
+            ..AiConfig::default()
+        };
+
+        assert_eq!(
+            config.prompt_path_for_mode(AiSessionMode::Reply),
+            Some("prompts/reply.md")
+        );
+        assert_eq!(
+            config.prompt_path_for_mode(AiSessionMode::Refactor),
+            Some("prompts/default.md")
+        );
+    }
+
+    #[test]
+    fn app_config_deserializes_custom_prompt_paths() {
+        let config: AppConfig = toml::from_str(
+            r#"
+            [ai]
+            prompt_path = "prompts/shared.md"
+            reply_prompt_path = "prompts/reply.md"
+            refactor_prompt_path = "prompts/refactor.md"
+            "#,
+        )
+        .expect("config should parse");
+
+        assert_eq!(config.ai.prompt_path.as_deref(), Some("prompts/shared.md"));
+        assert_eq!(
+            config.ai.reply_prompt_path.as_deref(),
+            Some("prompts/reply.md")
+        );
+        assert_eq!(
+            config.ai.refactor_prompt_path.as_deref(),
+            Some("prompts/refactor.md")
+        );
     }
 }

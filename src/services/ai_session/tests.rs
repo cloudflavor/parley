@@ -91,11 +91,53 @@ fn thread_prompt_marks_latest_human_reply_as_current_request() {
         next_reply_id: 4,
     };
 
-    let prompt = build_thread_prompt("review", 7, &review, None, AiSessionMode::Reply);
+    let prompt = build_thread_prompt("review", 7, &review, None, AiSessionMode::Reply, None);
 
     assert!(prompt.contains("- user: first follow-up"));
     assert!(prompt.contains("- user: latest follow-up"));
     assert!(prompt.contains("- latest human reply: latest follow-up"));
+}
+
+#[test]
+fn thread_prompt_uses_custom_task_prompt_when_provided() {
+    let review = ReviewSession {
+        name: "review".into(),
+        state: ReviewState::Open,
+        created_at_ms: 0,
+        updated_at_ms: 0,
+        done_at_ms: None,
+        comments: vec![LineComment {
+            id: 7,
+            file_path: "src/lib.rs".into(),
+            old_line: None,
+            new_line: Some(42),
+            side: DiffSide::Right,
+            line_anchor: None,
+            detached: false,
+            body: "original request".into(),
+            author: Author::User,
+            status: CommentStatus::Open,
+            replies: Vec::new(),
+            created_at_ms: 0,
+            updated_at_ms: 0,
+            addressed_at_ms: None,
+        }],
+        next_comment_id: 8,
+        next_reply_id: 1,
+    };
+
+    let prompt = build_thread_prompt(
+        "review",
+        7,
+        &review,
+        None,
+        AiSessionMode::Reply,
+        Some("Custom task: answer with risk analysis."),
+    );
+
+    assert!(prompt.contains("Original comment:\noriginal request"));
+    assert!(prompt.contains("Custom task: answer with risk analysis."));
+    assert!(!prompt.contains("Provide a concise markdown reply only"));
 }
 
 #[test]

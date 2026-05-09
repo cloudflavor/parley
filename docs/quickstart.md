@@ -159,6 +159,27 @@ Typical pattern:
 
 If the review is already `done`, AI runs are skipped.
 
+### Customize AI task prompts
+
+Parley always builds thread context from the selected comment, replies, target file, diff hunk, and referenced files. You can replace the final task instructions appended to that context with markdown files configured in `.parley/config.toml`.
+
+Use one shared prompt for all AI modes:
+
+```toml
+[ai]
+prompt_path = "prompts/parley-ai.md"
+```
+
+Or use mode-specific prompts:
+
+```toml
+[ai]
+reply_prompt_path = "prompts/parley-reply.md"
+refactor_prompt_path = "prompts/parley-refactor.md"
+```
+
+Mode-specific paths take precedence over `prompt_path`. Relative paths are resolved from the repository root where Parley is started. If a configured prompt file cannot be read, the AI session fails before invoking the provider.
+
 ## Core controls
 
 ### Navigation

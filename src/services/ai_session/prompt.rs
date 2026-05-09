@@ -3,9 +3,11 @@ use std::env::current_dir;
 use std::fs::read_to_string;
 use std::path::{Path, PathBuf};
 
+use anyhow::{Context, Result};
 use include_dir::{Dir, include_dir};
 
 use crate::domain::ai::AiSessionMode;
+use crate::domain::config::AppConfig;
 use crate::domain::diff::{DiffDocument, DiffFile, DiffHunk};
 use crate::domain::reference::parse_file_references;
 use crate::domain::review::{Author, LineComment, ReviewSession};
@@ -18,6 +20,7 @@ pub(super) fn build_thread_prompt(
     review: &ReviewSession,
     diff_document: Option<&DiffDocument>,
     mode: AiSessionMode,
+    task_prompt_override: Option<&str>,
 ) -> String {
     let Some(comment) = review
         .comments
@@ -59,15 +62,51 @@ pub(super) fn build_thread_prompt(
     append_target_file_and_diff_context(&mut thread, comment, diff_document);
     append_referenced_files_context(&mut thread, comment);
 
-    match mode {
-        AiSessionMode::Reply => {
-            thread.push_str(prompt_template("reply_task.md"));
-        }
-        AiSessionMode::Refactor => {
-            thread.push_str(prompt_template("refactor_task.md"));
-        }
-    }
+    append_task_prompt(
+        &mut thread,
+        task_prompt_override.unwrap_or_else(|| default_task_prompt(mode)),
+    );
     thread
+}
+
+pub(super) fn load_task_prompt_override(
+    config: &AppConfig,
+    mode: AiSessionMode,
+) -> Result<Option<String>> {
+    let Some(path) = config.ai.prompt_path_for_mode(mode) else {
+        return Ok(None);
+    };
+    let path = Path::new(path);
+    let resolved = if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        current_dir()
+            .context("failed to read current working directory for prompt path")?
+            .join(path)
+    };
+    read_to_string(&resolved)
+        .with_context(|| format!("failed to read AI prompt markdown {}", resolved.display()))
+        .map(Some)
+}
+
+fn default_task_prompt(mode: AiSessionMode) -> &'static str {
+    match mode {
+        AiSessionMode::Reply => prompt_template("reply_task.md"),
+        AiSessionMode::Refactor => prompt_template("refactor_task.md"),
+    }
+}
+
+fn append_task_prompt(prompt: &mut String, task_prompt: &str) {
+    if !prompt.ends_with('\n') {
+        prompt.push('\n');
+    }
+    if !task_prompt.starts_with('\n') {
+        prompt.push('\n');
+    }
+    prompt.push_str(task_prompt);
+    if !prompt.ends_with('\n') {
+        prompt.push('\n');
+    }
 }
 
 fn append_current_human_request(prompt: &mut String, comment: &LineComment) {
