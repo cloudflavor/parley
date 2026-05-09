@@ -10,7 +10,7 @@ use super::super::helpers::{format_comment_reference, slice_chars};
 use super::helpers::{compute_scroll, fit_to_width, wrap_markdown_lines};
 use super::status::spinner_frame;
 use super::{CommandPromptMode, TuiApp};
-use crate::git::history::FileHeatmapEntry;
+use crate::git::history::{FileHeatmapBucket, FileHeatmapEntry};
 use crate::tui::app::help_docs::HELP_DOCS;
 use crate::tui::theme::ThemeColors;
 use crate::utils::cast::{i32_to_u16_saturating, usize_to_u16_saturating};
@@ -244,23 +244,21 @@ pub(super) fn draw_file_heatmap_overlay(frame: &mut Frame<'_>, app: &mut TuiApp)
             Style::default().fg(colors.text_muted),
         )));
     } else {
-        lines.push(Line::from(vec![
-            Span::styled("rank ", Style::default().fg(colors.text_muted)),
-            Span::styled(
-                "heat                 ",
-                Style::default().fg(colors.text_muted),
-            ),
-            Span::styled("commits ", Style::default().fg(colors.text_muted)),
-            Span::styled("changes ", Style::default().fg(colors.text_muted)),
-            Span::styled("+/- ", Style::default().fg(colors.text_muted)),
-            Span::styled("path", Style::default().fg(colors.text_muted)),
-        ]));
-        let max_commits = entries.iter().map(|entry| entry.commits).max().unwrap_or(1);
+        let days = file_heatmap_days(&entries, content_width);
+        let file_width = file_heatmap_file_width(content_width, days.len());
+        let max_activity = max_bucket_activity(&entries).max(1);
+        lines.push(Line::from(Span::styled(
+            "older -> newer | each square is one day of file activity",
+            Style::default().fg(colors.text_muted),
+        )));
+        lines.push(file_heatmap_header(days.len(), file_width, &colors));
         for (index, entry) in entries.iter().enumerate().skip(scroll).take(list_rows) {
             lines.push(file_heatmap_line(
                 index + 1,
                 entry,
-                max_commits,
+                &days,
+                file_width,
+                max_activity,
                 content_width,
                 &colors,
             ));
@@ -268,7 +266,7 @@ pub(super) fn draw_file_heatmap_overlay(frame: &mut Frame<'_>, app: &mut TuiApp)
     }
     lines.push(Line::from(""));
     let footer = if loaded_at {
-        "M/Esc close | j/k/PgUp/PgDn scroll | ranked by commits, then line churn"
+        "M/Esc close | j/k/PgUp/PgDn scroll | rows ranked by commits, cells colored by daily file churn"
     } else {
         "M/Esc close | scanning runs only on explicit request"
     };
@@ -299,56 +297,142 @@ pub(super) fn draw_file_heatmap_overlay(frame: &mut Frame<'_>, app: &mut TuiApp)
 fn file_heatmap_line(
     rank: usize,
     entry: &FileHeatmapEntry,
-    max_commits: usize,
+    days: &[i64],
+    file_width: usize,
+    max_activity: usize,
     width: usize,
     colors: &ThemeColors,
 ) -> Line<'static> {
-    const CELL_COUNT: usize = 8;
     let prefix = format!(
-        "{rank:>4} {cells_width} {commits:>7} {changes:>7} +{insertions}/-{deletions} ",
-        cells_width = "  ".repeat(CELL_COUNT),
+        "{rank:>4} {path:<file_width$} {cells_width} {commits:>4}c {changes:>5}chg ",
+        path = fit_to_width(&entry.path, file_width),
+        cells_width = "  ".repeat(days.len()),
         commits = entry.commits,
         changes = entry.changes,
-        insertions = entry.insertions,
-        deletions = entry.deletions,
     );
     let remaining = width.saturating_sub(prefix.chars().count()).max(8);
-    let path = fit_to_width(&entry.path, remaining);
+    let churn = fit_to_width(
+        &format!("+{}/-{}", entry.insertions, entry.deletions),
+        remaining,
+    );
     let mut spans = vec![Span::styled(
         format!("{rank:>4} "),
         Style::default().fg(colors.text_muted),
     )];
-    spans.extend(heatmap_cells(entry.commits, max_commits, colors));
+    spans.push(Span::styled(
+        format!(
+            "{path:<file_width$} ",
+            path = fit_to_width(&entry.path, file_width)
+        ),
+        Style::default().fg(colors.text_primary),
+    ));
+    spans.extend(heatmap_cells(entry, days, max_activity, colors));
     spans.push(Span::raw(format!(
-        " {commits:>7} {changes:>7} +{insertions}/-{deletions} ",
+        " {commits:>4}c {changes:>5}chg ",
         commits = entry.commits,
         changes = entry.changes,
-        insertions = entry.insertions,
-        deletions = entry.deletions,
     )));
-    spans.push(Span::styled(path, Style::default().fg(colors.text_primary)));
+    spans.push(Span::styled(churn, Style::default().fg(colors.text_muted)));
     Line::from(spans)
 }
 
-fn heatmap_cells(value: usize, max_value: usize, colors: &ThemeColors) -> Vec<Span<'static>> {
-    const CELL_COUNT: usize = 8;
-    let filled = if max_value == 0 {
-        0
-    } else {
-        (value * CELL_COUNT).div_ceil(max_value).max(1)
-    };
-    (0..CELL_COUNT)
-        .map(|index| {
-            let active = index < filled;
-            let level = if active {
-                ((index + 1) * 4).div_ceil(CELL_COUNT)
-            } else {
-                0
-            };
-            let style = heat_cell_style(level, colors);
-            Span::styled("  ".to_string(), style)
+fn file_heatmap_header(day_count: usize, file_width: usize, colors: &ThemeColors) -> Line<'static> {
+    Line::from(vec![
+        Span::styled("rank ", Style::default().fg(colors.text_muted)),
+        Span::styled(
+            format!("{file:<file_width$} ", file = "file"),
+            Style::default().fg(colors.text_muted),
+        ),
+        Span::styled(
+            format!(
+                "{graph:<graph_width$} ",
+                graph = "heat",
+                graph_width = day_count * 2
+            ),
+            Style::default().fg(colors.text_muted),
+        ),
+        Span::styled(
+            "commits changes churn",
+            Style::default().fg(colors.text_muted),
+        ),
+    ])
+}
+
+fn heatmap_cells(
+    entry: &FileHeatmapEntry,
+    days: &[i64],
+    max_activity: usize,
+    colors: &ThemeColors,
+) -> Vec<Span<'static>> {
+    days.iter()
+        .map(|day| {
+            let activity = entry
+                .buckets
+                .iter()
+                .find(|bucket| bucket.day == *day)
+                .map(bucket_activity)
+                .unwrap_or(0);
+            let level = heat_level(activity, max_activity);
+            Span::styled("  ".to_string(), heat_cell_style(level, colors))
         })
         .collect()
+}
+
+fn file_heatmap_days(entries: &[FileHeatmapEntry], width: usize) -> Vec<i64> {
+    let Some(newest_day) = entries
+        .iter()
+        .flat_map(|entry| entry.buckets.iter().map(|bucket| bucket.day))
+        .max()
+    else {
+        return Vec::new();
+    };
+    let count = file_heatmap_day_count(width);
+    let oldest_day = newest_day.saturating_sub(count.saturating_sub(1) as i64);
+    (oldest_day..=newest_day).collect()
+}
+
+fn file_heatmap_day_count(width: usize) -> usize {
+    const MIN_DAYS: usize = 7;
+    const MAX_DAYS: usize = 52;
+    const RESERVED_WIDTH: usize = 52;
+
+    width
+        .saturating_sub(RESERVED_WIDTH)
+        .saturating_div(2)
+        .clamp(MIN_DAYS, MAX_DAYS)
+}
+
+fn file_heatmap_file_width(width: usize, day_count: usize) -> usize {
+    const MIN_FILE_WIDTH: usize = 12;
+    const MAX_FILE_WIDTH: usize = 36;
+    const RANK_WIDTH: usize = 5;
+    const METRIC_WIDTH: usize = 24;
+    const COLUMN_GAPS: usize = 3;
+
+    width
+        .saturating_sub(RANK_WIDTH + (day_count * 2) + METRIC_WIDTH + COLUMN_GAPS)
+        .clamp(MIN_FILE_WIDTH, MAX_FILE_WIDTH)
+}
+
+fn max_bucket_activity(entries: &[FileHeatmapEntry]) -> usize {
+    entries
+        .iter()
+        .flat_map(|entry| entry.buckets.iter())
+        .map(bucket_activity)
+        .max()
+        .unwrap_or(0)
+}
+
+fn bucket_activity(bucket: &FileHeatmapBucket) -> usize {
+    bucket.commits + bucket.changes
+}
+
+fn heat_level(value: usize, max_value: usize) -> usize {
+    if value == 0 || max_value == 0 {
+        0
+    } else {
+        (value * 4).div_ceil(max_value).clamp(1, 4)
+    }
 }
 
 fn heat_cell_style(level: usize, colors: &ThemeColors) -> Style {
@@ -694,4 +778,44 @@ pub(super) fn draw_command_palette(frame: &mut Frame<'_>, app: &mut TuiApp) {
         ));
     let cursor_y = area.y.saturating_add(1);
     frame.set_cursor_position((cursor_x, cursor_y));
+}
+
+#[cfg(test)]
+mod heatmap_tests {
+    use super::*;
+
+    #[test]
+    fn file_heatmap_days_uses_newest_contiguous_window() {
+        let entries = vec![FileHeatmapEntry {
+            path: "src/hot.rs".to_string(),
+            commits: 2,
+            changes: 4,
+            insertions: 3,
+            deletions: 1,
+            buckets: vec![
+                FileHeatmapBucket {
+                    day: 10,
+                    commits: 1,
+                    changes: 1,
+                },
+                FileHeatmapBucket {
+                    day: 14,
+                    commits: 1,
+                    changes: 3,
+                },
+            ],
+        }];
+
+        let days = file_heatmap_days(&entries, 72);
+
+        assert_eq!(days.last().copied(), Some(14));
+        assert_eq!(days.len(), file_heatmap_day_count(72));
+    }
+
+    #[test]
+    fn heat_level_scales_activity_into_four_nonzero_levels() {
+        assert_eq!(heat_level(0, 10), 0);
+        assert_eq!(heat_level(1, 10), 1);
+        assert_eq!(heat_level(10, 10), 4);
+    }
 }

@@ -336,7 +336,7 @@ impl TuiApp {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::git::history::FileHeatmapEntry;
+    use crate::git::history::{FileHeatmapBucket, FileHeatmapEntry};
     use crate::tui::app::FileHeatmapState;
     use crate::tui::app::state::tests::make_test_app;
     use anyhow::Result;
@@ -377,6 +377,11 @@ mod tests {
                 changes: 2,
                 insertions: 1,
                 deletions: 1,
+                buckets: vec![FileHeatmapBucket {
+                    day: 1,
+                    commits: 1,
+                    changes: 2,
+                }],
             }],
             scroll: 0,
             loaded_at: None,
