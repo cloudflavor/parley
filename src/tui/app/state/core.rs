@@ -87,6 +87,7 @@ impl TuiApp {
             search_query: None,
             last_ai_progress_area: None,
             last_shortcuts_modal_area: None,
+            last_file_heatmap_area: None,
             last_file_area: None,
             last_file_search_area: None,
             last_file_scroll: 0,

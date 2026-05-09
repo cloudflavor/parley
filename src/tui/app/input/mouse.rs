@@ -3,6 +3,27 @@ use crate::utils::cast::{usize_to_isize_saturating, usize_to_u16_saturating};
 
 impl TuiApp {
     pub(in crate::tui::app) fn handle_mouse(&mut self, mouse: MouseEvent) -> Result<()> {
+        if self.file_heatmap.is_some() || self.file_heatmap_started_at.is_some() {
+            match mouse.kind {
+                MouseEventKind::ScrollUp => {
+                    self.scroll_file_heatmap(-3);
+                }
+                MouseEventKind::ScrollDown => {
+                    self.scroll_file_heatmap(3);
+                }
+                MouseEventKind::Down(MouseButton::Left) => {
+                    if self
+                        .last_file_heatmap_area
+                        .is_some_and(|area| !point_in_rect(mouse.column, mouse.row, area))
+                    {
+                        self.close_file_heatmap();
+                    }
+                }
+                _ => {}
+            }
+            return Ok(());
+        }
+
         if self.shortcuts_modal_visible {
             match mouse.kind {
                 MouseEventKind::ScrollUp => {
@@ -315,6 +336,8 @@ impl TuiApp {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::git::history::FileHeatmapEntry;
+    use crate::tui::app::FileHeatmapState;
     use crate::tui::app::state::tests::make_test_app;
     use anyhow::Result;
     use crossterm::event::KeyModifiers;
@@ -341,6 +364,49 @@ mod tests {
         })?;
 
         assert_eq!(app.active_file_index(), 1);
+        Ok(())
+    }
+
+    #[test]
+    fn heatmap_mouse_wheel_scrolls_heatmap_not_background_diff() -> Result<()> {
+        let mut app = make_test_app(vec!["src/a.rs"], Vec::new())?;
+        app.file_heatmap = Some(FileHeatmapState {
+            entries: vec![FileHeatmapEntry {
+                path: "src/a.rs".to_string(),
+                commits: 1,
+                changes: 2,
+                insertions: 1,
+                deletions: 1,
+            }],
+            scroll: 0,
+            loaded_at: None,
+        });
+        app.last_file_heatmap_area = Some(Rect {
+            x: 10,
+            y: 2,
+            width: 60,
+            height: 20,
+        });
+        app.last_diff_area = Some(Rect {
+            x: 0,
+            y: 0,
+            width: 100,
+            height: 30,
+        });
+        app.last_diff_row_map = vec![0, 1, 2, 3, 4, 5];
+
+        app.handle_mouse(MouseEvent {
+            kind: MouseEventKind::ScrollDown,
+            column: 12,
+            row: 4,
+            modifiers: KeyModifiers::empty(),
+        })?;
+
+        assert_eq!(
+            app.file_heatmap.as_ref().map(|heatmap| heatmap.scroll),
+            Some(3)
+        );
+        assert_eq!(app.viewport_top_for_pane(DiffPane::Primary), 0);
         Ok(())
     }
 }

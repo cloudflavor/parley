@@ -588,6 +588,7 @@ struct TuiApp {
     search_query: Option<String>,
     last_ai_progress_area: Option<Rect>,
     last_shortcuts_modal_area: Option<Rect>,
+    last_file_heatmap_area: Option<Rect>,
     last_file_area: Option<Rect>,
     last_file_search_area: Option<Rect>,
     last_file_scroll: usize,

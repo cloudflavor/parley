@@ -196,6 +196,7 @@ pub(super) fn draw_file_heatmap_overlay(frame: &mut Frame<'_>, app: &mut TuiApp)
         width,
         height,
     };
+    app.last_file_heatmap_area = Some(area);
     let inner_height = usize::from(area.height.saturating_sub(2)).max(1);
     let content_width = usize::from(area.width.saturating_sub(2)).max(1);
     let list_rows = inner_height.saturating_sub(3).max(1);
@@ -245,7 +246,10 @@ pub(super) fn draw_file_heatmap_overlay(frame: &mut Frame<'_>, app: &mut TuiApp)
     } else {
         lines.push(Line::from(vec![
             Span::styled("rank ", Style::default().fg(colors.text_muted)),
-            Span::styled("heat         ", Style::default().fg(colors.text_muted)),
+            Span::styled(
+                "heat                 ",
+                Style::default().fg(colors.text_muted),
+            ),
             Span::styled("commits ", Style::default().fg(colors.text_muted)),
             Span::styled("changes ", Style::default().fg(colors.text_muted)),
             Span::styled("+/- ", Style::default().fg(colors.text_muted)),
@@ -299,19 +303,10 @@ fn file_heatmap_line(
     width: usize,
     colors: &ThemeColors,
 ) -> Line<'static> {
-    const BAR_WIDTH: usize = 12;
-    let filled = if max_commits == 0 {
-        0
-    } else {
-        (entry.commits * BAR_WIDTH).div_ceil(max_commits).max(1)
-    };
-    let bar = format!(
-        "{}{}",
-        "#".repeat(filled.min(BAR_WIDTH)),
-        ".".repeat(BAR_WIDTH.saturating_sub(filled))
-    );
+    const CELL_COUNT: usize = 8;
     let prefix = format!(
-        "{rank:>4} {bar} {commits:>7} {changes:>7} +{insertions}/-{deletions} ",
+        "{rank:>4} {cells_width} {commits:>7} {changes:>7} +{insertions}/-{deletions} ",
+        cells_width = "  ".repeat(CELL_COUNT),
         commits = entry.commits,
         changes = entry.changes,
         insertions = entry.insertions,
@@ -319,36 +314,52 @@ fn file_heatmap_line(
     );
     let remaining = width.saturating_sub(prefix.chars().count()).max(8);
     let path = fit_to_width(&entry.path, remaining);
-    Line::from(vec![
-        Span::styled(
-            format!("{rank:>4} "),
-            Style::default().fg(colors.text_muted),
-        ),
-        Span::styled(bar, heat_style(entry.commits, max_commits, colors)),
-        Span::raw(format!(
-            " {commits:>7} {changes:>7} +{insertions}/-{deletions} ",
-            commits = entry.commits,
-            changes = entry.changes,
-            insertions = entry.insertions,
-            deletions = entry.deletions,
-        )),
-        Span::styled(path, Style::default().fg(colors.text_primary)),
-    ])
+    let mut spans = vec![Span::styled(
+        format!("{rank:>4} "),
+        Style::default().fg(colors.text_muted),
+    )];
+    spans.extend(heatmap_cells(entry.commits, max_commits, colors));
+    spans.push(Span::raw(format!(
+        " {commits:>7} {changes:>7} +{insertions}/-{deletions} ",
+        commits = entry.commits,
+        changes = entry.changes,
+        insertions = entry.insertions,
+        deletions = entry.deletions,
+    )));
+    spans.push(Span::styled(path, Style::default().fg(colors.text_primary)));
+    Line::from(spans)
 }
 
-fn heat_style(value: usize, max_value: usize, colors: &ThemeColors) -> Style {
-    if max_value == 0 {
-        return Style::default().fg(colors.text_muted);
-    }
-    let level = value.saturating_mul(4) / max_value.max(1);
-    let fg = match level {
-        0 => colors.text_muted,
+fn heatmap_cells(value: usize, max_value: usize, colors: &ThemeColors) -> Vec<Span<'static>> {
+    const CELL_COUNT: usize = 8;
+    let filled = if max_value == 0 {
+        0
+    } else {
+        (value * CELL_COUNT).div_ceil(max_value).max(1)
+    };
+    (0..CELL_COUNT)
+        .map(|index| {
+            let active = index < filled;
+            let level = if active {
+                ((index + 1) * 4).div_ceil(CELL_COUNT)
+            } else {
+                0
+            };
+            let style = heat_cell_style(level, colors);
+            Span::styled("  ".to_string(), style)
+        })
+        .collect()
+}
+
+fn heat_cell_style(level: usize, colors: &ThemeColors) -> Style {
+    let bg = match level {
+        0 => colors.thread_background,
         1 => colors.context_sign,
         2 => colors.hunk_header,
         3 => colors.comment_title,
         _ => colors.removed_sign,
     };
-    Style::default().fg(fg).add_modifier(Modifier::BOLD)
+    Style::default().bg(bg).fg(bg)
 }
 
 fn wrap_plain_styled_lines(input: &str, width: usize, style: Style) -> Vec<Line<'static>> {

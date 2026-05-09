@@ -88,6 +88,7 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &mut TuiApp) {
         || app.file_heatmap.is_some()
         || app.file_heatmap_started_at.is_some();
     app.last_shortcuts_modal_area = None;
+    app.last_file_heatmap_area = None;
     app.last_thread_nav_area = None;
     app.last_thread_nav_scroll = 0;
     app.last_thread_nav_row_map.clear();
