@@ -182,6 +182,7 @@ impl AiConfig {
 #[cfg(test)]
 mod tests {
     use crate::domain::ai::AiSessionMode;
+    use anyhow::Result;
 
     use super::{AiConfig, AppConfig};
 
@@ -212,7 +213,7 @@ mod tests {
     }
 
     #[test]
-    fn app_config_deserializes_custom_prompt_paths() {
+    fn app_config_deserializes_custom_prompt_paths() -> Result<()> {
         let config: AppConfig = toml::from_str(
             r#"
             [ai]
@@ -220,8 +221,7 @@ mod tests {
             reply_prompt_path = "prompts/reply.md"
             refactor_prompt_path = "prompts/refactor.md"
             "#,
-        )
-        .expect("config should parse");
+        )?;
 
         assert_eq!(config.ai.prompt_path.as_deref(), Some("prompts/shared.md"));
         assert_eq!(
@@ -232,5 +232,6 @@ mod tests {
             config.ai.refactor_prompt_path.as_deref(),
             Some("prompts/refactor.md")
         );
+        Ok(())
     }
 }

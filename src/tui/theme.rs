@@ -76,6 +76,10 @@ struct ThemeColorDefinition {
     markdown_code_bg: String,
 }
 
+/// # Errors
+///
+/// Returns an error when embedded theme files cannot be read as UTF-8, JSON parsing fails,
+/// theme colors cannot be normalized, or the embedded theme set is empty.
 pub fn load_themes() -> Result<Vec<UiTheme>> {
     let mut themes = Vec::new();
 

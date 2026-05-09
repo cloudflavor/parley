@@ -1,10 +1,10 @@
 use std::collections::BTreeSet;
 use std::env::current_dir;
-use std::fs::read_to_string;
 use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Result};
 use include_dir::{Dir, include_dir};
+use tokio::fs;
 
 use crate::domain::ai::AiSessionMode;
 use crate::domain::config::AppConfig;
@@ -14,20 +14,20 @@ use crate::domain::review::{Author, LineComment, ReviewSession};
 
 static AI_SESSION_PROMPTS_DIR: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/prompts/ai_session");
 
-pub(super) fn build_thread_prompt(
+pub(super) async fn build_thread_prompt(
     review_name: &str,
     comment_id: u64,
     review: &ReviewSession,
     diff_document: Option<&DiffDocument>,
     mode: AiSessionMode,
     task_prompt_override: Option<&str>,
-) -> String {
+) -> Result<String> {
     let Some(comment) = review
         .comments
         .iter()
         .find(|comment| comment.id == comment_id)
     else {
-        return missing_comment_prompt(review_name, comment_id);
+        return missing_comment_prompt(review_name, comment_id).await;
     };
 
     let mut thread = String::new();
@@ -59,17 +59,17 @@ pub(super) fn build_thread_prompt(
         }
     }
     append_current_human_request(&mut thread, comment);
-    append_target_file_and_diff_context(&mut thread, comment, diff_document);
-    append_referenced_files_context(&mut thread, comment);
+    append_target_file_and_diff_context(&mut thread, comment, diff_document).await;
+    append_referenced_files_context(&mut thread, comment).await;
 
-    append_task_prompt(
-        &mut thread,
-        task_prompt_override.unwrap_or_else(|| default_task_prompt(mode)),
-    );
-    thread
+    let task_prompt = task_prompt_override
+        .map(Ok)
+        .unwrap_or_else(|| default_task_prompt(mode))?;
+    append_task_prompt(&mut thread, task_prompt);
+    Ok(thread)
 }
 
-pub(super) fn load_task_prompt_override(
+pub(super) async fn load_task_prompt_override(
     config: &AppConfig,
     mode: AiSessionMode,
 ) -> Result<Option<String>> {
@@ -84,12 +84,13 @@ pub(super) fn load_task_prompt_override(
             .context("failed to read current working directory for prompt path")?
             .join(path)
     };
-    read_to_string(&resolved)
+    fs::read_to_string(&resolved)
+        .await
         .with_context(|| format!("failed to read AI prompt markdown {}", resolved.display()))
         .map(Some)
 }
 
-fn default_task_prompt(mode: AiSessionMode) -> &'static str {
+fn default_task_prompt(mode: AiSessionMode) -> Result<&'static str> {
     match mode {
         AiSessionMode::Reply => prompt_template("reply_task.md"),
         AiSessionMode::Refactor => prompt_template("refactor_task.md"),
@@ -130,7 +131,7 @@ fn append_current_human_request(prompt: &mut String, comment: &LineComment) {
     );
 }
 
-fn append_target_file_and_diff_context(
+async fn append_target_file_and_diff_context(
     prompt: &mut String,
     comment: &LineComment,
     diff_document: Option<&DiffDocument>,
@@ -144,7 +145,7 @@ fn append_target_file_and_diff_context(
                 comment.file_path, line
             ));
             if let Some(resolved) = resolve_workspace_path(&comment.file_path) {
-                if let Some(snippet) = file_line_snippet(&resolved, line) {
+                if let Some(snippet) = file_line_snippet(&resolved, line).await {
                     prompt.push_str(&format!(
                         "  file snippet around {}:{}:\n{}",
                         comment.file_path, line, snippet
@@ -181,7 +182,7 @@ fn append_target_file_and_diff_context(
     }
 }
 
-fn append_referenced_files_context(prompt: &mut String, comment: &LineComment) {
+async fn append_referenced_files_context(prompt: &mut String, comment: &LineComment) {
     let mut ordered = BTreeSet::new();
     for reference in parse_file_references(&comment.body) {
         ordered.insert((reference.path, reference.line));
@@ -204,7 +205,7 @@ fn append_referenced_files_context(prompt: &mut String, comment: &LineComment) {
         };
         prompt.push_str(&format!("- {marker}\n"));
         if let (Some(value), Some(resolved)) = (line, resolve_workspace_path(&path))
-            && let Some(snippet) = file_line_snippet(&resolved, value)
+            && let Some(snippet) = file_line_snippet(&resolved, value).await
         {
             prompt.push_str(&format!("  context from {}:\n", resolved.display()));
             prompt.push_str(&snippet);
@@ -316,11 +317,11 @@ fn resolve_workspace_path(path: &str) -> Option<PathBuf> {
     Some(candidate)
 }
 
-fn file_line_snippet(path: &Path, line: u32) -> Option<String> {
+async fn file_line_snippet(path: &Path, line: u32) -> Option<String> {
     if line == 0 {
         return None;
     }
-    let text = read_to_string(path).ok()?;
+    let text = fs::read_to_string(path).await.ok()?;
     let lines: Vec<&str> = text.lines().collect();
     let target = usize::try_from(line.saturating_sub(1)).ok()?;
     if target >= lines.len() {
@@ -337,16 +338,19 @@ fn file_line_snippet(path: &Path, line: u32) -> Option<String> {
     Some(out)
 }
 
-fn prompt_template(path: &str) -> &'static str {
-    AI_SESSION_PROMPTS_DIR
+fn prompt_template(path: &str) -> Result<&'static str> {
+    let file = AI_SESSION_PROMPTS_DIR
         .get_file(path)
-        .unwrap_or_else(|| panic!("missing ai session prompt template: {path}"))
+        .ok_or_else(|| anyhow::anyhow!("missing ai session prompt template: {path}"))?;
+    let contents = file
         .contents_utf8()
-        .unwrap_or_else(|| panic!("invalid utf-8 in ai session prompt template: {path}"))
+        .ok_or_else(|| anyhow::anyhow!("invalid utf-8 in ai session prompt template: {path}"))?;
+    Ok(contents)
 }
 
-fn missing_comment_prompt(review_name: &str, comment_id: u64) -> String {
-    prompt_template("comment_not_found.md")
+async fn missing_comment_prompt(review_name: &str, comment_id: u64) -> Result<String> {
+    let template = prompt_template("comment_not_found.md")?;
+    Ok(template
         .replace("{review_name}", review_name)
-        .replace("{comment_id}", &comment_id.to_string())
+        .replace("{comment_id}", &comment_id.to_string()))
 }

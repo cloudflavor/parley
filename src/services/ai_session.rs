@@ -174,7 +174,7 @@ async fn run_ai_session_inner(
         return Ok(result);
     }
 
-    let task_prompt_override = load_task_prompt_override(&config, input.mode)?;
+    let task_prompt_override = load_task_prompt_override(&config, input.mode).await?;
     let explicit_selection = !input.comment_ids.is_empty();
     for (step_index, comment_id) in target_ids.into_iter().enumerate() {
         emit_progress(
@@ -257,7 +257,8 @@ async fn run_ai_session_inner(
             diff_document.as_ref(),
             input.mode,
             task_prompt_override.as_deref(),
-        );
+        )
+        .await?;
         let provider_reply = match invoke_provider(
             &config,
             input.provider,

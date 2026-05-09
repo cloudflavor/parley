@@ -46,6 +46,10 @@ impl Write for FileWriter {
     }
 }
 
+/// # Errors
+///
+/// Returns an error when the log directory cannot be created or the log file cannot be opened.
+/// Unknown log level values are mapped to `INFO` for tracing initialization.
 pub fn init_file_tracing(log_path: &Path, log_level: &str) -> Result<()> {
     if let Some(parent) = log_path.parent() {
         create_dir_all(parent)
