@@ -924,7 +924,6 @@ dependencies = [
  "crossterm 0.29.0",
  "git2",
  "include_dir",
- "once_cell",
  "pulldown-cmark",
  "ratatui",
  "serde",

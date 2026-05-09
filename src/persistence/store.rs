@@ -33,16 +33,26 @@ impl Store {
         }
     }
 
+    /// # Errors
+    ///
+    /// Returns an error when the `.parley` review directories cannot be created.
     pub async fn ensure_dirs(&self) -> StoreResult<()> {
         fs::create_dir_all(self.reviews_dir()).await?;
         Ok(())
     }
 
+    /// # Errors
+    ///
+    /// Returns an error when the review name is invalid or the review cannot be written.
     pub async fn create_review(&self, session: &ReviewSession) -> StoreResult<()> {
         validate_review_name(&session.name)?;
         self.save_review(session).await
     }
 
+    /// # Errors
+    ///
+    /// Returns an error when the review name is invalid, directories cannot be created, the session
+    /// cannot be serialized, or the review file cannot be written.
     pub async fn save_review(&self, session: &ReviewSession) -> StoreResult<()> {
         validate_review_name(&session.name)?;
         self.ensure_dirs().await?;
@@ -56,6 +66,10 @@ impl Store {
         Ok(())
     }
 
+    /// # Errors
+    ///
+    /// Returns an error when the review name is invalid, the review is missing, or review data
+    /// cannot be read or deserialized.
     pub async fn load_review(&self, name: &str) -> StoreResult<ReviewSession> {
         validate_review_name(name)?;
         match fs::read(self.review_path(name)?).await {
@@ -73,6 +87,10 @@ impl Store {
         }
     }
 
+    /// # Errors
+    ///
+    /// Returns an error when review directories cannot be read or persisted review files cannot be
+    /// deserialized.
     pub async fn list_reviews(&self) -> StoreResult<Vec<String>> {
         self.ensure_dirs().await?;
         let mut dir = fs::read_dir(self.reviews_dir()).await?;
@@ -108,6 +126,9 @@ impl Store {
         Ok(result)
     }
 
+    /// # Errors
+    ///
+    /// Returns an error when `review_name` is invalid.
     pub fn review_log_path(&self, review_name: &str) -> StoreResult<PathBuf> {
         validate_review_name(review_name)?;
         Ok(self.review_dir(review_name)?.join("logs").join("tui.log"))
@@ -131,6 +152,10 @@ impl Store {
         self.root.join("reviews")
     }
 
+    /// # Errors
+    ///
+    /// Returns an error when config directories cannot be created or config data cannot be read or
+    /// deserialized.
     pub async fn load_config(&self) -> StoreResult<AppConfig> {
         self.ensure_dirs().await?;
         let path = self.config_path();
@@ -152,6 +177,10 @@ impl Store {
         }
     }
 
+    /// # Errors
+    ///
+    /// Returns an error when config directories cannot be created, config data cannot be serialized,
+    /// or the config file cannot be written.
     pub async fn save_config(&self, config: &AppConfig) -> StoreResult<()> {
         self.ensure_dirs().await?;
         let data = toml::to_string_pretty(config)?;
@@ -176,6 +205,10 @@ impl Store {
     }
 }
 
+/// # Errors
+///
+/// Returns an error when the review name is empty after trimming or contains unsupported
+/// characters.
 pub fn normalize_review_name(name: &str) -> StoreResult<String> {
     validate_review_name(name)?;
     let normalized = name.trim_matches(|ch| matches!(ch, '_' | '.')).to_string();
@@ -185,6 +218,10 @@ pub fn normalize_review_name(name: &str) -> StoreResult<String> {
     Ok(normalized)
 }
 
+/// # Errors
+///
+/// Returns an error when the review name is empty or contains characters other than ASCII
+/// alphanumerics, `.`, `_`, or `-`.
 pub fn validate_review_name(name: &str) -> StoreResult<()> {
     if name.is_empty() {
         return Err(StoreError::InvalidReviewName(name.to_string()));
@@ -203,67 +240,51 @@ pub fn validate_review_name(name: &str) -> StoreResult<()> {
 #[cfg(test)]
 mod tests {
     use crate::domain::config::{AiConfig, DiffViewMode};
+    use anyhow::Result;
     use tempfile::tempdir;
 
     #[tokio::test]
-    async fn save_and_load_review_should_round_trip() {
-        let tmp = tempdir().expect("tempdir should exist");
+    async fn save_and_load_review_should_round_trip() -> Result<()> {
+        let tmp = tempdir()?;
         let store = super::Store::from_project_root(tmp.path());
         let review = super::ReviewSession::new("r1".into(), 1);
 
-        store
-            .save_review(&review)
-            .await
-            .expect("review should save successfully");
-        let loaded = store
-            .load_review("r1")
-            .await
-            .expect("review should load successfully");
+        store.save_review(&review).await?;
+        let loaded = store.load_review("r1").await?;
 
         assert_eq!(loaded.name, "r1");
         assert_eq!(loaded.state, review.state);
+        Ok(())
     }
 
     #[tokio::test]
-    async fn save_review_should_use_normalized_review_directory() {
-        let tmp = tempdir().expect("tempdir should exist");
+    async fn save_review_should_use_normalized_review_directory() -> Result<()> {
+        let tmp = tempdir()?;
         let store = super::Store::from_project_root(tmp.path());
         let review = super::ReviewSession::new("__r1__".into(), 1);
 
-        store
-            .save_review(&review)
-            .await
-            .expect("review should save successfully");
+        store.save_review(&review).await?;
 
         let path = tmp.path().join(".parley/reviews/r1/review.json");
         assert!(path.exists());
+        Ok(())
     }
 
     #[tokio::test]
-    async fn load_and_list_reviews_should_support_legacy_flat_files() {
-        let tmp = tempdir().expect("tempdir should exist");
+    async fn load_and_list_reviews_should_support_legacy_flat_files() -> Result<()> {
+        let tmp = tempdir()?;
         let store = super::Store::from_project_root(tmp.path());
-        store
-            .ensure_dirs()
-            .await
-            .expect("store dirs should be created");
+        store.ensure_dirs().await?;
         let review = super::ReviewSession::new("legacy".into(), 1);
-        let data = serde_json::to_vec_pretty(&review).expect("review should serialize");
-        tokio::fs::write(tmp.path().join(".parley/reviews/legacy.json"), data)
-            .await
-            .expect("legacy review should be written");
+        let data = serde_json::to_vec_pretty(&review)?;
+        tokio::fs::write(tmp.path().join(".parley/reviews/legacy.json"), data).await?;
 
-        let loaded = store
-            .load_review("legacy")
-            .await
-            .expect("legacy review should load");
-        let reviews = store
-            .list_reviews()
-            .await
-            .expect("reviews should list successfully");
+        let loaded = store.load_review("legacy").await?;
+        let reviews = store.list_reviews().await?;
 
         assert_eq!(loaded.name, "legacy");
         assert_eq!(reviews, vec!["legacy"]);
+        Ok(())
     }
 
     #[test]
@@ -274,8 +295,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn save_and_load_config_should_round_trip() {
-        let tmp = tempdir().expect("tempdir should exist");
+    async fn save_and_load_config_should_round_trip() -> Result<()> {
+        let tmp = tempdir()?;
         let store = super::Store::from_project_root(tmp.path());
         let config = super::AppConfig {
             user_name: "User".to_string(),
@@ -286,43 +307,32 @@ mod tests {
             ai: AiConfig::default(),
         };
 
-        store
-            .save_config(&config)
-            .await
-            .expect("config should save successfully");
-        let loaded = store
-            .load_config()
-            .await
-            .expect("config should load successfully");
+        store.save_config(&config).await?;
+        let loaded = store.load_config().await?;
 
         assert_eq!(loaded, config);
+        Ok(())
     }
 
     #[tokio::test]
-    async fn load_config_should_support_legacy_name_field() {
-        let tmp = tempdir().expect("tempdir should exist");
+    async fn load_config_should_support_legacy_name_field() -> Result<()> {
+        let tmp = tempdir()?;
         let store = super::Store::from_project_root(tmp.path());
-        store
-            .ensure_dirs()
-            .await
-            .expect("store dirs should be created");
+        store.ensure_dirs().await?;
 
         super::fs::write(
             tmp.path().join(".parley").join("config.toml"),
             "name = \"User\"\ntheme = \"nord\"\n",
         )
-        .await
-        .expect("legacy config should be written");
+        .await?;
 
-        let loaded = store
-            .load_config()
-            .await
-            .expect("legacy config should load successfully");
+        let loaded = store.load_config().await?;
 
         assert_eq!(loaded.user_name, "User");
         assert_eq!(loaded.theme, "nord");
         assert_eq!(loaded.diff_view, DiffViewMode::SideBySide);
         assert!(loaded.ignore_parley_dir);
         assert_eq!(loaded.log_level, "info");
+        Ok(())
     }
 }

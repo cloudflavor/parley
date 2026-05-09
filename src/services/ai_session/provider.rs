@@ -348,7 +348,7 @@ fn normalized_provider_args(
     let mut args = provider_cfg.args.clone();
     match provider {
         AiProvider::Codex => {
-            if !args.first().map(|value| value == "exec").unwrap_or(false) {
+            if args.first().is_none_or(|value| value != "exec") {
                 args.insert(0, "exec".to_string());
             }
             if !args.iter().any(|arg| arg == "--full-auto") {
@@ -369,7 +369,7 @@ fn normalized_provider_args(
             }
         }
         AiProvider::Opencode => {
-            if !args.first().map(|value| value == "run").unwrap_or(false) {
+            if args.first().is_none_or(|value| value != "run") {
                 args.insert(0, "run".to_string());
             }
         }

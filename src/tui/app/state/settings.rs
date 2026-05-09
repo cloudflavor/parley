@@ -334,19 +334,21 @@ impl TuiApp {
 mod tests {
     use super::*;
     use crate::tui::app::state::tests::make_test_app;
+    use anyhow::{Result, anyhow};
 
     #[test]
-    fn opening_modal_overlays_hides_ai_progress_popup() {
-        let mut app = make_test_app(vec!["src/a.rs"], vec![]);
+    fn opening_modal_overlays_hides_ai_progress_popup() -> Result<()> {
+        let mut app = make_test_app(vec!["src/a.rs"], vec![])?;
         app.ai_progress_visible = true;
 
         app.open_help_docs();
         assert!(!app.ai_progress_visible);
+        Ok(())
     }
 
     #[test]
-    fn review_picker_filter_matches_name_and_state() {
-        let mut app = make_test_app(vec!["src/a.rs"], vec![]);
+    fn review_picker_filter_matches_name_and_state() -> Result<()> {
+        let mut app = make_test_app(vec!["src/a.rs"], vec![])?;
         app.review_picker = Some(super::ReviewPickerState {
             reviews: vec![
                 super::ReviewPickerEntry {
@@ -373,17 +375,22 @@ mod tests {
         let filtered = app.review_picker_filtered_indices();
         assert_eq!(filtered.len(), 2);
 
-        app.review_picker.as_mut().unwrap().query = "done".to_string();
+        app.review_picker
+            .as_mut()
+            .ok_or_else(|| anyhow!("review picker should be open"))?
+            .query = "done".to_string();
         let filtered_done = app.review_picker_filtered_indices();
         assert_eq!(filtered_done.len(), 1);
+        Ok(())
     }
 
     #[test]
-    fn showing_ai_progress_popup_closes_other_blocking_overlays() {
-        let mut app = make_test_app(vec!["src/a.rs"], vec![]);
+    fn showing_ai_progress_popup_closes_other_blocking_overlays() -> Result<()> {
+        let mut app = make_test_app(vec!["src/a.rs"], vec![])?;
         app.shortcuts_modal_visible = true;
         app.toggle_ai_progress_popup();
         assert!(app.ai_progress_visible);
         assert!(!app.shortcuts_modal_visible);
+        Ok(())
     }
 }

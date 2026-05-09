@@ -113,30 +113,33 @@ mod tests {
     use crate::persistence::store::Store;
     use crate::tui::app::{InlineFileReferencePickerState, TuiAppInit};
     use crate::tui::theme::load_themes;
+    use crate::utils::cast::usize_to_u32_saturating;
+    use anyhow::{Result, anyhow};
     use tempfile::tempdir;
 
     use super::*;
 
     #[test]
-    fn opening_command_palette_hides_ai_progress_popup() {
-        let mut app = make_test_app(vec!["src/a.rs"]);
+    fn opening_command_palette_hides_ai_progress_popup() -> Result<()> {
+        let mut app = make_test_app(vec!["src/a.rs"])?;
         app.ai_progress_visible = true;
 
         app.open_command_palette();
 
         assert!(app.command_palette.is_some());
         assert!(!app.ai_progress_visible);
+        Ok(())
     }
 
     #[test]
-    fn selecting_file_reference_opens_line_picker_in_diff_viewer() {
+    fn selecting_file_reference_opens_line_picker_in_diff_viewer() -> Result<()> {
         let mut app = make_test_app_with_files(vec![
             empty_diff_file("src/a.rs"),
             diff_file_with_lines(
                 "src/target.rs",
                 &[(10, "fn ten() {}"), (11, "fn eleven() {}")],
             ),
-        ]);
+        ])?;
         app.inline_comment = Some(InlineCommentState {
             row_index: 0,
             mode: InlineDraftMode::Comment(CommentTarget {
@@ -166,7 +169,7 @@ mod tests {
         assert_eq!(
             app.inline_comment
                 .as_ref()
-                .expect("inline comment should exist")
+                .ok_or_else(|| anyhow!("inline comment should exist"))?
                 .buffer
                 .to_text(),
             "@src/target.rs"
@@ -177,14 +180,15 @@ mod tests {
                 .and_then(|inline| inline.file_reference_picker.as_ref())
                 .is_some()
         );
+        Ok(())
     }
 
     #[test]
-    fn accepting_file_reference_line_selection_inserts_line_number() {
+    fn accepting_file_reference_line_selection_inserts_line_number() -> Result<()> {
         let mut app = make_test_app_with_files(vec![diff_file_with_lines(
             "src/target.rs",
             &[(10, "fn ten() {}"), (11, "fn eleven() {}")],
-        )]);
+        )])?;
         app.inline_comment = Some(InlineCommentState {
             row_index: 0,
             mode: InlineDraftMode::Comment(CommentTarget {
@@ -214,15 +218,16 @@ mod tests {
         let inline = app
             .inline_comment
             .as_ref()
-            .expect("inline comment should exist");
+            .ok_or_else(|| anyhow!("inline comment should exist"))?;
         assert_eq!(inline.buffer.to_text(), "@src/target.rs:11");
         assert!(inline.file_reference_picker.is_none());
+        Ok(())
     }
 
     #[tokio::test]
-    async fn alt_b_moves_backward_by_word_in_inline_comment_editor() {
-        let mut app = make_test_app(vec!["src/a.rs"]);
-        let service = make_test_service();
+    async fn alt_b_moves_backward_by_word_in_inline_comment_editor() -> Result<()> {
+        let mut app = make_test_app(vec!["src/a.rs"])?;
+        let service = make_test_service()?;
         app.inline_comment = Some(InlineCommentState {
             row_index: 0,
             mode: InlineDraftMode::Comment(CommentTarget {
@@ -242,42 +247,42 @@ mod tests {
             KeyEvent::new(KeyCode::Char('b'), KeyModifiers::ALT),
             &service,
         )
-        .await
-        .expect("alt+b should be handled");
+        .await?;
 
         let inline = app
             .inline_comment
             .as_ref()
-            .expect("inline comment should exist");
+            .ok_or_else(|| anyhow!("inline comment should exist"))?;
         assert_eq!(inline.buffer.cursor_line, 0);
         assert_eq!(inline.buffer.cursor_col, "alpha  ".chars().count());
+        Ok(())
     }
 
     #[tokio::test]
-    async fn command_palette_plain_k_filters_instead_of_navigating() {
-        let mut app = make_test_app(vec!["src/a.rs"]);
-        let service = make_test_service();
+    async fn command_palette_plain_k_filters_instead_of_navigating() -> Result<()> {
+        let mut app = make_test_app(vec!["src/a.rs"])?;
+        let service = make_test_service()?;
         app.open_command_palette();
 
         app.handle_command_palette_key(
             KeyEvent::new(KeyCode::Char('k'), KeyModifiers::NONE),
             &service,
         )
-        .await
-        .expect("command palette should handle k");
+        .await?;
 
         let palette = app
             .command_palette
             .as_ref()
-            .expect("command palette should remain open");
+            .ok_or_else(|| anyhow!("command palette should remain open"))?;
         assert_eq!(palette.query, "k");
         assert_eq!(palette.cursor_col, 1);
+        Ok(())
     }
 
     #[tokio::test]
-    async fn alt_d_deletes_forward_word_in_inline_comment_editor() {
-        let mut app = make_test_app(vec!["src/a.rs"]);
-        let service = make_test_service();
+    async fn alt_d_deletes_forward_word_in_inline_comment_editor() -> Result<()> {
+        let mut app = make_test_app(vec!["src/a.rs"])?;
+        let service = make_test_service()?;
         app.inline_comment = Some(InlineCommentState {
             row_index: 0,
             mode: InlineDraftMode::Comment(CommentTarget {
@@ -301,45 +306,42 @@ mod tests {
             KeyEvent::new(KeyCode::Char('d'), KeyModifiers::ALT),
             &service,
         )
-        .await
-        .expect("alt+d should be handled");
+        .await?;
 
         let inline = app
             .inline_comment
             .as_ref()
-            .expect("inline comment should exist");
+            .ok_or_else(|| anyhow!("inline comment should exist"))?;
         assert_eq!(inline.buffer.lines, vec!["alpha gamma"]);
         assert_eq!(inline.buffer.cursor_line, 0);
         assert_eq!(inline.buffer.cursor_col, "alpha".chars().count());
+        Ok(())
     }
 
     #[tokio::test]
-    async fn ctrl_z_queues_suspend_action() {
-        let mut app = make_test_app(vec!["src/a.rs"]);
-        let service = make_test_service();
+    async fn ctrl_z_queues_suspend_action() -> Result<()> {
+        let mut app = make_test_app(vec!["src/a.rs"])?;
+        let service = make_test_service()?;
 
         app.handle_key(
             KeyEvent::new(KeyCode::Char('z'), KeyModifiers::CONTROL),
             &service,
         )
-        .await
-        .expect("ctrl+z should be handled");
+        .await?;
 
         assert!(matches!(
             app.pending_action,
             Some(PendingUiAction::SuspendTuiProcess)
         ));
         assert_eq!(app.status_line, "suspending parley; run `fg` to resume");
+        Ok(())
     }
 
     #[tokio::test]
-    async fn pressing_u_reanchors_selected_thread_and_persists_review() {
-        let tempdir = tempdir().expect("tempdir should exist");
+    async fn pressing_u_reanchors_selected_thread_and_persists_review() -> Result<()> {
+        let tempdir = tempdir()?;
         let service = ReviewService::new(Store::from_project_root(tempdir.path()));
-        service
-            .create_review("test-review")
-            .await
-            .expect("review should be created");
+        service.create_review("test-review").await?;
         service
             .add_comment(
                 "test-review",
@@ -353,12 +355,8 @@ mod tests {
                     author: Author::User,
                 },
             )
-            .await
-            .expect("comment should be added");
-        let review = service
-            .load_review("test-review")
-            .await
-            .expect("review should load");
+            .await?;
+        let review = service.load_review("test-review").await?;
 
         let mut app = make_test_app_with_review_and_files(
             review,
@@ -366,7 +364,7 @@ mod tests {
                 "src/a.rs",
                 &[(10, "fn old_anchor() {}"), (12, "fn new_anchor() {}")],
             )],
-        );
+        )?;
         app.ensure_row_cache();
         assert!(app.goto_line_number(12));
         app.selected_comment = 0;
@@ -375,30 +373,27 @@ mod tests {
             KeyEvent::new(KeyCode::Char('u'), KeyModifiers::empty()),
             &service,
         )
-        .await
-        .expect("re-anchor key should succeed");
+        .await?;
 
-        let updated = service
-            .load_review("test-review")
-            .await
-            .expect("updated review should load");
+        let updated = service.load_review("test-review").await?;
         let comment = updated
             .comments
             .iter()
             .find(|comment| comment.id == 1)
-            .expect("comment should exist");
+            .ok_or_else(|| anyhow!("comment should exist"))?;
         assert_eq!(comment.old_line, Some(12));
         assert_eq!(comment.new_line, Some(12));
         assert!(!comment.detached);
         assert!(comment.line_anchor.is_some());
         assert!(app.status_line.contains("re-anchored"));
+        Ok(())
     }
 
-    fn make_test_app(paths: Vec<&str>) -> TuiApp {
+    fn make_test_app(paths: Vec<&str>) -> Result<TuiApp> {
         make_test_app_with_files(paths.into_iter().map(empty_diff_file).collect())
     }
 
-    fn make_test_app_with_files(files: Vec<DiffFile>) -> TuiApp {
+    fn make_test_app_with_files(files: Vec<DiffFile>) -> Result<TuiApp> {
         let review = ReviewSession {
             name: "test-review".to_string(),
             state: ReviewState::Open,
@@ -412,7 +407,10 @@ mod tests {
         make_test_app_with_review_and_files(review, files)
     }
 
-    fn make_test_app_with_review_and_files(review: ReviewSession, files: Vec<DiffFile>) -> TuiApp {
+    fn make_test_app_with_review_and_files(
+        review: ReviewSession,
+        files: Vec<DiffFile>,
+    ) -> Result<TuiApp> {
         let review = ReviewSession {
             name: review.name,
             state: review.state,
@@ -424,8 +422,8 @@ mod tests {
             next_reply_id: review.next_reply_id,
         };
         let diff = DiffDocument { files };
-        let themes = load_themes().expect("embedded themes should load");
-        TuiApp::new(TuiAppInit {
+        let themes = load_themes()?;
+        Ok(TuiApp::new(TuiAppInit {
             review_name: review.name.clone(),
             review,
             diff,
@@ -434,7 +432,7 @@ mod tests {
             themes,
             theme_index: 0,
             log_path: PathBuf::from("test.log"),
-        })
+        }))
     }
 
     fn empty_diff_file(path: &str) -> DiffFile {
@@ -464,10 +462,10 @@ mod tests {
             path: path.to_string(),
             header_lines: Vec::new(),
             hunks: vec![DiffHunk {
-                old_start: lines.first().map(|(line, _)| *line).unwrap_or(1),
-                old_count: lines.len() as u32,
-                new_start: lines.first().map(|(line, _)| *line).unwrap_or(1),
-                new_count: lines.len() as u32,
+                old_start: lines.first().map_or(1, |(line, _)| *line),
+                old_count: usize_to_u32_saturating(lines.len()),
+                new_start: lines.first().map_or(1, |(line, _)| *line),
+                new_count: usize_to_u32_saturating(lines.len()),
                 header: "@@ -1,1 +1,1 @@".into(),
                 lines: hunk_lines,
             }],
@@ -482,8 +480,8 @@ mod tests {
         }
     }
 
-    fn make_test_service() -> ReviewService {
-        let tempdir = tempdir().expect("tempdir should exist");
-        ReviewService::new(Store::from_project_root(tempdir.path()))
+    fn make_test_service() -> Result<ReviewService> {
+        let tempdir = tempdir()?;
+        Ok(ReviewService::new(Store::from_project_root(tempdir.path())))
     }
 }

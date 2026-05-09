@@ -5,6 +5,8 @@
 use anyhow::{Context, Result};
 use std::time::{SystemTime, UNIX_EPOCH};
 
+use crate::utils::cast::u128_to_u64_saturating;
+
 /// Returns the current Unix timestamp in milliseconds.
 ///
 /// # Errors
@@ -13,27 +15,30 @@ pub fn now_ms() -> Result<u64> {
     let elapsed = SystemTime::now()
         .duration_since(UNIX_EPOCH)
         .context("system clock is before unix epoch")?;
-    Ok(elapsed.as_millis() as u64)
+    Ok(u128_to_u64_saturating(elapsed.as_millis()))
 }
 
 /// Returns the current Unix timestamp in milliseconds, or 0 if the clock is invalid.
 ///
 /// This is a fallback variant that never fails, useful for UI rendering and logging.
+#[must_use]
 pub fn now_ms_utc() -> u64 {
     SystemTime::now()
         .duration_since(UNIX_EPOCH)
-        .map(|elapsed| elapsed.as_millis() as u64)
+        .map(|elapsed| u128_to_u64_saturating(elapsed.as_millis()))
         .unwrap_or(0)
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
+    use anyhow::Result;
 
     #[test]
-    fn now_ms_returns_valid_timestamp() {
-        let ts = now_ms().expect("now_ms should succeed");
+    fn now_ms_returns_valid_timestamp() -> Result<()> {
+        let ts = now_ms()?;
         assert!(ts > 0, "timestamp should be positive");
+        Ok(())
     }
 
     #[test]

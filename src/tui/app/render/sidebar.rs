@@ -12,6 +12,7 @@ use super::super::helpers::slice_chars;
 use super::TuiApp;
 use super::helpers::{compute_scroll, search_highlighted_text_spans};
 use crate::tui::app::FileSortMode;
+use crate::utils::cast::usize_to_u16_saturating;
 
 pub(super) fn draw_file_sidebar(frame: &mut Frame<'_>, app: &mut TuiApp, area: Rect) {
     app.last_file_row_map.clear();
@@ -234,13 +235,13 @@ pub(super) fn draw_file_sidebar(frame: &mut Frame<'_>, app: &mut TuiApp, area: R
             let cursor_x = search_area
                 .x
                 .saturating_add(1)
-                .saturating_add(prefix.chars().count() as u16)
-                .saturating_add(
-                    (app.file_search
+                .saturating_add(usize_to_u16_saturating(prefix.chars().count()))
+                .saturating_add(usize_to_u16_saturating(
+                    app.file_search
                         .cursor_col
                         .saturating_sub(horizontal_scroll)
-                        .min(content_width)) as u16,
-                );
+                        .min(content_width),
+                ));
             let cursor_y = search_area.y.saturating_add(1);
             frame.set_cursor_position((cursor_x, cursor_y));
         }
@@ -251,8 +252,7 @@ pub(super) fn draw_file_sidebar(frame: &mut Frame<'_>, app: &mut TuiApp, area: R
             Block::default()
                 .title(
                     app.file_search_query()
-                        .map(|query| format!("Files [q:{query}]"))
-                        .unwrap_or_else(|| "Files".to_string()),
+                        .map_or_else(|| "Files".to_string(), |query| format!("Files [q:{query}]")),
                 )
                 .borders(if search_area.is_some() {
                     Borders::LEFT

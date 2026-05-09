@@ -27,6 +27,10 @@ use super::syntax::SyntaxPainter;
 use super::terminal::TerminalSession;
 use super::theme::{UiTheme, default_theme_name, load_themes, resolve_theme_index};
 
+/// # Errors
+///
+/// Returns an error when terminal setup fails, review/config/diff data cannot be loaded, settings
+/// cannot be saved, logging cannot be initialized, or TUI event handling fails.
 pub async fn run_tui(
     service: ReviewService,
     review_name: String,

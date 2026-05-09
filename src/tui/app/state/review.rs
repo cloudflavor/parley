@@ -3,6 +3,7 @@
 //! Handles review state transitions, reloading, and persistence.
 
 use super::*;
+use crate::utils::cast::{i16_to_u16_saturating, u16_to_i16_saturating, usize_to_i16_saturating};
 
 impl TuiApp {
     pub(crate) fn review_state_code(&self) -> u8 {
@@ -34,18 +35,19 @@ impl TuiApp {
     }
 
     pub(crate) fn computed_file_pane_width(&self, total_width: u16) -> u16 {
-        let longest_path = self
-            .diff
-            .files
-            .iter()
-            .map(|file| file.path.chars().count())
-            .max()
-            .unwrap_or(16) as i16;
+        let longest_path = usize_to_i16_saturating(
+            self.diff
+                .files
+                .iter()
+                .map(|file| file.path.chars().count())
+                .max()
+                .unwrap_or(16),
+        );
         let base = longest_path + 8;
         let min_width = 16i16;
-        let max_width = (total_width as i16 - 30).clamp(min_width, 90);
+        let max_width = (u16_to_i16_saturating(total_width) - 30).clamp(min_width, 90);
         let computed = (base + self.file_pane_width_delta).clamp(min_width, max_width);
-        computed as u16
+        i16_to_u16_saturating(computed)
     }
 
     pub(crate) fn line_for_pane(&self, pane: DiffPane) -> usize {

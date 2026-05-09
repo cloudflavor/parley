@@ -195,6 +195,8 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &mut TuiApp) {
 
 #[cfg(test)]
 mod tests {
+    use anyhow::{Result, anyhow};
+
     use super::diff::build_unified_row_lines;
     use super::diff::inline_comment_editor_area;
     use super::helpers::line_plain_text;
@@ -203,15 +205,15 @@ mod tests {
     use crate::domain::diff::DiffLineKind;
     use crate::tui::theme::{default_theme_name, load_themes, resolve_theme_index};
 
-    fn test_colors() -> crate::tui::theme::ThemeColors {
-        let themes = load_themes().expect("embedded themes should load");
+    fn test_colors() -> Result<crate::tui::theme::ThemeColors> {
+        let themes = load_themes()?;
         let index = resolve_theme_index(&themes, default_theme_name()).unwrap_or(0);
-        themes[index].colors.clone()
+        Ok(themes[index].colors.clone())
     }
 
     #[test]
-    fn unified_wrapped_rows_preserve_content_and_fit_width() {
-        let colors = test_colors();
+    fn unified_wrapped_rows_preserve_content_and_fit_width() -> Result<()> {
+        let colors = test_colors()?;
         let pane_inner_width = 80usize;
         let content = "The default build uses a console renderer so the daemon core can compile and run in environments without GTK system packages.";
         let row = DisplayRow {
@@ -252,6 +254,7 @@ mod tests {
             .map(|line| line.trim_end().to_string())
             .collect::<String>();
         assert_eq!(reassembled, content);
+        Ok(())
     }
 
     #[test]
@@ -262,8 +265,8 @@ mod tests {
     }
 
     #[test]
-    fn status_field_line_respects_available_width() {
-        let colors = test_colors();
+    fn status_field_line_respects_available_width() -> Result<()> {
+        let colors = test_colors()?;
         let line = build_status_field_line(
             &[
                 (
@@ -290,6 +293,7 @@ mod tests {
         assert_eq!(rendered.chars().count(), 42);
         assert!(rendered.contains("Mode"));
         assert!(rendered.contains("Review"));
+        Ok(())
     }
 
     #[test]
@@ -300,7 +304,7 @@ mod tests {
     }
 
     #[test]
-    fn inline_comment_editor_area_is_fixed_width_and_left_anchored() {
+    fn inline_comment_editor_area_is_fixed_width_and_left_anchored() -> Result<()> {
         use ratatui::layout::Rect;
 
         let area = Rect {
@@ -310,11 +314,13 @@ mod tests {
             height: 28,
         };
 
-        let editor = inline_comment_editor_area(area).expect("editor should fit");
+        let editor =
+            inline_comment_editor_area(area).ok_or_else(|| anyhow!("editor should fit"))?;
 
         assert_eq!(editor.x, 11);
         assert_eq!(editor.width, 68);
         assert_eq!(editor.height, 10);
         assert_eq!(editor.y, 23);
+        Ok(())
     }
 }

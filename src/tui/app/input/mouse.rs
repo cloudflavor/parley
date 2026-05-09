@@ -1,4 +1,5 @@
 use super::*;
+use crate::utils::cast::{usize_to_isize_saturating, usize_to_u16_saturating};
 
 impl TuiApp {
     pub(in crate::tui::app) fn handle_mouse(&mut self, mouse: MouseEvent) -> Result<()> {
@@ -109,10 +110,14 @@ impl TuiApp {
                     }
                 }
                 MouseEventKind::ScrollUp => {
-                    self.move_file_selection(-(MOUSE_WHEEL_FILE_SCROLL_FILES as isize));
+                    self.move_file_selection(-usize_to_isize_saturating(
+                        MOUSE_WHEEL_FILE_SCROLL_FILES,
+                    ));
                 }
                 MouseEventKind::ScrollDown => {
-                    self.move_file_selection(MOUSE_WHEEL_FILE_SCROLL_FILES as isize);
+                    self.move_file_selection(usize_to_isize_saturating(
+                        MOUSE_WHEEL_FILE_SCROLL_FILES,
+                    ));
                 }
                 _ => {}
             }
@@ -137,7 +142,7 @@ impl TuiApp {
                 let content_start = search_area
                     .x
                     .saturating_add(1)
-                    .saturating_add(SEARCH_PREFIX.chars().count() as u16);
+                    .saturating_add(usize_to_u16_saturating(SEARCH_PREFIX.chars().count()));
                 let clicked_col = usize::from(mouse.column.saturating_sub(content_start));
                 let target_col = horizontal_scroll.saturating_add(clicked_col);
                 self.file_search.focused = true;

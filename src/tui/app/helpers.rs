@@ -66,9 +66,7 @@ pub(super) fn format_timestamp_utc(timestamp_ms: u64) -> String {
         Ok(dt) => dt,
         Err(_) => return "invalid timestamp".to_string(),
     };
-    let local_dt = local_utc_offset()
-        .map(|offset| utc_dt.to_offset(offset))
-        .unwrap_or(utc_dt);
+    let local_dt = local_utc_offset().map_or(utc_dt, |offset| utc_dt.to_offset(offset));
     let month: u8 = local_dt.month().into();
     let offset_seconds = local_dt.offset().whole_seconds();
     let sign = if offset_seconds < 0 { '-' } else { '+' };

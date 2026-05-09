@@ -100,6 +100,7 @@ pub struct ReanchorLineComment {
 }
 
 impl ReviewSession {
+    #[must_use]
     pub fn new(name: String, now_ms: u64) -> Self {
         Self {
             name,
@@ -113,10 +114,16 @@ impl ReviewSession {
         }
     }
 
+    /// # Errors
+    ///
+    /// Returns an error when marking the review done while unresolved threads remain.
     pub fn set_state(&mut self, next: ReviewState, now_ms: u64) -> Result<(), String> {
         self.set_state_with_options(next, now_ms, false)
     }
 
+    /// # Errors
+    ///
+    /// Currently does not fail, but returns `Result` to match the checked state transition API.
     pub fn set_state_force(&mut self, next: ReviewState, now_ms: u64) -> Result<(), String> {
         self.set_state_with_options(next, now_ms, true)
     }
@@ -177,6 +184,9 @@ impl ReviewSession {
         id
     }
 
+    /// # Errors
+    ///
+    /// Returns an error when `comment_id` does not identify an existing comment.
     pub fn add_reply(
         &mut self,
         comment_id: u64,
@@ -212,6 +222,9 @@ impl ReviewSession {
         Ok(id)
     }
 
+    /// # Errors
+    ///
+    /// Returns an error when `comment_id` does not identify an existing comment.
     pub fn reanchor_comment(
         &mut self,
         comment_id: u64,
@@ -235,6 +248,9 @@ impl ReviewSession {
         Ok(())
     }
 
+    /// # Errors
+    ///
+    /// Returns an error when the comment is missing or the actor may not apply the requested status.
     pub fn set_comment_status(
         &mut self,
         comment_id: u64,
@@ -245,6 +261,9 @@ impl ReviewSession {
         self.set_comment_status_with_actor(comment_id, status, now_ms, Some(actor))
     }
 
+    /// # Errors
+    ///
+    /// Returns an error when `comment_id` does not identify an existing comment.
     pub fn set_comment_status_force(
         &mut self,
         comment_id: u64,
@@ -329,21 +348,24 @@ impl ReviewSession {
 
 #[cfg(test)]
 mod tests {
+    use anyhow::Result;
+
     use super::{Author, CommentStatus, DiffSide, NewLineComment, ReviewSession, ReviewState};
 
     #[test]
-    fn set_state_should_allow_reopen_after_done() {
+    fn set_state_should_allow_reopen_after_done() -> Result<()> {
         let mut session = ReviewSession::new("r1".into(), 1);
         session
             .set_state(ReviewState::Done, 2)
-            .expect("state should move to done");
+            .map_err(anyhow::Error::msg)?;
         assert_eq!(session.done_at_ms, Some(2));
 
         session
             .set_state(ReviewState::UnderReview, 3)
-            .expect("state should reopen");
+            .map_err(anyhow::Error::msg)?;
         assert_eq!(session.state, ReviewState::UnderReview);
         assert_eq!(session.done_at_ms, None);
+        Ok(())
     }
 
     #[test]
@@ -367,7 +389,7 @@ mod tests {
     }
 
     #[test]
-    fn set_state_force_done_should_allow_unresolved_threads() {
+    fn set_state_force_done_should_allow_unresolved_threads() -> Result<()> {
         let mut session = ReviewSession::new("r1".into(), 1);
         session.add_comment(
             NewLineComment {
@@ -384,16 +406,17 @@ mod tests {
 
         session
             .set_state_force(ReviewState::Done, 3)
-            .expect("force done should bypass unresolved checks");
+            .map_err(anyhow::Error::msg)?;
         assert_eq!(session.state, ReviewState::Done);
+        Ok(())
     }
 
     #[test]
-    fn add_comment_should_reopen_done_review() {
+    fn add_comment_should_reopen_done_review() -> Result<()> {
         let mut session = ReviewSession::new("r1".into(), 1);
         session
             .set_state(ReviewState::Done, 2)
-            .expect("state should move to done");
+            .map_err(anyhow::Error::msg)?;
 
         session.add_comment(
             NewLineComment {
@@ -410,10 +433,11 @@ mod tests {
 
         assert_eq!(session.state, ReviewState::Open);
         assert_eq!(session.done_at_ms, None);
+        Ok(())
     }
 
     #[test]
-    fn add_reply_from_ai_should_set_pending_and_under_review() {
+    fn add_reply_from_ai_should_set_pending_and_under_review() -> Result<()> {
         let mut session = ReviewSession::new("r1".into(), 1);
         let comment_id = session.add_comment(
             NewLineComment {
@@ -430,14 +454,15 @@ mod tests {
 
         session
             .add_reply(comment_id, Author::Ai, "fixed".into(), 3)
-            .expect("ai reply should be added");
+            .map_err(anyhow::Error::msg)?;
 
         assert_eq!(session.comments[0].status, CommentStatus::Pending);
         assert_eq!(session.state, ReviewState::UnderReview);
+        Ok(())
     }
 
     #[test]
-    fn add_reply_from_original_commenter_should_reopen_thread() {
+    fn add_reply_from_original_commenter_should_reopen_thread() -> Result<()> {
         let mut session = ReviewSession::new("r1".into(), 1);
         let comment_id = session.add_comment(
             NewLineComment {
@@ -453,14 +478,15 @@ mod tests {
         );
         session
             .add_reply(comment_id, Author::Ai, "proposal".into(), 3)
-            .expect("ai reply should be added");
+            .map_err(anyhow::Error::msg)?;
 
         session
             .add_reply(comment_id, Author::User, "please revise".into(), 4)
-            .expect("user reply should be added");
+            .map_err(anyhow::Error::msg)?;
 
         assert_eq!(session.comments[0].status, CommentStatus::Open);
         assert_eq!(session.state, ReviewState::Open);
+        Ok(())
     }
 
     #[test]
@@ -485,7 +511,7 @@ mod tests {
     }
 
     #[test]
-    fn set_comment_status_force_should_bypass_original_commenter_check() {
+    fn set_comment_status_force_should_bypass_original_commenter_check() -> Result<()> {
         let mut session = ReviewSession::new("r1".into(), 1);
         let comment_id = session.add_comment(
             NewLineComment {
@@ -502,12 +528,13 @@ mod tests {
 
         session
             .set_comment_status_force(comment_id, CommentStatus::Addressed, 3)
-            .expect("force close should bypass author ownership");
+            .map_err(anyhow::Error::msg)?;
         assert_eq!(session.comments[0].status, CommentStatus::Addressed);
+        Ok(())
     }
 
     #[test]
-    fn all_addressed_should_reconcile_to_under_review() {
+    fn all_addressed_should_reconcile_to_under_review() -> Result<()> {
         let mut session = ReviewSession::new("r1".into(), 1);
         let comment_id = session.add_comment(
             NewLineComment {
@@ -523,8 +550,9 @@ mod tests {
         );
         session
             .set_comment_status(comment_id, CommentStatus::Addressed, Author::User, 3)
-            .expect("status should update");
+            .map_err(anyhow::Error::msg)?;
 
         assert_eq!(session.state, ReviewState::UnderReview);
+        Ok(())
     }
 }

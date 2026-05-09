@@ -1,4 +1,5 @@
 use super::*;
+use crate::utils::cast::offset_index;
 
 impl TuiApp {
     pub(super) fn inline_file_mention_picker_active(&self) -> bool {
@@ -40,9 +41,8 @@ impl TuiApp {
             return;
         }
 
-        let max_index = mention.candidates.len().saturating_sub(1);
-        let next = (mention.selected_index as isize + delta).clamp(0, max_index as isize) as usize;
-        mention.selected_index = next;
+        mention.selected_index =
+            offset_index(mention.selected_index, mention.candidates.len(), delta);
 
         if mention.selected_index < mention.scroll {
             mention.scroll = mention.selected_index;
@@ -82,8 +82,7 @@ impl TuiApp {
         let origin_row_index = self
             .inline_comment
             .as_ref()
-            .map(|inline| inline.row_index)
-            .unwrap_or(0);
+            .map_or(0, |inline| inline.row_index);
         let Some(inline) = self.inline_comment.as_mut() else {
             return false;
         };
@@ -134,9 +133,7 @@ impl TuiApp {
         self.ensure_row_cache_for_file(file_index);
 
         let target_line = requested_line.or(inferred_line);
-        let line_selected = target_line
-            .map(|line| self.goto_line_number(line))
-            .unwrap_or(false)
+        let line_selected = target_line.is_some_and(|line| self.goto_line_number(line))
             || self.select_first_inline_reference_line_in_current_file();
 
         if !line_selected {
@@ -248,8 +245,7 @@ impl TuiApp {
         let previous_scroll = inline
             .file_mention
             .as_ref()
-            .map(|mention| mention.scroll)
-            .unwrap_or(0);
+            .map_or(0, |mention| mention.scroll);
 
         let Some(context) = parse_inline_file_mention_context(&line, cursor_col) else {
             let _ = self.clear_inline_file_mention_picker();

@@ -35,12 +35,10 @@ pub(super) fn build_thread_prompt(
         comment.file_path,
         comment
             .old_line
-            .map(|value| value.to_string())
-            .unwrap_or_else(|| "_".to_string()),
+            .map_or_else(|| "_".to_string(), |value| value.to_string()),
         comment
             .new_line
-            .map(|value| value.to_string())
-            .unwrap_or_else(|| "_".to_string()),
+            .map_or_else(|| "_".to_string(), |value| value.to_string()),
         comment.status
     ));
     thread.push_str("\nOriginal comment:\n");

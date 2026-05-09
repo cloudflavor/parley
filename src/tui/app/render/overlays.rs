@@ -12,6 +12,7 @@ use super::status::spinner_frame;
 use super::{CommandPromptMode, TuiApp};
 use crate::tui::app::help_docs::HELP_DOCS;
 use crate::tui::theme::ThemeColors;
+use crate::utils::cast::{i32_to_u16_saturating, usize_to_u16_saturating};
 
 pub(super) fn draw_thread_navigator_overlay(frame: &mut Frame<'_>, app: &mut TuiApp) {
     let colors = app.theme().colors.clone();
@@ -84,7 +85,7 @@ pub(super) fn draw_thread_navigator_overlay(frame: &mut Frame<'_>, app: &mut Tui
                             .add_modifier(Modifier::BOLD),
                     ),
             )
-            .scroll((scroll as u16, 0)),
+            .scroll((usize_to_u16_saturating(scroll), 0)),
         area,
     );
 }
@@ -283,7 +284,7 @@ pub(super) fn draw_shortcuts_modal(frame: &mut Frame<'_>, app: &mut TuiApp) {
     frame.render_widget(
         Paragraph::new(lines)
             .wrap(Wrap { trim: false })
-            .scroll((scroll as u16, 0)),
+            .scroll((usize_to_u16_saturating(scroll), 0)),
         content_area,
     );
     let source = doc.source_path;
@@ -306,7 +307,7 @@ fn scaled_modal_axis(base: u16, available: u16, zoom_step: i16, unit: i32, min_b
     let max_value = available.max(min_bound);
     let min_value = min_bound.min(max_value);
     let proposed = i32::from(base) + i32::from(zoom_step) * unit;
-    proposed.clamp(i32::from(min_value), i32::from(max_value)) as u16
+    i32_to_u16_saturating(proposed.clamp(i32::from(min_value), i32::from(max_value)))
 }
 
 fn help_docs_tabs_line(selected_index: usize, colors: &ThemeColors) -> Line<'static> {
@@ -374,11 +375,13 @@ pub(super) fn draw_command_prompt(frame: &mut Frame<'_>, app: &TuiApp) {
         area,
     );
 
-    let cursor_x = area
-        .x
-        .saturating_add(1)
-        .saturating_add(1)
-        .saturating_add((prompt.cursor_col.saturating_sub(horizontal_scroll)) as u16);
+    let cursor_x =
+        area.x
+            .saturating_add(1)
+            .saturating_add(1)
+            .saturating_add(usize_to_u16_saturating(
+                prompt.cursor_col.saturating_sub(horizontal_scroll),
+            ));
     let cursor_y = area.y.saturating_add(1);
     frame.set_cursor_position((cursor_x, cursor_y));
 }
@@ -496,8 +499,10 @@ pub(super) fn draw_command_palette(frame: &mut Frame<'_>, app: &mut TuiApp) {
     let cursor_x = area
         .x
         .saturating_add(1)
-        .saturating_add(query_prefix.len() as u16)
-        .saturating_add((palette_cursor_col.saturating_sub(query_scroll)) as u16);
+        .saturating_add(usize_to_u16_saturating(query_prefix.len()))
+        .saturating_add(usize_to_u16_saturating(
+            palette_cursor_col.saturating_sub(query_scroll),
+        ));
     let cursor_y = area.y.saturating_add(1);
     frame.set_cursor_position((cursor_x, cursor_y));
 }

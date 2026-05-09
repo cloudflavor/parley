@@ -45,6 +45,7 @@ pub const PARLEY_DOCS: &[ParleyDoc] = &[
     },
 ];
 
+#[must_use]
 pub fn find_doc(value: &str) -> Option<&'static ParleyDoc> {
     let normalized = value.trim();
     PARLEY_DOCS.iter().find(|doc| {

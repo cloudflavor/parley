@@ -7,6 +7,7 @@ pub struct FileReference {
     pub end_char: usize,
 }
 
+#[must_use]
 pub fn parse_file_references(input: &str) -> Vec<FileReference> {
     let chars: Vec<char> = input.chars().collect();
     let mut out = Vec::new();

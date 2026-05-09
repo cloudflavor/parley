@@ -357,8 +357,7 @@ pub(super) fn render_markdown(buffer: &str, colors: &ThemeColors) -> Vec<Line<'s
     md_flush_line(&mut rendered, &mut current, false);
     while rendered
         .last()
-        .map(|line| line.spans.iter().all(|span| span.content.is_empty()))
-        .unwrap_or(false)
+        .is_some_and(|line| line.spans.iter().all(|span| span.content.is_empty()))
     {
         rendered.pop();
     }

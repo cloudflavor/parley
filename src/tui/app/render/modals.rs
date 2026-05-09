@@ -10,6 +10,7 @@ use super::super::helpers::slice_chars;
 use super::helpers::fit_to_width;
 use super::status::{review_state_label, theme_family_label, theme_variant_label};
 use super::{SettingsEditorKind, TuiApp};
+use crate::utils::cast::usize_to_u16_saturating;
 
 pub(super) fn draw_settings_editor(frame: &mut Frame<'_>, app: &TuiApp) {
     let Some(editor) = app.settings_editor.as_ref() else {
@@ -72,7 +73,9 @@ pub(super) fn draw_settings_editor(frame: &mut Frame<'_>, app: &TuiApp) {
     let cursor_x = area
         .x
         .saturating_add(1)
-        .saturating_add((editor.cursor_col.saturating_sub(horizontal_scroll)) as u16);
+        .saturating_add(usize_to_u16_saturating(
+            editor.cursor_col.saturating_sub(horizontal_scroll),
+        ));
     let cursor_y = area.y.saturating_add(3);
     frame.set_cursor_position((cursor_x, cursor_y));
 }
@@ -378,8 +381,8 @@ pub(super) fn draw_commit_picker(frame: &mut Frame<'_>, app: &TuiApp) {
     let filter_area = Block::default().borders(Borders::ALL).inner(rows[0]);
     let cursor_x = filter_area
         .x
-        .saturating_add("Search ".chars().count() as u16)
-        .saturating_add(picker.cursor_col as u16);
+        .saturating_add(usize_to_u16_saturating("Search ".chars().count()))
+        .saturating_add(usize_to_u16_saturating(picker.cursor_col));
     let max_cursor_x = filter_area
         .x
         .saturating_add(filter_area.width.saturating_sub(1));
@@ -513,8 +516,8 @@ pub(super) fn draw_review_picker(frame: &mut Frame<'_>, app: &TuiApp) {
     let filter_area = Block::default().borders(Borders::ALL).inner(rows[0]);
     let cursor_x = filter_area
         .x
-        .saturating_add("Search ".chars().count() as u16)
-        .saturating_add(picker.cursor_col as u16);
+        .saturating_add(usize_to_u16_saturating("Search ".chars().count()))
+        .saturating_add(usize_to_u16_saturating(picker.cursor_col));
     let max_cursor_x = filter_area
         .x
         .saturating_add(filter_area.width.saturating_sub(1));

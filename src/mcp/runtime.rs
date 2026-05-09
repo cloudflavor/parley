@@ -37,6 +37,9 @@ struct InitializeParams {
     protocol_version: Option<String>,
 }
 
+/// # Errors
+///
+/// Returns an error when stdin/stdout framing, response serialization, or service operations fail.
 pub async fn run_mcp(service: ReviewService) -> Result<()> {
     let stdin = stdin();
     let stdout = stdout();
@@ -539,6 +542,7 @@ fn parse_state(value: &str) -> Result<ReviewState> {
 mod tests {
     use super::*;
     use crate::persistence::store::Store;
+    use anyhow::{Result, anyhow};
     use tempfile::tempdir;
     use tokio::io::BufReader;
 
@@ -569,8 +573,8 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn ping_request_returns_empty_result() {
-        let tempdir = tempdir().expect("tempdir should exist");
+    async fn ping_request_returns_empty_result() -> Result<()> {
+        let tempdir = tempdir()?;
         let service = ReviewService::new(Store::from_project_root(tempdir.path()));
         let request = RpcRequest {
             jsonrpc: Some("2.0".to_string()),
@@ -581,14 +585,15 @@ mod tests {
 
         let response = handle_request(&service, request)
             .await
-            .expect("ping request should return a response");
+            .ok_or_else(|| anyhow!("ping request should return a response"))?;
 
         assert_eq!(response["result"], json!({}));
+        Ok(())
     }
 
     #[tokio::test]
-    async fn resources_list_returns_embedded_documentation() {
-        let tempdir = tempdir().expect("tempdir should exist");
+    async fn resources_list_returns_embedded_documentation() -> Result<()> {
+        let tempdir = tempdir()?;
         let service = ReviewService::new(Store::from_project_root(tempdir.path()));
         let request = RpcRequest {
             jsonrpc: Some("2.0".to_string()),
@@ -599,21 +604,22 @@ mod tests {
 
         let response = handle_request(&service, request)
             .await
-            .expect("resources/list request should return a response");
+            .ok_or_else(|| anyhow!("resources/list request should return a response"))?;
         let resources = response["result"]["resources"]
             .as_array()
-            .expect("resources should be an array");
+            .ok_or_else(|| anyhow!("resources should be an array"))?;
 
         assert!(
             resources
                 .iter()
                 .any(|resource| resource["uri"] == json!("parley://docs/overview"))
         );
+        Ok(())
     }
 
     #[tokio::test]
-    async fn resources_read_returns_embedded_markdown() {
-        let tempdir = tempdir().expect("tempdir should exist");
+    async fn resources_read_returns_embedded_markdown() -> Result<()> {
+        let tempdir = tempdir()?;
         let service = ReviewService::new(Store::from_project_root(tempdir.path()));
         let request = RpcRequest {
             jsonrpc: Some("2.0".to_string()),
@@ -624,7 +630,7 @@ mod tests {
 
         let response = handle_request(&service, request)
             .await
-            .expect("resources/read request should return a response");
+            .ok_or_else(|| anyhow!("resources/read request should return a response"))?;
         let content = &response["result"]["contents"][0];
 
         assert_eq!(content["uri"], json!("parley://docs/overview"));
@@ -632,14 +638,15 @@ mod tests {
         assert!(
             content["text"]
                 .as_str()
-                .expect("content text should be a string")
+                .ok_or_else(|| anyhow!("content text should be a string"))?
                 .contains("# Parley")
         );
+        Ok(())
     }
 
     #[tokio::test]
-    async fn get_documentation_tool_returns_requested_doc() {
-        let tempdir = tempdir().expect("tempdir should exist");
+    async fn get_documentation_tool_returns_requested_doc() -> Result<()> {
+        let tempdir = tempdir()?;
         let service = ReviewService::new(Store::from_project_root(tempdir.path()));
         let response = handle_tools_call(
             &service,
@@ -648,36 +655,36 @@ mod tests {
                 "arguments": {"doc": "mcp"}
             }),
         )
-        .await
-        .expect("get_documentation should return a response");
+        .await?;
 
         assert_eq!(response["structuredContent"]["slug"], json!("mcp"));
         assert!(
             response["structuredContent"]["body"]
                 .as_str()
-                .expect("body should be a string")
+                .ok_or_else(|| anyhow!("body should be a string"))?
                 .contains("# MCP Integration")
         );
+        Ok(())
     }
 
     #[tokio::test]
-    async fn read_message_body_supports_newline_delimited_json() {
+    async fn read_message_body_supports_newline_delimited_json() -> Result<()> {
         let raw = b"{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"ping\"}\n";
         let mut reader = BufReader::new(&raw[..]);
         let mut framing_mode = None;
 
         let body = read_message_body(&mut reader, &mut framing_mode)
             .await
-            .expect("newline message should parse")
-            .expect("newline message should exist");
+            .and_then(|body| body.ok_or_else(|| anyhow!("newline message should exist")))?;
 
         assert_eq!(framing_mode, Some(FramingMode::NewlineDelimited));
-        let parsed: Value = serde_json::from_str(&body).expect("message body should be valid json");
+        let parsed: Value = serde_json::from_str(&body)?;
         assert_eq!(parsed["method"], json!("ping"));
+        Ok(())
     }
 
     #[tokio::test]
-    async fn read_message_body_supports_content_length_framing() {
+    async fn read_message_body_supports_content_length_framing() -> Result<()> {
         let payload = "{\"jsonrpc\":\"2.0\",\"id\":1,\"method\":\"ping\"}";
         let raw = format!("Content-Length: {}\r\n\r\n{}", payload.len(), payload);
         let mut reader = BufReader::new(raw.as_bytes());
@@ -685,11 +692,11 @@ mod tests {
 
         let body = read_message_body(&mut reader, &mut framing_mode)
             .await
-            .expect("content-length message should parse")
-            .expect("content-length message should exist");
+            .and_then(|body| body.ok_or_else(|| anyhow!("content-length message should exist")))?;
 
         assert_eq!(framing_mode, Some(FramingMode::ContentLength));
-        let parsed: Value = serde_json::from_str(&body).expect("message body should be valid json");
+        let parsed: Value = serde_json::from_str(&body)?;
         assert_eq!(parsed["method"], json!("ping"));
+        Ok(())
     }
 }

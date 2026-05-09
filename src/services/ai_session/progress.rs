@@ -1,6 +1,7 @@
 use std::sync::mpsc;
 
 use crate::domain::ai::AiProvider;
+use crate::utils::cast::u128_to_u64_saturating;
 
 use super::AiProgressEvent;
 
@@ -15,7 +16,7 @@ pub(super) fn emit_progress(
     };
     let timestamp_ms = std::time::SystemTime::now()
         .duration_since(std::time::UNIX_EPOCH)
-        .map(|elapsed| elapsed.as_millis() as u64)
+        .map(|elapsed| u128_to_u64_saturating(elapsed.as_millis()))
         .unwrap_or(0);
     let _ = progress_sender.send(AiProgressEvent {
         timestamp_ms,

@@ -1,4 +1,5 @@
 use super::*;
+use crate::utils::cast::usize_to_isize_saturating;
 
 impl TuiApp {
     pub(super) async fn handle_inline_comment_key(
@@ -111,15 +112,15 @@ impl TuiApp {
                     return Ok(());
                 }
                 KeyCode::PageUp => {
-                    self.move_inline_file_mention_selection(
-                        -(INLINE_FILE_MENTION_MAX_VISIBLE_ROWS as isize),
-                    );
+                    self.move_inline_file_mention_selection(-usize_to_isize_saturating(
+                        INLINE_FILE_MENTION_MAX_VISIBLE_ROWS,
+                    ));
                     return Ok(());
                 }
                 KeyCode::PageDown => {
-                    self.move_inline_file_mention_selection(
-                        INLINE_FILE_MENTION_MAX_VISIBLE_ROWS as isize,
-                    );
+                    self.move_inline_file_mention_selection(usize_to_isize_saturating(
+                        INLINE_FILE_MENTION_MAX_VISIBLE_ROWS,
+                    ));
                     return Ok(());
                 }
                 KeyCode::Enter | KeyCode::Tab => {
@@ -370,12 +371,8 @@ impl TuiApp {
                 self.status_line = format!(
                     "reply saved on #{} at {}:{}",
                     comment_id,
-                    old_line
-                        .map(|value| value.to_string())
-                        .unwrap_or_else(|| "_".to_string()),
-                    new_line
-                        .map(|value| value.to_string())
-                        .unwrap_or_else(|| "_".to_string())
+                    old_line.map_or_else(|| "_".to_string(), |value| value.to_string()),
+                    new_line.map_or_else(|| "_".to_string(), |value| value.to_string())
                 );
             }
         }

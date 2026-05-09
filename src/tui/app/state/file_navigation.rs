@@ -5,6 +5,7 @@
 use std::collections::HashSet;
 
 use super::*;
+use crate::utils::cast::offset_index;
 
 impl TuiApp {
     pub(crate) fn active_file_index(&self) -> usize {
@@ -67,8 +68,7 @@ impl TuiApp {
             .iter()
             .position(|index| *index == self.active_file_index())
             .unwrap_or(0);
-        let max = ordered_files.len().saturating_sub(1) as isize;
-        let next_pos = (current_pos as isize + delta).clamp(0, max) as usize;
+        let next_pos = offset_index(current_pos, ordered_files.len(), delta);
         self.select_file(ordered_files[next_pos]);
     }
 
@@ -231,15 +231,16 @@ impl TuiApp {
             return ".".to_string();
         };
         let path = file.path.as_str();
-        path.rsplit_once('/')
-            .map(|(group, _)| {
+        path.rsplit_once('/').map_or_else(
+            || ".".to_string(),
+            |(group, _)| {
                 if group.is_empty() {
                     ".".to_string()
                 } else {
                     group.to_string()
                 }
-            })
-            .unwrap_or_else(|| ".".to_string())
+            },
+        )
     }
 
     pub(crate) fn file_search_query(&self) -> Option<&str> {
@@ -294,15 +295,16 @@ mod tests {
     use super::*;
     use crate::domain::review::CommentStatus;
     use crate::tui::app::state::tests::{make_comment_with_anchor, make_test_app};
+    use anyhow::Result;
 
     #[test]
-    fn visible_file_indices_respects_filter_sort_and_search_query() {
+    fn visible_file_indices_respects_filter_sort_and_search_query() -> Result<()> {
         let comments = vec![
             make_comment_with_anchor(1, "src/a.rs", CommentStatus::Open, 1, 1),
             make_comment_with_anchor(2, "src/b.rs", CommentStatus::Pending, 2, 2),
             make_comment_with_anchor(3, "src/c.rs", CommentStatus::Addressed, 3, 3),
         ];
-        let mut app = make_test_app(vec!["src/a.rs", "src/b.rs", "src/c.rs"], comments);
+        let mut app = make_test_app(vec!["src/a.rs", "src/b.rs", "src/c.rs"], comments)?;
 
         let visible = app.visible_file_indices();
         assert_eq!(visible.len(), 3);
@@ -314,41 +316,44 @@ mod tests {
         app.set_file_filter_mode(FileFilterMode::Pending);
         let visible_pending = app.visible_file_indices();
         assert_eq!(visible_pending.len(), 1);
+        Ok(())
     }
 
     #[test]
-    fn file_filter_constrains_selection_to_visible_files() {
+    fn file_filter_constrains_selection_to_visible_files() -> Result<()> {
         let comments = vec![
             make_comment_with_anchor(1, "src/a.rs", CommentStatus::Open, 1, 1),
             make_comment_with_anchor(2, "src/b.rs", CommentStatus::Pending, 2, 2),
         ];
-        let mut app = make_test_app(vec!["src/a.rs", "src/b.rs"], comments);
+        let mut app = make_test_app(vec!["src/a.rs", "src/b.rs"], comments)?;
         app.select_file(1);
 
         app.set_file_filter_mode(FileFilterMode::Open);
         assert_eq!(app.selected_file, 0);
+        Ok(())
     }
 
     #[test]
-    fn collapse_all_visible_file_groups_only_collapses_current_filter_scope() {
+    fn collapse_all_visible_file_groups_only_collapses_current_filter_scope() -> Result<()> {
         let comments = vec![
             make_comment_with_anchor(1, "src/a.rs", CommentStatus::Open, 1, 1),
             make_comment_with_anchor(2, "src/b.rs", CommentStatus::Pending, 2, 2),
         ];
-        let mut app = make_test_app(vec!["src/a.rs", "src/b.rs"], comments);
+        let mut app = make_test_app(vec!["src/a.rs", "src/b.rs"], comments)?;
 
         app.collapse_all_visible_file_groups();
         assert_eq!(app.collapsed_file_groups.len(), 1);
+        Ok(())
     }
 
     #[test]
-    fn move_file_selection_follows_rendered_sidebar_order() {
+    fn move_file_selection_follows_rendered_sidebar_order() -> Result<()> {
         let comments = vec![
             make_comment_with_anchor(1, "src/a.rs", CommentStatus::Open, 1, 1),
             make_comment_with_anchor(2, "src/b.rs", CommentStatus::Open, 2, 2),
             make_comment_with_anchor(3, "src/c.rs", CommentStatus::Open, 3, 3),
         ];
-        let mut app = make_test_app(vec!["src/a.rs", "src/b.rs", "src/c.rs"], comments);
+        let mut app = make_test_app(vec!["src/a.rs", "src/b.rs", "src/c.rs"], comments)?;
 
         app.move_file_selection(1);
         assert_eq!(app.active_file_index(), 1);
@@ -358,5 +363,6 @@ mod tests {
 
         app.move_file_selection(1);
         assert_eq!(app.active_file_index(), 2);
+        Ok(())
     }
 }

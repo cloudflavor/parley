@@ -21,11 +21,16 @@ pub enum DiffSource {
 }
 
 impl DiffSource {
+    #[must_use]
     pub fn working_tree() -> Self {
         Self::WorkingTree
     }
 }
 
+/// # Errors
+///
+/// Returns an error when the git repository cannot be discovered, the requested revision cannot be
+/// resolved, the diff cannot be rendered, or the rendered patch cannot be parsed.
 pub async fn load_git_diff(config: &AppConfig, source: &DiffSource) -> Result<DiffDocument> {
     debug!(?source, "loading git diff");
     let config = config.clone();
@@ -39,6 +44,10 @@ pub async fn load_git_diff(config: &AppConfig, source: &DiffSource) -> Result<Di
     Ok(document)
 }
 
+/// # Errors
+///
+/// Returns an error for the same repository discovery, diff rendering, and parsing failures as
+/// [`load_git_diff`].
 pub async fn load_git_diff_head(config: &AppConfig) -> Result<DiffDocument> {
     load_git_diff(config, &DiffSource::WorkingTree).await
 }
@@ -126,6 +135,9 @@ fn resolve_commit<'repo>(repo: &'repo Repository, rev: &str) -> Result<Commit<'r
         .with_context(|| format!("revision {rev} does not resolve to a commit"))
 }
 
+/// # Errors
+///
+/// Returns an error when a hunk header is malformed or line numbers cannot be parsed.
 pub fn parse_unified_diff(text: &str) -> Result<DiffDocument> {
     let mut files = Vec::new();
 
@@ -386,6 +398,7 @@ fn parse_diff_path(raw: &str) -> Option<String> {
 mod tests {
     use std::fs;
 
+    use anyhow::Result;
     use git2::{Oid, Repository, Signature};
     use tempfile::tempdir;
 
@@ -394,10 +407,10 @@ mod tests {
     use super::{DiffSource, filter_ignored_files, load_git_diff_for_repo, parse_unified_diff};
 
     #[test]
-    fn parse_unified_diff_should_parse_added_and_removed_lines_with_numbers() {
+    fn parse_unified_diff_should_parse_added_and_removed_lines_with_numbers() -> Result<()> {
         let input = "diff --git a/src/lib.rs b/src/lib.rs\nindex 123..456 100644\n--- a/src/lib.rs\n+++ b/src/lib.rs\n@@ -1,2 +1,3 @@\n fn a() {}\n-fn b() {}\n+fn b() {\"x\";}\n+fn c() {}\n";
 
-        let doc = parse_unified_diff(input).expect("diff should parse");
+        let doc = parse_unified_diff(input)?;
 
         assert_eq!(doc.files.len(), 1);
         assert_eq!(doc.files[0].path, "src/lib.rs");
@@ -416,103 +429,107 @@ mod tests {
         assert_eq!(hunk.lines[3].kind, DiffLineKind::Added);
         assert_eq!(hunk.lines[3].old_line, None);
         assert_eq!(hunk.lines[3].new_line, Some(2));
+        Ok(())
     }
 
     #[test]
-    fn parse_unified_diff_should_use_old_path_for_deleted_files() {
+    fn parse_unified_diff_should_use_old_path_for_deleted_files() -> Result<()> {
         let input = "diff --git a/src/old.rs b/src/old.rs\nindex 123..456 100644\n--- a/src/old.rs\n+++ /dev/null\n@@ -1 +0,0 @@\n-fn old() {}\n";
 
-        let doc = parse_unified_diff(input).expect("diff should parse");
+        let doc = parse_unified_diff(input)?;
 
         assert_eq!(doc.files.len(), 1);
         assert_eq!(doc.files[0].path, "src/old.rs");
+        Ok(())
     }
 
     #[test]
-    fn parse_unified_diff_should_parse_quoted_paths() {
+    fn parse_unified_diff_should_parse_quoted_paths() -> Result<()> {
         let input = "diff --git \"a/src/with space.rs\" \"b/src/with space.rs\"\nindex 123..456 100644\n--- \"a/src/with space.rs\"\n+++ \"b/src/with space.rs\"\n@@ -1 +1 @@\n-fn before() {}\n+fn after() {}\n";
 
-        let doc = parse_unified_diff(input).expect("diff should parse");
+        let doc = parse_unified_diff(input)?;
 
         assert_eq!(doc.files.len(), 1);
         assert_eq!(doc.files[0].path, "src/with space.rs");
+        Ok(())
     }
 
     #[test]
-    fn parse_unified_diff_should_use_diff_header_path_for_binary_new_files() {
+    fn parse_unified_diff_should_use_diff_header_path_for_binary_new_files() -> Result<()> {
         let input = "diff --git a/src-tauri/icons/128x128.png b/src-tauri/icons/128x128.png\nnew file mode 100644\nindex 0000000..6be5e50\nBinary files /dev/null and b/src-tauri/icons/128x128.png differ\n";
 
-        let doc = parse_unified_diff(input).expect("diff should parse");
+        let doc = parse_unified_diff(input)?;
 
         assert_eq!(doc.files.len(), 1);
         assert_eq!(doc.files[0].path, "src-tauri/icons/128x128.png");
         assert!(doc.files[0].hunks.is_empty());
+        Ok(())
     }
 
     #[test]
-    fn filter_ignored_files_removes_parley_entries_by_default() {
+    fn filter_ignored_files_removes_parley_entries_by_default() -> Result<()> {
         let input = "diff --git a/.parley/config.toml b/.parley/config.toml\n--- a/.parley/config.toml\n+++ b/.parley/config.toml\n@@ -1 +1 @@\n-old\n+new\ndiff --git a/src/lib.rs b/src/lib.rs\n--- a/src/lib.rs\n+++ b/src/lib.rs\n@@ -1 +1 @@\n-old\n+new\n";
-        let mut doc = parse_unified_diff(input).expect("diff should parse");
+        let mut doc = parse_unified_diff(input)?;
 
-        filter_ignored_files(&mut doc, &AppConfig::default(), None).expect("filter should work");
+        filter_ignored_files(&mut doc, &AppConfig::default(), None)?;
 
         assert_eq!(doc.files.len(), 1);
         assert_eq!(doc.files[0].path, "src/lib.rs");
+        Ok(())
     }
 
     #[test]
-    fn filter_ignored_files_can_keep_parley_entries_when_configured() {
+    fn filter_ignored_files_can_keep_parley_entries_when_configured() -> Result<()> {
         let input = "diff --git a/.parley/config.toml b/.parley/config.toml\n--- a/.parley/config.toml\n+++ b/.parley/config.toml\n@@ -1 +1 @@\n-old\n+new\n";
-        let mut doc = parse_unified_diff(input).expect("diff should parse");
+        let mut doc = parse_unified_diff(input)?;
         let config = AppConfig {
             ignore_parley_dir: false,
             ..AppConfig::default()
         };
 
-        filter_ignored_files(&mut doc, &config, None).expect("filter should work");
+        filter_ignored_files(&mut doc, &config, None)?;
 
         assert_eq!(doc.files.len(), 1);
         assert_eq!(doc.files[0].path, ".parley/config.toml");
+        Ok(())
     }
 
     #[test]
-    fn filter_ignored_files_removes_gitignored_paths() {
-        let temp = tempdir().expect("tempdir should exist");
-        let repo = Repository::init(temp.path()).expect("repo should init");
+    fn filter_ignored_files_removes_gitignored_paths() -> Result<()> {
+        let temp = tempdir()?;
+        let repo = Repository::init(temp.path())?;
         fs::write(
             temp.path().join(".gitignore"),
             "ignored.txt\nignored-dir/\n",
-        )
-        .expect("gitignore should write");
-        fs::write(temp.path().join("ignored.txt"), "ignored\n").expect("ignored file should write");
-        fs::create_dir_all(temp.path().join("ignored-dir")).expect("ignored dir should create");
-        fs::write(temp.path().join("ignored-dir/file.txt"), "ignored\n")
-            .expect("ignored nested file should write");
-        fs::write(temp.path().join("tracked.txt"), "tracked\n").expect("tracked file should write");
+        )?;
+        fs::write(temp.path().join("ignored.txt"), "ignored\n")?;
+        fs::create_dir_all(temp.path().join("ignored-dir"))?;
+        fs::write(temp.path().join("ignored-dir/file.txt"), "ignored\n")?;
+        fs::write(temp.path().join("tracked.txt"), "tracked\n")?;
 
         let input = "diff --git a/ignored.txt b/ignored.txt\nnew file mode 100644\nindex 0000000..1111111\nBinary files /dev/null and b/ignored.txt differ\ndiff --git a/ignored-dir/file.txt b/ignored-dir/file.txt\nnew file mode 100644\nindex 0000000..2222222\nBinary files /dev/null and b/ignored-dir/file.txt differ\ndiff --git a/tracked.txt b/tracked.txt\nnew file mode 100644\nindex 0000000..3333333\nBinary files /dev/null and b/tracked.txt differ\n";
-        let mut doc = parse_unified_diff(input).expect("diff should parse");
+        let mut doc = parse_unified_diff(input)?;
 
-        filter_ignored_files(&mut doc, &AppConfig::default(), Some(&repo))
-            .expect("filter should work");
+        filter_ignored_files(&mut doc, &AppConfig::default(), Some(&repo))?;
 
         assert_eq!(doc.files.len(), 1);
         assert_eq!(doc.files[0].path, "tracked.txt");
+        Ok(())
     }
 
     #[test]
-    fn load_git_diff_for_commit_uses_first_parent_diff() {
-        let temp = tempdir().expect("tempdir should exist");
-        let repo = Repository::init(temp.path()).expect("repo should init");
+    fn load_git_diff_for_commit_uses_first_parent_diff() -> Result<()> {
+        let temp = tempdir()?;
+        let repo = Repository::init(temp.path())?;
 
-        let first = commit_file(&repo, temp.path(), "src/lib.rs", "fn first() {}\n", "first");
+        let first = commit_file(&repo, temp.path(), "src/lib.rs", "fn first() {}\n", "first")?;
         let second = commit_file(
             &repo,
             temp.path(),
             "src/lib.rs",
             "fn second() {}\n",
             "second",
-        );
+        )?;
 
         let doc = load_git_diff_for_repo(
             &repo,
@@ -520,8 +537,7 @@ mod tests {
             &DiffSource::Commit {
                 rev: second.to_string(),
             },
-        )
-        .expect("commit diff should load");
+        )?;
 
         assert_eq!(doc.files.len(), 1);
         assert_eq!(doc.files[0].path, "src/lib.rs");
@@ -535,8 +551,7 @@ mod tests {
             &DiffSource::Commit {
                 rev: first.to_string(),
             },
-        )
-        .expect("root commit diff should load");
+        )?;
 
         assert_eq!(root_doc.files.len(), 1);
         assert!(
@@ -546,16 +561,17 @@ mod tests {
                 .flat_map(|hunk| hunk.lines.iter())
                 .any(|line| line.raw == "+fn first() {}")
         );
+        Ok(())
     }
 
     #[test]
-    fn load_git_diff_for_range_uses_explicit_base_and_head() {
-        let temp = tempdir().expect("tempdir should exist");
-        let repo = Repository::init(temp.path()).expect("repo should init");
+    fn load_git_diff_for_range_uses_explicit_base_and_head() -> Result<()> {
+        let temp = tempdir()?;
+        let repo = Repository::init(temp.path())?;
 
-        let base = commit_file(&repo, temp.path(), "src/lib.rs", "fn one() {}\n", "one");
-        let _middle = commit_file(&repo, temp.path(), "src/lib.rs", "fn two() {}\n", "two");
-        let head = commit_file(&repo, temp.path(), "src/lib.rs", "fn three() {}\n", "three");
+        let base = commit_file(&repo, temp.path(), "src/lib.rs", "fn one() {}\n", "one")?;
+        let _middle = commit_file(&repo, temp.path(), "src/lib.rs", "fn two() {}\n", "two")?;
+        let head = commit_file(&repo, temp.path(), "src/lib.rs", "fn three() {}\n", "three")?;
 
         let doc = load_git_diff_for_repo(
             &repo,
@@ -564,14 +580,14 @@ mod tests {
                 base: base.to_string(),
                 head: head.to_string(),
             },
-        )
-        .expect("range diff should load");
+        )?;
 
         assert_eq!(doc.files.len(), 1);
         let lines = &doc.files[0].hunks[0].lines;
         assert!(lines.iter().any(|line| line.raw == "-fn one() {}"));
         assert!(lines.iter().any(|line| line.raw == "+fn three() {}"));
         assert!(!lines.iter().any(|line| line.raw == "+fn two() {}"));
+        Ok(())
     }
 
     fn commit_file(
@@ -580,40 +596,37 @@ mod tests {
         relative_path: &str,
         content: &str,
         message: &str,
-    ) -> Oid {
+    ) -> Result<Oid> {
         let path = root.join(relative_path);
         if let Some(parent) = path.parent() {
-            fs::create_dir_all(parent).expect("parent directory should exist");
+            fs::create_dir_all(parent)?;
         }
-        fs::write(&path, content).expect("file should write");
+        fs::write(&path, content)?;
 
-        let mut index = repo.index().expect("index should open");
-        index
-            .add_path(std::path::Path::new(relative_path))
-            .expect("path should stage");
-        index.write().expect("index should write");
+        let mut index = repo.index()?;
+        index.add_path(std::path::Path::new(relative_path))?;
+        index.write()?;
 
-        let tree_oid = index.write_tree().expect("tree should write");
-        let tree = repo.find_tree(tree_oid).expect("tree should load");
-        let signature =
-            Signature::now("Parley Test", "parley@example.com").expect("signature should create");
+        let tree_oid = index.write_tree()?;
+        let tree = repo.find_tree(tree_oid)?;
+        let signature = Signature::now("Parley Test", "parley@example.com")?;
         let parents = repo
             .head()
             .ok()
             .and_then(|head| head.target())
-            .map(|oid| repo.find_commit(oid).expect("parent commit should load"))
+            .map(|oid| repo.find_commit(oid))
+            .transpose()?
             .into_iter()
             .collect::<Vec<_>>();
         let parent_refs = parents.iter().collect::<Vec<_>>();
 
-        repo.commit(
+        Ok(repo.commit(
             Some("HEAD"),
             &signature,
             &signature,
             message,
             &tree,
             &parent_refs,
-        )
-        .expect("commit should succeed")
+        )?)
     }
 }

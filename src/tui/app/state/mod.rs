@@ -168,10 +168,7 @@ impl TuiApp {
             return None;
         }
 
-        let json_candidate = trimmed
-            .strip_prefix("data:")
-            .map(str::trim)
-            .unwrap_or(trimmed);
+        let json_candidate = trimmed.strip_prefix("data:").map_or(trimmed, str::trim);
         if let Ok(value) = serde_json::from_str::<serde_json::Value>(json_candidate) {
             let parts = Self::collect_ai_text_fragments(&value, None);
             let merged = parts.join("");
@@ -299,9 +296,10 @@ pub(crate) mod tests {
     use super::*;
     use crate::domain::diff::{DiffFile, DiffHunk, DiffLine, DiffLineKind};
     use crate::domain::review::{CommentStatus, DiffSide, LineAnchorSnapshot, LineComment};
+    use anyhow::Result;
     use std::path::PathBuf;
 
-    pub(crate) fn make_test_app(paths: Vec<&str>, comments: Vec<LineComment>) -> TuiApp {
+    pub(crate) fn make_test_app(paths: Vec<&str>, comments: Vec<LineComment>) -> Result<TuiApp> {
         make_test_app_with_files_and_comments(
             paths
                 .iter()
@@ -314,7 +312,7 @@ pub(crate) mod tests {
     pub(crate) fn make_test_app_with_files_and_comments(
         files: Vec<DiffFile>,
         comments: Vec<LineComment>,
-    ) -> TuiApp {
+    ) -> Result<TuiApp> {
         let review = ReviewSession {
             name: "test".to_string(),
             created_at_ms: 0,
@@ -327,10 +325,10 @@ pub(crate) mod tests {
         };
         let diff = DiffDocument { files };
         let config = AppConfig::default();
-        let themes = load_themes().expect("embedded themes should load");
+        let themes = load_themes()?;
         let theme_index = resolve_theme_index(&themes, default_theme_name()).unwrap_or(0);
 
-        TuiApp::new(TuiAppInit {
+        Ok(TuiApp::new(TuiAppInit {
             review_name: "test".to_string(),
             review,
             diff,
@@ -339,7 +337,7 @@ pub(crate) mod tests {
             themes,
             theme_index,
             log_path: PathBuf::from("/tmp/test.log"),
-        })
+        }))
     }
 
     pub(crate) fn diff_file_with_context_lines(path: &str, lines: &[(u32, &str)]) -> DiffFile {

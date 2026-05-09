@@ -11,6 +11,7 @@ pub enum AiProvider {
 }
 
 impl AiProvider {
+    #[must_use]
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Codex => "codex",
@@ -41,6 +42,7 @@ pub enum AiSessionMode {
 }
 
 impl AiSessionMode {
+    #[must_use]
     pub fn as_str(self) -> &'static str {
         match self {
             Self::Reply => "reply",

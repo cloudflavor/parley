@@ -156,9 +156,7 @@ impl UiTheme {
 }
 
 fn normalize_text_contrast(colors: &mut ThemeColors) {
-    let is_dark = perceived_luminance(colors.thread_background)
-        .map(|lum| lum < 0.5)
-        .unwrap_or(true);
+    let is_dark = perceived_luminance(colors.thread_background).is_none_or(|lum| lum < 0.5);
     if is_dark {
         colors.text_primary = ensure_min_luminance(colors.text_primary, 0.87);
         colors.text_muted = ensure_min_luminance(colors.text_muted, 0.70);

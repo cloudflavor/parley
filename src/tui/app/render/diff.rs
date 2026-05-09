@@ -8,6 +8,7 @@ use ratatui::{
 
 use crate::domain::diff::DiffLineKind;
 use crate::tui::theme::ThemeColors;
+use crate::utils::cast::usize_to_u16_saturating;
 
 use super::helpers::{
     apply_search_highlighting, blank_line, pad_line_to_width, styled_segments_line,
@@ -338,7 +339,7 @@ pub(super) fn draw_diff_view_for_pane(
                         .add_modifier(Modifier::BOLD),
                 ),
         )
-        .scroll((scroll as u16, 0));
+        .scroll((usize_to_u16_saturating(scroll), 0));
     frame.render_widget(widget, area);
 
     if is_active && app.inline_comment.is_some() {
@@ -376,12 +377,10 @@ pub(super) fn build_unified_row_lines(
     };
     let old = row
         .old_line
-        .map(|value| value.to_string())
-        .unwrap_or_else(|| " ".to_string());
+        .map_or_else(|| " ".to_string(), |value| value.to_string());
     let new = row
         .new_line
-        .map(|value| value.to_string())
-        .unwrap_or_else(|| " ".to_string());
+        .map_or_else(|| " ".to_string(), |value| value.to_string());
 
     let (sign, sign_style) = match row.kind {
         DiffLineKind::Added => (
@@ -499,12 +498,10 @@ fn build_side_by_side_row_lines(
 
     let old = row
         .old_line
-        .map(|value| value.to_string())
-        .unwrap_or_else(|| " ".to_string());
+        .map_or_else(|| " ".to_string(), |value| value.to_string());
     let new = row
         .new_line
-        .map(|value| value.to_string())
-        .unwrap_or_else(|| " ".to_string());
+        .map_or_else(|| " ".to_string(), |value| value.to_string());
 
     let fixed_cols = 20usize;
     let code_cols = pane_inner_width.saturating_sub(fixed_cols).max(2);
@@ -760,11 +757,15 @@ pub(super) fn draw_inline_comment_editor(frame: &mut Frame<'_>, app: &TuiApp, ar
     let cursor_x = editor_area
         .x
         .saturating_add(1)
-        .saturating_add((cursor_col.saturating_sub(horizontal_scroll)) as u16);
+        .saturating_add(usize_to_u16_saturating(
+            cursor_col.saturating_sub(horizontal_scroll),
+        ));
     let cursor_y = editor_area
         .y
         .saturating_add(1)
-        .saturating_add((cursor_line.saturating_sub(vertical_scroll)) as u16);
+        .saturating_add(usize_to_u16_saturating(
+            cursor_line.saturating_sub(vertical_scroll),
+        ));
 
     if let Some(mention) = inline.file_mention.as_ref() {
         draw_inline_file_mention_picker(frame, editor_area, mention, cursor_x, cursor_y, colors);
@@ -833,9 +834,9 @@ fn draw_inline_file_mention_picker(
         .max()
         .unwrap_or(18);
 
-    let mut popup_width = (max_row_width + 6) as u16;
+    let mut popup_width = usize_to_u16_saturating(max_row_width.saturating_add(6));
     popup_width = popup_width.clamp(24, inner_width);
-    let mut popup_height = (visible_rows as u16).saturating_add(2);
+    let mut popup_height = usize_to_u16_saturating(visible_rows).saturating_add(2);
     popup_height = popup_height.min(inner_height);
 
     let mut popup_x = cursor_x.saturating_add(1);

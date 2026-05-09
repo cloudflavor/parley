@@ -6,6 +6,7 @@ use super::provider::{
 use crate::domain::ai::AiSessionMode;
 use crate::domain::diff::{DiffFile, DiffHunk, DiffLine, DiffLineKind};
 use crate::domain::review::CommentStatus;
+use anyhow::{Result, anyhow};
 
 #[test]
 fn reply_mode_excludes_addressed_threads() {
@@ -40,7 +41,7 @@ fn refactor_mode_targets_only_open_threads() {
 }
 
 #[test]
-fn choose_best_hunk_prefers_exact_anchor_match() {
+fn choose_best_hunk_prefers_exact_anchor_match() -> Result<()> {
     let file = DiffFile {
         path: "src/lib.rs".to_string(),
         header_lines: Vec::new(),
@@ -60,12 +61,14 @@ fn choose_best_hunk_prefers_exact_anchor_match() {
         ],
     };
 
-    let chosen = choose_best_hunk(&file, None, Some(41)).expect("hunk should be selected");
+    let chosen = choose_best_hunk(&file, None, Some(41))
+        .ok_or_else(|| anyhow!("hunk should be selected"))?;
     assert_eq!(chosen.new_start, 40);
+    Ok(())
 }
 
 #[test]
-fn choose_best_hunk_falls_back_to_nearest_start() {
+fn choose_best_hunk_falls_back_to_nearest_start() -> Result<()> {
     let file = DiffFile {
         path: "src/lib.rs".to_string(),
         header_lines: Vec::new(),
@@ -75,9 +78,11 @@ fn choose_best_hunk_falls_back_to_nearest_start() {
         ],
     };
 
-    let chosen = choose_best_hunk(&file, None, Some(74)).expect("hunk should be selected");
+    let chosen = choose_best_hunk(&file, None, Some(74))
+        .ok_or_else(|| anyhow!("hunk should be selected"))?;
     assert_eq!(chosen.new_start, 80);
     assert!(hunk_distance_to_anchor(chosen, None, Some(74)) < 10);
+    Ok(())
 }
 
 #[test]
@@ -111,17 +116,20 @@ fn ai_reply_body_omits_header_when_model_unknown() {
 }
 
 #[test]
-fn detect_model_from_json_stream_reads_nested_model_slug() {
+fn detect_model_from_json_stream_reads_nested_model_slug() -> Result<()> {
     let stream = r#"{"event":"meta","payload":{"session":{"model_slug":"gpt-5.4"}}}"#;
-    let detected = detect_model_from_json_stream(stream).expect("model should be detected");
+    let detected =
+        detect_model_from_json_stream(stream).ok_or_else(|| anyhow!("model should be detected"))?;
     assert_eq!(detected, "gpt-5.4");
+    Ok(())
 }
 
 #[test]
-fn detect_model_from_text_reads_model_marker() {
-    let detected =
-        detect_model_from_text("run complete; model=gpt-5.4; tokens=100").expect("model");
+fn detect_model_from_text_reads_model_marker() -> Result<()> {
+    let detected = detect_model_from_text("run complete; model=gpt-5.4; tokens=100")
+        .ok_or_else(|| anyhow!("model should be detected"))?;
     assert_eq!(detected, "gpt-5.4");
+    Ok(())
 }
 
 fn make_hunk(header: &str, old_start: u32, new_start: u32, mut extra: Vec<DiffLine>) -> DiffHunk {

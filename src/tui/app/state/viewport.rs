@@ -81,16 +81,14 @@ impl TuiApp {
             DiffPane::Primary => self.last_diff_area,
             DiffPane::Secondary => self.last_diff_area_secondary,
         };
-        area.map(|rect| usize::from(rect.height.saturating_sub(2)))
-            .unwrap_or(1)
+        area.map_or(1, |rect| usize::from(rect.height.saturating_sub(2)))
             .max(1)
     }
 
     pub(crate) fn current_rows(&self) -> &[DisplayRow] {
         self.row_cache
             .get(&self.active_file_index())
-            .map(|cached| cached.rows.as_slice())
-            .unwrap_or(&[])
+            .map_or(&[], |cached| cached.rows.as_slice())
     }
 
     pub(crate) fn line_anchor_snapshot_for_row(
@@ -117,8 +115,7 @@ impl TuiApp {
         let rows_len = self
             .row_cache
             .get(&self.active_file_index())
-            .map(|cached| cached.rows.len())
-            .unwrap_or(0);
+            .map_or(0, |cached| cached.rows.len());
         if rows_len == 0 {
             self.set_active_line_index(0);
         } else if self.active_line_index() >= rows_len {
@@ -246,10 +243,11 @@ impl TuiApp {
 #[cfg(test)]
 mod tests {
     use crate::tui::app::state::tests::{cache_entry, cache_key, make_test_app};
+    use anyhow::Result;
 
     #[test]
-    fn clear_diff_render_cache_for_file_is_scoped() {
-        let mut app = make_test_app(vec!["src/a.rs", "src/b.rs"], vec![]);
+    fn clear_diff_render_cache_for_file_is_scoped() -> Result<()> {
+        let mut app = make_test_app(vec!["src/a.rs", "src/b.rs"], vec![])?;
         let key_a = cache_key(0);
         let key_b = cache_key(1);
         app.insert_diff_render_cache(key_a.clone(), cache_entry());
@@ -259,5 +257,6 @@ mod tests {
 
         assert!(!app.diff_render_cache.contains_key(&key_a));
         assert!(app.diff_render_cache.contains_key(&key_b));
+        Ok(())
     }
 }

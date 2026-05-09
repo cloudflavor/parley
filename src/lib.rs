@@ -21,6 +21,10 @@ use crate::git::diff::DiffSource;
 use crate::services::ai_session::{RunAiSessionInput, default_ai_session_mode, run_ai_session};
 use crate::services::review_service::{AddCommentInput, AddReplyInput, ReviewService};
 
+/// # Errors
+///
+/// Returns an error when CLI command handling, repository access, persistence, MCP I/O, or TUI
+/// execution fails.
 pub async fn run() -> Result<()> {
     let args: Vec<OsString> = std::env::args_os().collect();
     let command = if should_run_mcp(&args) {
@@ -123,12 +127,10 @@ async fn handle_review_command(command: ReviewCommand, service: &ReviewService) 
                         },
                         comment
                             .old_line
-                            .map(|value| value.to_string())
-                            .unwrap_or_else(|| "_".into()),
+                            .map_or_else(|| "_".into(), |value| value.to_string()),
                         comment
                             .new_line
-                            .map(|value| value.to_string())
-                            .unwrap_or_else(|| "_".into()),
+                            .map_or_else(|| "_".into(), |value| value.to_string()),
                         comment.body
                     );
                 }
@@ -215,9 +217,7 @@ async fn handle_review_command(command: ReviewCommand, service: &ReviewService) 
             mode,
             comment_ids,
         } => {
-            let mode = mode
-                .map(|value| value.0)
-                .unwrap_or_else(|| default_ai_session_mode(&comment_ids));
+            let mode = mode.map_or_else(|| default_ai_session_mode(&comment_ids), |value| value.0);
             let result = run_ai_session(
                 service,
                 RunAiSessionInput {

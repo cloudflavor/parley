@@ -62,6 +62,7 @@ pub struct AiProgressEvent {
     pub message: String,
 }
 
+#[must_use]
 pub fn default_ai_session_mode(comment_ids: &[u64]) -> AiSessionMode {
     if comment_ids.is_empty() {
         AiSessionMode::Refactor
@@ -70,6 +71,10 @@ pub fn default_ai_session_mode(comment_ids: &[u64]) -> AiSessionMode {
     }
 }
 
+/// # Errors
+///
+/// Returns an error when the review/config cannot be loaded, the clock is invalid, provider
+/// invocation fails, or review updates cannot be persisted.
 pub async fn run_ai_session(
     service: &ReviewService,
     input: RunAiSessionInput,
@@ -77,6 +82,10 @@ pub async fn run_ai_session(
     run_ai_session_inner(service, input, None).await
 }
 
+/// # Errors
+///
+/// Returns an error for the same load, provider, clock, and persistence failures as
+/// [`run_ai_session`].
 pub async fn run_ai_session_with_progress(
     service: &ReviewService,
     input: RunAiSessionInput,

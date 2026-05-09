@@ -9,6 +9,7 @@ use ratatui::{
 
 use crate::domain::review::{CommentStatus, ReviewState};
 use crate::tui::app::render::helpers::fit_spans_to_width;
+use crate::utils::cast::usize_to_u16_saturating;
 
 use super::super::super::theme::ThemeColors;
 use super::super::helpers::format_line_reference;
@@ -27,19 +28,16 @@ pub(super) fn spinner_frame(started_at: Instant) -> &'static str {
 pub(super) fn draw_status_panel(frame: &mut ratatui::Frame<'_>, app: &TuiApp, area: Rect) {
     let colors = &app.theme().colors;
     let review_state = review_state_label(&app.review.state);
-    let file_label = app
-        .current_file()
-        .map(|file| file.path.as_str())
-        .unwrap_or("-");
+    let file_label = app.current_file().map_or("-", |file| file.path.as_str());
     let file_position = if app.diff.files.is_empty() {
         "0/0".to_string()
     } else {
         format!("{}/{}", app.active_file_index() + 1, app.diff.files.len())
     };
 
-    let selected_thread = app
-        .selected_comment_details()
-        .map(|comment| {
+    let selected_thread = app.selected_comment_details().map_or_else(
+        || ("none".to_string(), Style::default().fg(colors.text_muted)),
+        |comment| {
             (
                 format!(
                     "#{} {} {}",
@@ -49,8 +47,8 @@ pub(super) fn draw_status_panel(frame: &mut ratatui::Frame<'_>, app: &TuiApp, ar
                 ),
                 comment_status_style(&comment.status, colors),
             )
-        })
-        .unwrap_or_else(|| ("none".to_string(), Style::default().fg(colors.text_muted)));
+        },
+    );
     let open_threads = app
         .review
         .comments
@@ -141,7 +139,7 @@ pub(super) fn draw_status_toast(frame: &mut ratatui::Frame<'_>, app: &TuiApp, st
         return;
     }
     let text = truncate_with_ellipsis(trimmed, max_text_width);
-    let popup_width = (text.chars().count() as u16)
+    let popup_width = usize_to_u16_saturating(text.chars().count())
         .saturating_add(2)
         .min(root.width.saturating_sub(4));
     let x = root
