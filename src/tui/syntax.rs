@@ -129,6 +129,36 @@ fn fallback_known_syntax(
     extension: Option<&str>,
     filename: Option<&str>,
 ) -> Option<&'static SyntaxReference> {
+    let syntax = match extension {
+        Some("py" | "pyw" | "py3") => syntax_by_name_or_extension(&["Python"], &["py"]),
+        Some("js" | "mjs" | "cjs" | "jsx") => syntax_by_name_or_extension(&["JavaScript"], &["js"]),
+        Some("ts" | "tsx") => {
+            syntax_by_name_or_extension(&["TypeScript", "JavaScript"], &["ts", "js"])
+        }
+        Some("go") => syntax_by_name_or_extension(&["Go"], &["go"]),
+        Some("java") => syntax_by_name_or_extension(&["Java"], &["java"]),
+        Some("kt" | "kts") => syntax_by_name_or_extension(&["Kotlin", "Java"], &["kt", "java"]),
+        Some("c") => syntax_by_name_or_extension(&["C"], &["c"]),
+        Some("h") => syntax_by_name_or_extension(&["C", "C++"], &["h", "c", "cpp"]),
+        Some("cc" | "cpp" | "cxx" | "hpp" | "hxx") => {
+            syntax_by_name_or_extension(&["C++", "C"], &["cpp", "c"])
+        }
+        Some("rb") => syntax_by_name_or_extension(&["Ruby"], &["rb"]),
+        Some("php") => syntax_by_name_or_extension(&["PHP"], &["php"]),
+        Some("swift") => syntax_by_name_or_extension(&["Swift", "C++"], &["swift", "cpp"]),
+        Some("sh" | "bash" | "zsh") => syntax_by_name_or_extension(&["Bash"], &["sh"]),
+        Some("sql") => syntax_by_name_or_extension(&["SQL"], &["sql"]),
+        Some("css" | "scss" | "sass") => syntax_by_name_or_extension(&["CSS"], &["css"]),
+        Some("html" | "htm") => syntax_by_name_or_extension(&["HTML"], &["html"]),
+        Some("json") => syntax_by_name_or_extension(&["JSON"], &["json"]),
+        Some("yaml" | "yml") => syntax_by_name_or_extension(&["YAML"], &["yaml", "yml"]),
+        Some("md" | "markdown") => syntax_by_name_or_extension(&["Markdown"], &["md"]),
+        _ => None,
+    };
+    if syntax.is_some() {
+        return syntax;
+    }
+
     if matches!(extension, Some("toml")) || matches!(filename, Some("cargo.toml")) {
         return SYNTAX_SET
             .find_syntax_by_name("TOML")
@@ -140,6 +170,20 @@ fn fallback_known_syntax(
     }
 
     None
+}
+
+fn syntax_by_name_or_extension(
+    names: &[&str],
+    extensions: &[&str],
+) -> Option<&'static SyntaxReference> {
+    names
+        .iter()
+        .find_map(|name| SYNTAX_SET.find_syntax_by_name(name))
+        .or_else(|| {
+            extensions
+                .iter()
+                .find_map(|extension| SYNTAX_SET.find_syntax_by_extension(extension))
+        })
 }
 
 fn to_ratatui_style(
@@ -382,6 +426,55 @@ fn is_keyword_token(token: &str) -> bool {
             | "from"
             | "export"
             | "default"
+            | "def"
+            | "elif"
+            | "try"
+            | "except"
+            | "finally"
+            | "with"
+            | "yield"
+            | "lambda"
+            | "pass"
+            | "raise"
+            | "global"
+            | "nonlocal"
+            | "del"
+            | "is"
+            | "not"
+            | "and"
+            | "or"
+            | "null"
+            | "undefined"
+            | "extends"
+            | "typeof"
+            | "instanceof"
+            | "switch"
+            | "case"
+            | "catch"
+            | "throw"
+            | "package"
+            | "func"
+            | "defer"
+            | "go"
+            | "select"
+            | "chan"
+            | "map"
+            | "public"
+            | "private"
+            | "protected"
+            | "final"
+            | "void"
+            | "int"
+            | "long"
+            | "float"
+            | "double"
+            | "char"
+            | "boolean"
+            | "namespace"
+            | "template"
+            | "typename"
+            | "include"
+            | "define"
     )
 }
 
@@ -454,6 +547,36 @@ mod tests {
     }
 
     #[test]
+    fn syntax_for_path_detects_major_language_extensions() {
+        for path in [
+            "main.py",
+            "app.js",
+            "component.jsx",
+            "lib.ts",
+            "component.tsx",
+            "main.go",
+            "Main.java",
+            "main.cpp",
+            "main.c",
+            "main.h",
+            "main.rb",
+            "main.php",
+            "main.swift",
+            "main.kt",
+            "main.rs",
+            "main.sh",
+            "query.sql",
+            "styles.css",
+            "index.html",
+            "config.yaml",
+            "data.json",
+        ] {
+            let syntax = syntax_for_path(path);
+            assert_ne!(syntax.name, "Plain Text", "{path} should have syntax");
+        }
+    }
+
+    #[test]
     fn semantic_classifier_detects_keywords() {
         assert_eq!(
             classify_semantic_token("fn", FontStyle::empty()),
@@ -461,6 +584,14 @@ mod tests {
         );
         assert_eq!(
             classify_semantic_token("return", FontStyle::empty()),
+            SemanticTokenKind::Keyword
+        );
+        assert_eq!(
+            classify_semantic_token("def", FontStyle::empty()),
+            SemanticTokenKind::Keyword
+        );
+        assert_eq!(
+            classify_semantic_token("const", FontStyle::empty()),
             SemanticTokenKind::Keyword
         );
     }
