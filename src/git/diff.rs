@@ -61,6 +61,53 @@ pub async fn load_git_diff_head(config: &AppConfig) -> Result<DiffDocument> {
     load_git_diff(config, &DiffSource::WorkingTree).await
 }
 
+/// # Errors
+///
+/// Returns an error when the git repository cannot be discovered or root paths cannot be listed.
+pub async fn load_root_directory_file_list(config: &AppConfig) -> Result<DiffDocument> {
+    let (_workdir, source_paths) = collect_root_directory_source_paths(config).await?;
+    let files = source_paths
+        .iter()
+        .map(|path| root_directory_placeholder_file(path))
+        .collect();
+    Ok(DiffDocument { files })
+}
+
+/// # Errors
+///
+/// Returns an error when the git repository cannot be discovered, the path cannot be inspected, or
+/// the file cannot be read.
+pub async fn load_root_directory_file(
+    config: &AppConfig,
+    relative_path: String,
+) -> Result<Option<DiffFile>> {
+    let Some(relative_path) = safe_root_relative_path(&relative_path) else {
+        return Ok(None);
+    };
+    let workdir = tokio::task::spawn_blocking(|| {
+        let repo = Repository::discover(".").context("failed to discover git repository")?;
+        let workdir = repo
+            .workdir()
+            .context("root directory reviews require a non-bare git repository")?;
+        Ok::<_, anyhow::Error>(workdir.to_path_buf())
+    })
+    .await
+    .context("failed to resolve root workdir")??;
+
+    let filtered = tokio::task::spawn_blocking({
+        let config = config.clone();
+        let relative_path = relative_path.clone();
+        move || filter_paths_for_root_directory(&config, vec![relative_path])
+    })
+    .await
+    .context("failed to filter root file path")??;
+    if filtered.is_empty() {
+        return Ok(None);
+    }
+
+    root_directory_file(&workdir, &relative_path).await
+}
+
 fn load_git_diff_sync(config: &AppConfig, source: &DiffSource) -> Result<DiffDocument> {
     let repo = Repository::discover(".").context("failed to discover git repository")?;
     load_git_diff_for_repo(&repo, config, source)
@@ -122,6 +169,21 @@ fn load_diff_text(repo: &Repository, source: &DiffSource) -> Result<String> {
 }
 
 async fn load_root_directory_document(config: &AppConfig) -> Result<DiffDocument> {
+    let (workdir, source_paths) = collect_root_directory_source_paths(config).await?;
+
+    let mut files = Vec::new();
+    for path in source_paths {
+        if let Some(file) = root_directory_file(&workdir, &path).await? {
+            files.push(file);
+        }
+    }
+
+    Ok(DiffDocument { files })
+}
+
+async fn collect_root_directory_source_paths(
+    config: &AppConfig,
+) -> Result<(PathBuf, BTreeSet<PathBuf>)> {
     let (workdir, mut paths) = tokio::task::spawn_blocking({
         let config = config.clone();
         move || {
@@ -151,14 +213,7 @@ async fn load_root_directory_document(config: &AppConfig) -> Result<DiffDocument
     .await
     .context("failed to filter git-aware root directory paths")??;
 
-    let mut files = Vec::new();
-    for path in source_paths {
-        if let Some(file) = root_directory_file(&workdir, &path).await? {
-            files.push(file);
-        }
-    }
-
-    Ok(DiffDocument { files })
+    Ok((workdir, source_paths))
 }
 
 fn filter_paths_for_root_directory(
@@ -340,6 +395,30 @@ fn root_directory_file_sync(workdir: &Path, relative_path: &Path) -> Result<Opti
     };
     let display_path = normalize_relative_path(relative_path);
     Ok(Some(diff_file_from_content(&display_path, &content)))
+}
+
+fn root_directory_placeholder_file(relative_path: &Path) -> DiffFile {
+    let display_path = normalize_relative_path(relative_path);
+    DiffFile {
+        path: display_path.clone(),
+        header_lines: vec![format!("file {display_path}")],
+        hunks: Vec::new(),
+    }
+}
+
+fn safe_root_relative_path(path: &str) -> Option<PathBuf> {
+    let path = Path::new(path);
+    if path.is_absolute() {
+        return None;
+    }
+    let mut safe = PathBuf::new();
+    for component in path.components() {
+        let Component::Normal(value) = component else {
+            return None;
+        };
+        safe.push(value);
+    }
+    Some(safe)
 }
 
 fn diff_file_from_content(path: &str, content: &str) -> DiffFile {
@@ -690,6 +769,7 @@ fn parse_diff_path(raw: &str) -> Option<String> {
 #[cfg(test)]
 mod tests {
     use std::fs;
+    use std::path::PathBuf;
 
     use anyhow::{Result, anyhow};
     use git2::{Oid, Repository, Signature};
@@ -697,7 +777,10 @@ mod tests {
 
     use crate::domain::{config::AppConfig, diff::DiffLineKind};
 
-    use super::{DiffSource, filter_ignored_files, load_git_diff_for_repo, parse_unified_diff};
+    use super::{
+        DiffSource, filter_ignored_files, load_git_diff_for_repo, parse_unified_diff,
+        root_directory_placeholder_file, safe_root_relative_path,
+    };
 
     #[test]
     fn parse_unified_diff_should_parse_added_and_removed_lines_with_numbers() -> Result<()> {
@@ -926,6 +1009,25 @@ mod tests {
                 && line.code == "fn tracked() {}"
         }));
         Ok(())
+    }
+
+    #[test]
+    fn root_directory_placeholder_file_defers_content_loading() {
+        let file = root_directory_placeholder_file(std::path::Path::new("src/lib.rs"));
+
+        assert_eq!(file.path, "src/lib.rs");
+        assert_eq!(file.header_lines, vec!["file src/lib.rs"]);
+        assert!(file.hunks.is_empty());
+    }
+
+    #[test]
+    fn safe_root_relative_path_rejects_unsafe_paths() {
+        assert_eq!(
+            safe_root_relative_path("src/lib.rs"),
+            Some(PathBuf::from("src/lib.rs"))
+        );
+        assert!(safe_root_relative_path("../secret").is_none());
+        assert!(safe_root_relative_path("/tmp/secret").is_none());
     }
 
     fn commit_file(

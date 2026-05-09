@@ -39,6 +39,7 @@ impl TuiApp {
 
         self.diff = result;
         self.row_cache.clear();
+        self.root_hydrated_files.clear();
         self.clear_diff_render_cache();
         if self.remap_comment_anchors() {
             service.save_review(&self.review).await?;
@@ -54,8 +55,10 @@ impl TuiApp {
         self.selected_line = selected_line;
         self.secondary_selected_line = secondary_selected_line;
         self.ensure_row_cache_for_file(self.selected_file);
+        self.start_root_file_hydration_if_needed(self.selected_file);
         if self.split_diff_view {
             self.ensure_row_cache_for_file(self.secondary_selected_file);
+            self.start_root_file_hydration_if_needed(self.secondary_selected_file);
         }
         self.constrain_selection();
         if let Some(comment_id) = selected_comment_id {
@@ -68,6 +71,56 @@ impl TuiApp {
         };
 
         Ok(true)
+    }
+
+    pub(crate) async fn poll_root_directory_file_load(&mut self) -> Result<bool> {
+        let Some(task) = self.root_file_load_task.as_ref() else {
+            self.start_root_file_hydration_if_needed(self.active_file_index());
+            return Ok(false);
+        };
+        if !task.is_finished() {
+            return Ok(false);
+        }
+
+        let task = self
+            .root_file_load_task
+            .take()
+            .context("root file load task missing")?;
+        let (file_index, loaded_file) =
+            task.await.context("failed to join root file load task")??;
+        self.root_hydrated_files.insert(file_index);
+        if let Some(file) = loaded_file
+            && let Some(slot) = self.diff.files.get_mut(file_index)
+        {
+            *slot = file;
+            self.row_cache.remove(&file_index);
+            self.clear_diff_render_cache_for_file(file_index);
+        }
+        self.start_root_file_hydration_if_needed(self.active_file_index());
+        Ok(true)
+    }
+
+    pub(crate) fn start_root_file_hydration_if_needed(&mut self, file_index: usize) {
+        if !matches!(self.diff_source, DiffSource::RootDirectory)
+            || self.root_file_load_task.is_some()
+            || self.root_hydrated_files.contains(&file_index)
+        {
+            return;
+        }
+        let Some(file) = self.diff.files.get(file_index) else {
+            return;
+        };
+        if !file.hunks.is_empty() {
+            self.root_hydrated_files.insert(file_index);
+            return;
+        }
+        let config = self.config.clone();
+        let path = file.path.clone();
+        self.root_file_load_task = Some(task::spawn(async move {
+            load_root_directory_file(&config, path)
+                .await
+                .map(|file| (file_index, file))
+        }));
     }
 
     pub(crate) fn review_state_code(&self) -> u8 {
@@ -168,6 +221,7 @@ impl TuiApp {
             .retain(|id| self.review.comments.iter().any(|comment| comment.id == *id));
         self.diff = load_git_diff(&self.config, &self.diff_source).await?;
         self.row_cache.clear();
+        self.root_hydrated_files.clear();
         self.clear_diff_render_cache();
         if self.remap_comment_anchors() {
             service.save_review(&self.review).await?;

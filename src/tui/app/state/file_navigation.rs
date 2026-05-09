@@ -56,6 +56,7 @@ impl TuiApp {
         }
 
         self.set_active_file_index(clamped);
+        self.start_root_file_hydration_if_needed(clamped);
         self.set_active_line_index(0);
         self.clear_comment_line_selection();
         self.selected_comment = 0;

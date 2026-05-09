@@ -18,7 +18,9 @@ use crate::domain::review::{
     Author, CommentLineRange, CommentStatus, DiffSide, LineAnchorSnapshot, LineComment,
     ReviewSession, ReviewState,
 };
-use crate::git::diff::{DiffSource, load_git_diff};
+use crate::git::diff::{
+    DiffSource, load_git_diff, load_root_directory_file, load_root_directory_file_list,
+};
 use crate::services::ai_session::{
     AiProgressEvent, RunAiSessionInput, run_ai_session_with_progress,
 };
@@ -107,7 +109,8 @@ pub async fn run_tui(
         let config = app.config.clone();
         let diff_source = app.diff_source.clone();
         app.root_diff_load_task = Some(task::spawn(async move {
-            load_git_diff(&config, &diff_source).await
+            let _ = diff_source;
+            load_root_directory_file_list(&config).await
         }));
     } else {
         app.refresh_review_and_diff(&service).await?;
@@ -186,6 +189,10 @@ async fn run_loop(
         if diff_load_updated {
             app.invalidate_redraw();
         }
+        let root_file_load_updated = app.poll_root_directory_file_load().await?;
+        if root_file_load_updated {
+            app.invalidate_redraw();
+        }
 
         if let Some(action) = app.pending_action.take() {
             match action {
@@ -240,6 +247,8 @@ struct CachedFileRows {
     rows: Vec<DisplayRow>,
     highlights: Vec<Option<HighlightParts>>,
 }
+
+type RootFileLoadResult = Result<(usize, Option<DiffFile>)>;
 
 #[derive(Debug, Clone)]
 struct CommentTarget {
@@ -544,6 +553,8 @@ struct TuiApp {
     ai_progress_scroll: usize,
     ai_progress_follow_tail: bool,
     root_diff_load_task: Option<JoinHandle<Result<DiffDocument>>>,
+    root_file_load_task: Option<JoinHandle<RootFileLoadResult>>,
+    root_hydrated_files: HashSet<usize>,
     root_diff_load_started_at: Option<Instant>,
     shortcuts_modal_visible: bool,
     shortcuts_modal_scroll: usize,

@@ -72,6 +72,8 @@ impl TuiApp {
             ai_progress_scroll: 0,
             ai_progress_follow_tail: true,
             root_diff_load_task: None,
+            root_file_load_task: None,
+            root_hydrated_files: std::collections::HashSet::new(),
             root_diff_load_started_at: None,
             shortcuts_modal_visible: false,
             shortcuts_modal_scroll: 0,
