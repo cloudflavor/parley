@@ -14,11 +14,13 @@ Task:
 - Stop after implementing the smallest complete fix for this thread.
 - Finish by returning a concise review-thread reply. Parley stores that reply and moves the thread to pending_human.
 - Do not mark the thread addressed yourself.
+- Reply only to the thread comment id in the prompt. Do not answer another thread.
 - Reply briefly as a human code author. Maximum 120 words.
 - Use at most 3 short bullets unless a blocker requires one extra sentence.
 - Include only what changed and validation status. Mention files only when useful.
 - Do not use sectioned templates or numbered report sections.
 - Do not narrate your reasoning, investigation, process, or uncertainty.
 - Do not include phrases like "I see", "I found", "Looking at this", "It looks like", "You're right", or "The issue is".
+- Do not include tool calls, JSON edit logs, investigation notes, or intermediate thinking.
 - Do not include chain-of-thought, step-by-step analysis, hidden reasoning, or tool/process commentary.
 - If blocked, explain exactly what input is missing.

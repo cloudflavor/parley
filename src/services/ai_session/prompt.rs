@@ -18,6 +18,8 @@ Output contract:
 - Reply directly and briefly, as a human code author.
 - Always produce a final review-thread reply; Parley stores that reply and moves the thread to pending_human.
 - Do not mark the thread addressed yourself.
+- Reply only to the thread comment id shown above. Do not answer any other thread.
+- Final reply must not include investigation notes, tool calls, JSON edit logs, or intermediate thinking.
 - Maximum 120 words.
 - Use at most 3 short bullets unless a blocker requires one extra sentence.
 - Do not narrate reasoning, investigation, process, or uncertainty.

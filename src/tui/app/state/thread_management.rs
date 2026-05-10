@@ -171,8 +171,6 @@ impl TuiApp {
             return Ok(());
         };
         let comment_id = comment.id;
-        let file_path = comment.file_path.clone();
-        let previous_status = comment.status.clone();
         let active_file_index = self.active_file_index();
         if force {
             self.review
@@ -184,7 +182,8 @@ impl TuiApp {
                 .map_err(|error| anyhow!(error))?;
         }
         service.save_review(&self.review).await?;
-        self.update_comment_stats_for_status_change(&file_path, &previous_status, &status);
+        self.rebuild_comment_index();
+        self.select_comment_by_id(comment_id);
         self.clear_diff_render_cache_for_file(active_file_index);
         self.status_line = status_message(comment_id, &status, force);
         Ok(())
@@ -235,6 +234,7 @@ mod tests {
                 .map(|comment| &comment.status),
             Some(&CommentStatus::Addressed)
         );
+        assert!(app.expanded_threads.contains(&1));
         assert!(app.row_cache.contains_key(&0));
         assert!(!app.diff_render_cache.contains_key(&cache_key(0)));
         assert!(app.diff_render_cache.contains_key(&cache_key(1)));
@@ -243,6 +243,40 @@ mod tests {
         assert_eq!(stats.pending, 0);
         let saved = service.load_review(&app.review_name).await?;
         assert_eq!(saved.comments[0].status, CommentStatus::Addressed);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn mark_status_can_address_multiple_threads_in_same_file() -> Result<()> {
+        let tempdir = tempdir()?;
+        let service = ReviewService::new(Store::from_project_root(tempdir.path()));
+        let mut app = make_test_app(
+            vec!["src/a.rs"],
+            vec![
+                make_comment_with_anchor(1, "src/a.rs", CommentStatus::Open, 1, 1),
+                make_comment_with_anchor(2, "src/a.rs", CommentStatus::Open, 2, 2),
+            ],
+        )?;
+        service.save_review(&app.review).await?;
+
+        app.selected_comment = 0;
+        app.mark_selected_comment_status(&service, CommentStatus::Addressed, false)
+            .await?;
+        app.selected_comment = 1;
+        app.mark_selected_comment_status(&service, CommentStatus::Addressed, false)
+            .await?;
+
+        let statuses = app
+            .comments_for_file("src/a.rs")
+            .iter()
+            .map(|comment| comment.status.clone())
+            .collect::<Vec<_>>();
+        assert_eq!(
+            statuses,
+            vec![CommentStatus::Addressed, CommentStatus::Addressed]
+        );
+        assert!(app.expanded_threads.contains(&1));
+        assert!(app.expanded_threads.contains(&2));
         Ok(())
     }
 

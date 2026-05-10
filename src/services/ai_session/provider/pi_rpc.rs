@@ -181,6 +181,7 @@ impl PiRpcClient {
             format!("Pi RPC prompt sent (mode={})", mode.as_str()),
         );
         let mut reply = String::new();
+        let mut current_message_reply = String::new();
         let mut pending_agent_log = String::new();
         let mut model = None;
         let started_at = Instant::now();
@@ -218,7 +219,7 @@ impl PiRpcClient {
                         emit_progress(progress_sender, AiProvider::Pi, "thought", thought);
                     }
                     if let Some(text) = extract_pi_reply_text(&event) {
-                        reply.push_str(&text);
+                        current_message_reply.push_str(&text);
                         pending_agent_log.push_str(&text);
                         if should_flush_pi_agent_log(&pending_agent_log) {
                             flush_pi_agent_log(progress_sender, &mut pending_agent_log);
@@ -226,6 +227,8 @@ impl PiRpcClient {
                     }
                 }
                 Some("message_start") => {
+                    current_message_reply.clear();
+                    pending_agent_log.clear();
                     emit_progress(
                         progress_sender,
                         AiProvider::Pi,
@@ -233,8 +236,13 @@ impl PiRpcClient {
                         "Pi message started",
                     );
                 }
+                Some("message_end") => {
+                    flush_pi_agent_log(progress_sender, &mut pending_agent_log);
+                    finish_pi_message_reply(&mut reply, &mut current_message_reply);
+                }
                 Some("agent_end") => {
                     flush_pi_agent_log(progress_sender, &mut pending_agent_log);
+                    finish_pi_message_reply(&mut reply, &mut current_message_reply);
                     break;
                 }
                 Some("tool_call") => {
@@ -243,7 +251,7 @@ impl PiRpcClient {
                 Some("error") => {
                     return Err(anyhow!("Pi RPC error: {event}"));
                 }
-                Some(other) => {
+                Some(other) if should_log_pi_event(other) => {
                     emit_progress(
                         progress_sender,
                         AiProvider::Pi,
@@ -251,6 +259,7 @@ impl PiRpcClient {
                         format!("event: {other}"),
                     );
                 }
+                Some(_) => {}
                 None => {}
             }
         }
@@ -355,6 +364,14 @@ fn flush_pi_agent_log(
     pending_agent_log.clear();
 }
 
+fn finish_pi_message_reply(reply: &mut String, current_message_reply: &mut String) {
+    let trimmed = current_message_reply.trim();
+    if !trimmed.is_empty() {
+        *reply = trimmed.to_string();
+    }
+    current_message_reply.clear();
+}
+
 fn should_flush_pi_agent_log(text: &str) -> bool {
     let trimmed = text.trim_end();
     text.ends_with('\n')
@@ -362,6 +379,18 @@ fn should_flush_pi_agent_log(text: &str) -> bool {
         || trimmed.ends_with('.')
         || trimmed.ends_with('!')
         || trimmed.ends_with('?')
+}
+
+fn should_log_pi_event(event_type: &str) -> bool {
+    !matches!(
+        event_type,
+        "turn_start"
+            | "turn_end"
+            | "message_start"
+            | "message_end"
+            | "tool_execution_start"
+            | "tool_execution_end"
+    )
 }
 
 fn extract_assistant_text(value: &Value) -> Option<String> {
@@ -404,7 +433,10 @@ fn extract_assistant_text(value: &Value) -> Option<String> {
 mod tests {
     use serde_json::json;
 
-    use super::{extract_pi_reply_text, extract_pi_thought_text, should_flush_pi_agent_log};
+    use super::{
+        extract_pi_reply_text, extract_pi_thought_text, finish_pi_message_reply,
+        should_flush_pi_agent_log, should_log_pi_event,
+    };
 
     #[test]
     fn extracts_text_delta_from_pi_message_update() {
@@ -474,5 +506,24 @@ mod tests {
         assert!(should_flush_pi_agent_log("The imports are already clean."));
         assert!(should_flush_pi_agent_log(&"x".repeat(120)));
         assert!(!should_flush_pi_agent_log("The imports are"));
+    }
+
+    #[test]
+    fn suppresses_noisy_pi_lifecycle_events() {
+        assert!(!should_log_pi_event("message_end"));
+        assert!(!should_log_pi_event("tool_execution_start"));
+        assert!(should_log_pi_event("error"));
+    }
+
+    #[test]
+    fn pi_reply_keeps_last_assistant_message_only() {
+        let mut reply = String::new();
+        let mut current = "first tool-planning message".to_string();
+        finish_pi_message_reply(&mut reply, &mut current);
+        current.push_str("final review reply");
+        finish_pi_message_reply(&mut reply, &mut current);
+
+        assert_eq!(reply, "final review reply");
+        assert!(current.is_empty());
     }
 }
