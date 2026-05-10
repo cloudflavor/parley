@@ -213,12 +213,9 @@ impl PiRpcClient {
             }
             match event.get("type").and_then(Value::as_str) {
                 Some("message_update") => {
-                    if let Some(delta) = event
-                        .get("assistantMessageEvent")
-                        .and_then(extract_text_delta)
-                    {
-                        emit_progress(progress_sender, AiProvider::Pi, "agent", delta.as_str());
-                        reply.push_str(&delta);
+                    if let Some(text) = extract_pi_reply_text(&event) {
+                        emit_progress(progress_sender, AiProvider::Pi, "agent", text.as_str());
+                        reply.push_str(&text);
                     }
                 }
                 Some("agent_end") => break,
@@ -288,5 +285,97 @@ fn extract_text_delta(value: &Value) -> Option<String> {
             None
         }
         _ => None,
+    }
+}
+
+fn extract_pi_reply_text(value: &Value) -> Option<String> {
+    extract_text_delta(value).or_else(|| extract_assistant_text(value))
+}
+
+fn extract_assistant_text(value: &Value) -> Option<String> {
+    match value {
+        Value::Object(map) => {
+            if let Some(role) = map.get("role").and_then(Value::as_str)
+                && role != "assistant"
+            {
+                return None;
+            }
+            for key in [
+                "delta", "text", "content", "message", "body", "reply", "output",
+            ] {
+                if let Some(text) = map.get(key).and_then(Value::as_str)
+                    && !text.trim().is_empty()
+                {
+                    return Some(text.to_string());
+                }
+            }
+            for nested in map.values() {
+                if let Some(text) = extract_assistant_text(nested) {
+                    return Some(text);
+                }
+            }
+            None
+        }
+        Value::Array(items) => {
+            for item in items {
+                if let Some(text) = extract_assistant_text(item) {
+                    return Some(text);
+                }
+            }
+            None
+        }
+        _ => None,
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::extract_pi_reply_text;
+
+    #[test]
+    fn extracts_text_delta_from_pi_message_update() {
+        let event = json!({
+            "type": "message_update",
+            "assistantMessageEvent": {
+                "type": "text_delta",
+                "delta": "reply text"
+            }
+        });
+
+        assert_eq!(
+            extract_pi_reply_text(&event),
+            Some("reply text".to_string())
+        );
+    }
+
+    #[test]
+    fn extracts_assistant_content_from_pi_message_update() {
+        let event = json!({
+            "type": "message_update",
+            "assistantMessageEvent": {
+                "role": "assistant",
+                "content": "full reply"
+            }
+        });
+
+        assert_eq!(
+            extract_pi_reply_text(&event),
+            Some("full reply".to_string())
+        );
+    }
+
+    #[test]
+    fn ignores_user_content_when_extracting_pi_reply_text() {
+        let event = json!({
+            "type": "message_update",
+            "message": {
+                "role": "user",
+                "content": "not an assistant reply"
+            }
+        });
+
+        assert_eq!(extract_pi_reply_text(&event), None);
     }
 }
