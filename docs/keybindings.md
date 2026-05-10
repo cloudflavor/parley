@@ -28,6 +28,9 @@
 - `r`: reply to selected thread
 - `N/P`: next/previous thread
 - `[/]`: previous/next selected thread in file
+- `Ctrl+t`: open global thread selector
+- Thread selector `Enter`: jump to selected thread and file
+- Thread selector `type`: filter by file, status, id, line, or body preview
 - `e`: toggle selected thread expansion
 - `Shift+E`: cycle thread density
 - `a`: mark addressed
@@ -81,6 +84,7 @@
 - Command palette `Collapse All File Groups`: collapse every file group visible under the current filter
 - Command palette `Open Commit Picker`: open recent commits, filter by message or SHA, and apply the selected commit as the active diff source
 - Command palette `Open Review Picker`: open reviews, filter by name or state, and apply the selected review as the active comment context
+- Command palette `Open Thread Selector`: search and jump across all review threads
 - Command palette `Create Review`: create a new review context and switch to it
 - `M` or command palette `Show Git File Heatmap`: scan full git history on demand and show file hotspots
 - Heatmap `s`: cycle sort (`churn`, `added`, `removed`, `commits`, `net-growth`, `net-shrink`, `volatility`, `path`)

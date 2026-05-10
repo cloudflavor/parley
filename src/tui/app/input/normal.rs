@@ -28,6 +28,12 @@ impl TuiApp {
             self.status_line = "suspending parley; run `fg` to resume".into();
             return Ok(());
         }
+        if matches!(key.code, KeyCode::Char('t' | 'T'))
+            && key.modifiers.contains(KeyModifiers::CONTROL)
+        {
+            self.open_thread_selector();
+            return Ok(());
+        }
 
         if matches!(key.code, KeyCode::Char('z')) && key.modifiers.is_empty() {
             if let Some(pressed_at) = self.pending_z_prefix_at

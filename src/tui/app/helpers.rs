@@ -24,6 +24,13 @@ pub(super) fn comment_matches_display_row(comment: &LineComment, row: &DisplayRo
         return false;
     }
 
+    comment_reference_matches_display_row(comment, row)
+}
+
+pub(super) fn comment_reference_matches_display_row(
+    comment: &LineComment,
+    row: &DisplayRow,
+) -> bool {
     if !matches!(
         row.kind,
         DiffLineKind::Added | DiffLineKind::Removed | DiffLineKind::Context

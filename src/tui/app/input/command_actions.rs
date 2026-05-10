@@ -74,6 +74,9 @@ impl TuiApp {
             CommandPaletteAction::OpenReviewPicker => {
                 self.open_review_picker(service).await?;
             }
+            CommandPaletteAction::OpenThreadSelector => {
+                self.open_thread_selector();
+            }
             CommandPaletteAction::OpenCodeSearch => {
                 self.open_code_search().await?;
             }

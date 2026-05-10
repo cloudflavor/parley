@@ -54,6 +54,7 @@ impl TuiApp {
             theme_picker: None,
             commit_picker: None,
             review_picker: None,
+            thread_selector: None,
             code_search: None,
             file_search: FileSearchState {
                 query: String::new(),
@@ -97,6 +98,9 @@ impl TuiApp {
             last_file_search_area: None,
             last_code_search_area: None,
             last_ai_activity_area: None,
+            last_thread_selector_area: None,
+            last_thread_selector_scroll: 0,
+            last_thread_selector_visible_rows: 0,
             last_code_search_scroll: 0,
             last_code_search_visible_rows: 0,
             last_file_scroll: 0,
@@ -176,16 +180,24 @@ impl TuiApp {
     }
 
     pub(crate) fn focus_selected_comment_line(&mut self) {
+        self.ensure_row_cache();
         let Some(comment) = self.selected_comment_details() else {
             return;
         };
 
         let rows = self.current_rows();
-        let Some(target_row) = rows
+        let target_row = rows
             .iter()
             .enumerate()
             .find(|(_, row)| anchor::row_matches_exact_anchor(comment, row))
-        else {
+            .or_else(|| {
+                matches!(self.diff_source, DiffSource::RootDirectory).then(|| {
+                    rows.iter()
+                        .enumerate()
+                        .find(|(_, row)| comment_reference_matches_display_row(comment, row))
+                })?
+            });
+        let Some(target_row) = target_row else {
             return;
         };
 

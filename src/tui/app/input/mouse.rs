@@ -63,6 +63,45 @@ impl TuiApp {
             return Ok(());
         }
 
+        if self.thread_selector.is_some() {
+            if let Some(area) = self.last_thread_selector_area
+                && point_in_rect(mouse.column, mouse.row, area)
+            {
+                match mouse.kind {
+                    MouseEventKind::ScrollUp => {
+                        if let Some(selector) = self.thread_selector.as_mut() {
+                            selector.selected_index = selector.selected_index.saturating_sub(3);
+                        }
+                    }
+                    MouseEventKind::ScrollDown => {
+                        let max_index = self
+                            .filtered_thread_selector_entries()
+                            .len()
+                            .saturating_sub(1);
+                        if let Some(selector) = self.thread_selector.as_mut() {
+                            selector.selected_index = (selector.selected_index + 3).min(max_index);
+                        }
+                    }
+                    MouseEventKind::Down(MouseButton::Left)
+                        if mouse.row > area.y.saturating_add(2)
+                            && mouse.row < area.y + area.height.saturating_sub(1) =>
+                    {
+                        let view_row = usize::from(mouse.row.saturating_sub(area.y + 2));
+                        let index = self.last_thread_selector_scroll.saturating_add(view_row);
+                        let entry = self.filtered_thread_selector_entries().get(index).cloned();
+                        if let Some(selector) = self.thread_selector.as_mut() {
+                            selector.selected_index = index;
+                        }
+                        if let Some(entry) = entry {
+                            self.jump_to_thread_selector_entry(&entry);
+                        }
+                    }
+                    _ => {}
+                }
+            }
+            return Ok(());
+        }
+
         if self.inline_file_reference_picker_active() {
             self.handle_inline_file_reference_picker_mouse(mouse);
             self.constrain_selection();

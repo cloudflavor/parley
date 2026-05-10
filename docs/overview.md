@@ -159,6 +159,8 @@ Use `Ctrl+v` or command palette `Toggle Split View` to toggle split view, `S` to
 
 Use `v` or `V` for visual line selection before creating a range comment. After selecting a range, `m` or `c` opens the comment box at the bottom of the selection. Saved range comments keep the covered lines highlighted and send the selected line range to AI prompt context.
 
+Use `Ctrl+t` or command palette `Open Thread Selector` to search all threads in the active review by file, status, id, line reference, or body preview. Selecting a thread jumps to its file and focuses the thread. In root mode, stale or detached comments are still shown at their stored line reference when the original anchor text no longer matches current file content.
+
 AI task output is tracked as file-scoped sessions in the TUI. `H` opens the AI logs popup for the current file; navigating away does not discard that file's session output. `L` opens the global AI activity pane, which lists running and recent sessions across files and jumps back to the selected file/session with `Enter`.
 
 Comments and AI logs are intentionally separate. Comments remain durable review state anchored to file lines and ranges. AI logs are transient session transcripts from ACP, Pi RPC, or CLI transport events. Agent output becomes a review reply only through the explicit AI reply/refactor flow that persists a reply on the target thread.

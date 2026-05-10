@@ -1,3 +1,5 @@
+use std::collections::{HashMap, HashSet};
+
 use ratatui::{
     Frame,
     layout::Rect,
@@ -7,13 +9,14 @@ use ratatui::{
 };
 
 use crate::domain::diff::DiffLineKind;
+use crate::domain::review::LineComment;
 use crate::git::diff::DiffSource;
 use crate::tui::theme::ThemeColors;
 use crate::utils::cast::usize_to_u16_saturating;
 
 use super::helpers::{
-    apply_search_highlighting, blank_line, pad_line_to_width, styled_segments_line,
-    wrap_styled_line, wrapped_content_lines,
+    apply_search_highlighting, blank_line, fit_spans_to_width, pad_line_to_width,
+    styled_segments_line, wrap_styled_line, wrapped_content_lines,
 };
 use super::{
     DiffPane, DiffRenderCacheEntry, DiffRenderCacheKey, DisplayRow,
@@ -22,8 +25,9 @@ use super::{
 };
 
 use super::super::helpers::{
-    comment_line_range_contains_display_row, comment_matches_display_row, format_comment_reference,
-    format_line_range_reference, format_timestamp_utc,
+    comment_line_range_contains_display_row, comment_matches_display_row,
+    comment_reference_matches_display_row, format_comment_reference, format_line_range_reference,
+    format_timestamp_utc,
 };
 use super::helpers::{
     compact_preview, compute_compact_thread_content_width, compute_thread_inner_width,
@@ -149,7 +153,12 @@ pub(super) fn draw_diff_view_for_pane(
         let mut lines = Vec::new();
         let mut row_map = Vec::new();
         let mut link_hits = Vec::new();
-        let mut rendered_comment_ids = std::collections::HashSet::new();
+        let root_fallback_rows = if matches!(app.diff_source, DiffSource::RootDirectory) {
+            build_root_comment_fallback_rows(app, file_index, row_count, &file_comments)
+        } else {
+            HashMap::new()
+        };
+        let mut rendered_comment_ids = HashSet::new();
 
         for index in 0..row_count {
             let highlighted_parts = app.highlighted_segments_for_file_row_with_painter(
@@ -204,10 +213,12 @@ pub(super) fn draw_diff_view_for_pane(
                 row_map.push(index);
             }
 
-            for comment in file_comments
-                .iter()
-                .filter(|comment| comment_matches_display_row(comment, row))
-            {
+            for comment in file_comments.iter().filter(|comment| {
+                comment_matches_display_row(comment, row)
+                    || root_fallback_rows
+                        .get(&comment.id)
+                        .is_some_and(|row_index| *row_index == index)
+            }) {
                 rendered_comment_ids.insert(comment.id);
                 render_comment_thread(
                     &mut lines,
@@ -593,6 +604,35 @@ pub(super) fn build_unified_row_lines(
     out
 }
 
+fn build_root_comment_fallback_rows(
+    app: &TuiApp,
+    file_index: usize,
+    row_count: usize,
+    comments: &[LineComment],
+) -> HashMap<u64, usize> {
+    let mut fallback_rows = HashMap::new();
+    for comment in comments {
+        let mut exact_match = false;
+        let mut reference_match = None;
+        for index in 0..row_count {
+            let Some(row) = app.row_for_file(file_index, index) else {
+                continue;
+            };
+            if comment_matches_display_row(comment, row) {
+                exact_match = true;
+                break;
+            }
+            if reference_match.is_none() && comment_reference_matches_display_row(comment, row) {
+                reference_match = Some(index);
+            }
+        }
+        if !exact_match && let Some(index) = reference_match {
+            fallback_rows.insert(comment.id, index);
+        }
+    }
+    fallback_rows
+}
+
 pub(super) fn build_side_by_side_row_lines(
     row: &DisplayRow,
     highlighted_segments: &[(Style, String)],
@@ -750,10 +790,11 @@ pub(super) fn build_side_by_side_row_lines(
                 .map(|span| apply_span_background(span, right_background)),
         );
 
+        let fitted_spans = fit_spans_to_width(spans, pane_inner_width, Style::default());
         let line = if is_active && matches!(selection, RowSelectionKind::Current) {
-            Line::from(spans).patch_style(Style::default().add_modifier(Modifier::BOLD))
+            Line::from(fitted_spans).patch_style(Style::default().add_modifier(Modifier::BOLD))
         } else {
-            Line::from(spans)
+            Line::from(fitted_spans)
         };
         out.push(line);
     }

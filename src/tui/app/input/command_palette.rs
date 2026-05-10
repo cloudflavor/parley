@@ -120,6 +120,11 @@ impl TuiApp {
                 keywords: "review context session comments threads",
             },
             CommandPaletteItem {
+                action: CommandPaletteAction::OpenThreadSelector,
+                label: "Open Thread Selector",
+                keywords: "thread comments jump selector navigate",
+            },
+            CommandPaletteItem {
                 action: CommandPaletteAction::OpenCodeSearch,
                 label: "Search Codebase",
                 keywords: "search code rg grep find files text",

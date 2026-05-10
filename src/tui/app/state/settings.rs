@@ -10,6 +10,7 @@ impl TuiApp {
         self.theme_picker = None;
         self.commit_picker = None;
         self.review_picker = None;
+        self.thread_selector = None;
         self.code_search = None;
         self.settings_editor = None;
         self.command_prompt = None;

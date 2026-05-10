@@ -75,6 +75,9 @@ impl TuiApp {
         if self.command_palette.is_some() {
             return self.handle_command_palette_key(key, service).await;
         }
+        if self.thread_selector.is_some() {
+            return self.handle_thread_selector_key(key);
+        }
         if self.code_search.is_some() {
             return self.handle_code_search_key(key).await;
         }

@@ -22,7 +22,7 @@ use super::ThreadDensityMode;
 use super::{
     AiLogEvent, AiLogSessionStatus, CommandPromptMode, DiffPane, FileHeatmapSortMode,
     InlineDraftMode, InlineFileMentionState, InlineFileReferencePickerState, SettingsEditorKind,
-    TuiApp,
+    ThreadSelectorEntry, TuiApp,
 };
 
 const INLINE_FILE_MENTION_MAX_VISIBLE_ROWS: usize = 6;
@@ -88,7 +88,7 @@ use modals::{draw_commit_picker, draw_review_picker, draw_settings_editor, draw_
 use overlays::{
     draw_ai_activity_overlay, draw_ai_progress_popup, draw_code_search, draw_command_palette,
     draw_command_prompt, draw_file_heatmap_overlay, draw_shortcuts_modal,
-    draw_thread_navigator_overlay,
+    draw_thread_navigator_overlay, draw_thread_selector,
 };
 use sidebar::draw_file_sidebar;
 use status::{compute_status_height, draw_status_panel, draw_status_toast};
@@ -101,6 +101,7 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &mut TuiApp) {
         || app.theme_picker.is_some()
         || app.commit_picker.is_some()
         || app.review_picker.is_some()
+        || app.thread_selector.is_some()
         || app.code_search.is_some()
         || app.settings_editor.is_some()
         || app.shortcuts_modal_visible
@@ -116,6 +117,9 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &mut TuiApp) {
     app.last_file_search_area = None;
     app.last_code_search_area = None;
     app.last_ai_activity_area = None;
+    app.last_thread_selector_area = None;
+    app.last_thread_selector_scroll = 0;
+    app.last_thread_selector_visible_rows = 0;
     app.last_code_search_scroll = 0;
     app.last_code_search_visible_rows = 0;
     app.last_diff_area_secondary = None;
@@ -150,6 +154,9 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &mut TuiApp) {
         }
         if app.review_picker.is_some() {
             draw_review_picker(frame, app);
+        }
+        if app.thread_selector.is_some() {
+            draw_thread_selector(frame, app);
         }
         if app.code_search.is_some() {
             draw_code_search(frame, app);
@@ -215,6 +222,9 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &mut TuiApp) {
     }
     if app.review_picker.is_some() {
         draw_review_picker(frame, app);
+    }
+    if app.thread_selector.is_some() {
+        draw_thread_selector(frame, app);
     }
     if app.code_search.is_some() {
         draw_code_search(frame, app);
@@ -499,6 +509,41 @@ mod tests {
             }
             seen_columns = seen_columns.saturating_add(span_width);
         }
+        Ok(())
+    }
+
+    #[test]
+    fn side_by_side_wrapped_rows_do_not_exceed_pane_width() -> Result<()> {
+        let colors = test_colors()?;
+        let pane_inner_width = 48usize;
+        let content = "use crate::ir::{EncodingInfo, HeaderIr, MediaTypeIr, Operation, ParameterIr, ParameterLocation};";
+        let highlighted_segments = vec![(
+            Style::default().fg(colors.text_primary),
+            content.to_string(),
+        )];
+        let row = DisplayRow {
+            kind: DiffLineKind::Added,
+            old_line: None,
+            new_line: Some(7),
+            raw: format!("+{content}"),
+            code: content.to_string(),
+        };
+
+        let rendered = build_side_by_side_row_lines(
+            &row,
+            &highlighted_segments,
+            RowSelectionKind::Current,
+            true,
+            pane_inner_width,
+            &colors,
+        );
+
+        assert!(!rendered.is_empty());
+        assert!(
+            rendered
+                .iter()
+                .all(|line| line_plain_text(line).chars().count() == pane_inner_width)
+        );
         Ok(())
     }
 

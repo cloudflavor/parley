@@ -9,7 +9,10 @@ use ratatui::{
 use super::super::helpers::{format_comment_reference, format_timestamp_utc, slice_chars};
 use super::helpers::{compute_scroll, fit_to_width, wrap_markdown_lines};
 use super::status::spinner_frame;
-use super::{AiLogEvent, AiLogSessionStatus, CommandPromptMode, FileHeatmapSortMode, TuiApp};
+use super::{
+    AiLogEvent, AiLogSessionStatus, CommandPromptMode, FileHeatmapSortMode, ThreadSelectorEntry,
+    TuiApp,
+};
 use crate::git::history::FileHeatmapEntry;
 use crate::tui::app::help_docs::HELP_DOCS;
 use crate::tui::theme::ThemeColors;
@@ -89,6 +92,152 @@ pub(super) fn draw_thread_navigator_overlay(frame: &mut Frame<'_>, app: &mut Tui
             .scroll((usize_to_u16_saturating(scroll), 0)),
         area,
     );
+}
+
+pub(super) fn draw_thread_selector(frame: &mut Frame<'_>, app: &mut TuiApp) {
+    let colors = app.theme().colors.clone();
+    let root = frame.area();
+    if root.width < 52 || root.height < 10 {
+        return;
+    }
+
+    let width = root.width.saturating_sub(4).clamp(72, 140);
+    let height = root.height.saturating_sub(4).clamp(12, 28);
+    let area = Rect {
+        x: root.x + root.width.saturating_sub(width) / 2,
+        y: root.y + root.height.saturating_sub(height) / 2,
+        width,
+        height,
+    };
+    app.last_thread_selector_area = Some(area);
+
+    let inner = Block::default().borders(Borders::ALL).inner(area);
+    let vertical = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(1),
+            Constraint::Min(1),
+            Constraint::Length(1),
+        ])
+        .split(inner);
+    let input_area = vertical[0];
+    let list_area = vertical[1];
+    let footer_area = vertical[2];
+
+    let entries = app.filtered_thread_selector_entries();
+    let query = app
+        .thread_selector
+        .as_ref()
+        .map(|selector| selector.query.clone())
+        .unwrap_or_default();
+    let selected_index = app
+        .thread_selector
+        .as_ref()
+        .map_or(0, |selector| selector.selected_index)
+        .min(entries.len().saturating_sub(1));
+    if let Some(selector) = app.thread_selector.as_mut() {
+        selector.selected_index = selected_index;
+    }
+    let visible_rows = usize::from(list_area.height).max(1);
+    app.last_thread_selector_visible_rows = visible_rows;
+    if let Some(selector) = app.thread_selector.as_mut() {
+        if selector.selected_index < selector.scroll {
+            selector.scroll = selector.selected_index;
+        }
+        if selector.selected_index >= selector.scroll.saturating_add(visible_rows) {
+            selector.scroll = selector
+                .selected_index
+                .saturating_sub(visible_rows.saturating_sub(1));
+        }
+        let max_scroll = entries.len().saturating_sub(visible_rows);
+        selector.scroll = selector.scroll.min(max_scroll);
+        app.last_thread_selector_scroll = selector.scroll;
+    }
+
+    frame.render_widget(Clear, area);
+    frame.render_widget(
+        Block::default()
+            .title("Thread Selector")
+            .borders(Borders::ALL)
+            .border_style(Style::default().fg(colors.thread_border))
+            .title_style(
+                Style::default()
+                    .fg(colors.accent)
+                    .add_modifier(Modifier::BOLD),
+            ),
+        area,
+    );
+
+    frame.render_widget(
+        Paragraph::new(vec![Line::from(vec![
+            Span::styled("thread> ", Style::default().fg(colors.text_muted)),
+            Span::styled(query, Style::default().fg(colors.text_primary)),
+        ])]),
+        input_area,
+    );
+
+    let mut lines = Vec::new();
+    if entries.is_empty() {
+        lines.push(Line::from(Span::styled(
+            "(no matching threads)",
+            Style::default().fg(colors.text_muted),
+        )));
+    } else {
+        let scroll = app
+            .thread_selector
+            .as_ref()
+            .map_or(0, |selector| selector.scroll);
+        let content_width = usize::from(list_area.width).max(1);
+        for (index, entry) in entries.iter().enumerate().skip(scroll).take(visible_rows) {
+            lines.push(thread_selector_line(
+                entry,
+                index == selected_index,
+                content_width,
+                &colors,
+            ));
+        }
+    }
+    frame.render_widget(Paragraph::new(lines).wrap(Wrap { trim: false }), list_area);
+
+    frame.render_widget(
+        Paragraph::new(Line::from(Span::styled(
+            "Ctrl+t/Esc close | Enter jump | type filter | j/k/PgUp/PgDn select",
+            Style::default().fg(colors.status_help),
+        ))),
+        footer_area,
+    );
+
+    if let Some(selector) = app.thread_selector.as_ref() {
+        let cursor_x = input_area.x.saturating_add(8).saturating_add(
+            usize_to_u16_saturating(selector.cursor_col).min(input_area.width.saturating_sub(9)),
+        );
+        frame.set_cursor_position((cursor_x, input_area.y));
+    }
+}
+
+fn thread_selector_line(
+    entry: &ThreadSelectorEntry,
+    selected: bool,
+    width: usize,
+    colors: &ThemeColors,
+) -> Line<'static> {
+    let marker = if selected { ">" } else { " " };
+    let text = fit_to_width(
+        &format!(
+            "{marker} #{} [{:?}] {}:{} - {}",
+            entry.comment_id, entry.status, entry.file_path, entry.line_reference, entry.preview
+        ),
+        width,
+    );
+    let style = if selected {
+        Style::default()
+            .bg(colors.sidebar_highlight_bg)
+            .fg(colors.sidebar_highlight_fg)
+            .add_modifier(Modifier::BOLD)
+    } else {
+        Style::default().fg(colors.text_primary)
+    };
+    Line::from(Span::styled(text, style))
 }
 
 pub(super) fn draw_ai_progress_popup(frame: &mut Frame<'_>, app: &mut TuiApp) {

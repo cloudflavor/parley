@@ -20,6 +20,86 @@ impl TuiApp {
         comments.get(self.selected_comment).copied()
     }
 
+    pub(crate) fn open_thread_selector(&mut self) {
+        self.dismiss_blocking_overlays();
+        self.thread_selector = Some(ThreadSelectorState {
+            query: String::new(),
+            cursor_col: 0,
+            selected_index: 0,
+            scroll: 0,
+        });
+        self.status_line = "thread selector opened".into();
+    }
+
+    pub(crate) fn filtered_thread_selector_entries(&self) -> Vec<ThreadSelectorEntry> {
+        let Some(selector) = self.thread_selector.as_ref() else {
+            return Vec::new();
+        };
+        let query = selector.query.trim().to_lowercase();
+        let mut entries = self
+            .review
+            .comments
+            .iter()
+            .map(|comment| ThreadSelectorEntry {
+                comment_id: comment.id,
+                file_path: comment.file_path.clone(),
+                status: comment.status.clone(),
+                line_reference: format_comment_reference(comment),
+                preview: comment
+                    .body
+                    .lines()
+                    .map(str::trim)
+                    .find(|line| !line.is_empty())
+                    .unwrap_or("(empty)")
+                    .to_string(),
+            })
+            .filter(|entry| {
+                if query.is_empty() {
+                    return true;
+                }
+                entry.file_path.to_lowercase().contains(&query)
+                    || entry.preview.to_lowercase().contains(&query)
+                    || entry.line_reference.to_lowercase().contains(&query)
+                    || entry.comment_id.to_string().contains(&query)
+                    || format!("{:?}", entry.status)
+                        .to_lowercase()
+                        .contains(&query)
+            })
+            .collect::<Vec<_>>();
+        entries.sort_by(|left, right| {
+            left.file_path
+                .cmp(&right.file_path)
+                .then_with(|| left.line_reference.cmp(&right.line_reference))
+                .then_with(|| left.comment_id.cmp(&right.comment_id))
+        });
+        entries
+    }
+
+    pub(crate) fn jump_to_thread_selector_entry(&mut self, entry: &ThreadSelectorEntry) {
+        let Some(file_index) = self
+            .diff
+            .files
+            .iter()
+            .position(|file| file.path == entry.file_path)
+        else {
+            self.status_line = format!("thread file not visible: {}", entry.file_path);
+            return;
+        };
+
+        self.select_file(file_index);
+        if !self.select_comment_by_id(entry.comment_id) {
+            self.status_line = format!("thread #{} not visible in file", entry.comment_id);
+            return;
+        }
+        self.focus_selected_comment_line();
+        self.request_scroll_to_thread_tail(self.active_diff_pane, self.active_line_index());
+        self.thread_selector = None;
+        self.status_line = format!(
+            "selected thread #{} at {}",
+            entry.comment_id, entry.file_path
+        );
+    }
+
     pub(crate) fn unresolved_thread_ids(&self) -> Vec<u64> {
         self.review
             .comments
@@ -135,7 +215,8 @@ mod tests {
     use crate::persistence::store::Store;
     use crate::services::review_service::ReviewService;
     use crate::tui::app::state::tests::{
-        cache_entry, cache_key, make_comment_with_anchor, make_test_app,
+        cache_entry, cache_key, diff_file_with_context_lines, make_comment_with_anchor,
+        make_test_app, make_test_app_with_files_and_comments,
     };
     use tempfile::tempdir;
 
@@ -171,6 +252,61 @@ mod tests {
         assert_eq!(stats.pending, 0);
         let saved = service.load_review(&app.review_name).await?;
         assert_eq!(saved.comments[0].status, CommentStatus::Addressed);
+        Ok(())
+    }
+
+    #[test]
+    fn root_mode_focuses_detached_thread_by_stored_line_reference() -> Result<()> {
+        let mut comment = make_comment_with_anchor(1, "src/a.rs", CommentStatus::Pending, 7, 7);
+        comment.detached = true;
+        let mut app = make_test_app_with_files_and_comments(
+            vec![diff_file_with_context_lines(
+                "src/a.rs",
+                &[(6, "before"), (7, "refactored"), (8, "after")],
+            )],
+            vec![comment],
+        )?;
+        app.diff_source = DiffSource::RootDirectory;
+        app.selected_comment = 0;
+
+        app.focus_selected_comment_line();
+
+        assert_eq!(
+            app.row_for_file(app.active_file_index(), app.selected_line)
+                .and_then(|row| row.new_line),
+            Some(7)
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn thread_selector_filters_and_jumps_to_thread_file() -> Result<()> {
+        let app = make_test_app(
+            vec!["src/a.rs", "src/b.rs"],
+            vec![
+                make_comment_with_anchor(1, "src/a.rs", CommentStatus::Open, 1, 1),
+                make_comment_with_anchor(2, "src/b.rs", CommentStatus::Pending, 1, 1),
+            ],
+        )?;
+        let mut app = app;
+        app.open_thread_selector();
+        if let Some(selector) = app.thread_selector.as_mut() {
+            selector.query = "src/b".to_string();
+            selector.cursor_col = selector.query.chars().count();
+        }
+        let entries = app.filtered_thread_selector_entries();
+
+        assert_eq!(entries.len(), 1);
+        assert_eq!(entries[0].comment_id, 2);
+
+        app.jump_to_thread_selector_entry(&entries[0]);
+
+        assert_eq!(app.active_file_index(), 1);
+        assert_eq!(
+            app.selected_comment_details().map(|comment| comment.id),
+            Some(2)
+        );
+        assert!(app.thread_selector.is_none());
         Ok(())
     }
 }

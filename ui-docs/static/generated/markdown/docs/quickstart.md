@@ -223,6 +223,7 @@ Mode-specific paths take precedence over `prompt_path`. Relative paths are resol
 - `r`: reply to selected thread
 - `N/P`: jump next or previous thread
 - `[/]`: select previous or next thread in current file
+- `Ctrl+t`: open the global thread selector
 - `e`: toggle selected thread expansion
 - `Shift+E`: cycle thread density (`compact`/`expanded`)
 - `a/o/f`: addressed/open/force-address selected thread
@@ -270,6 +271,7 @@ Review state mostly follows thread state:
 - `Ctrl+k`: open command palette
 - Command palette `Search Codebase`: open live repository search
 - Command palette `Show AI Activity`: open the global AI session activity pane
+- Command palette `Open Thread Selector`: search and jump across all review threads
 - Command palette `Show Git File Heatmap`: scan git history on demand and show file hotspots
 - Command palette `Open Commit Picker`: switch the active diff source to a recent commit
 - Command palette `Open Review Picker`: switch the active review context
@@ -283,6 +285,8 @@ Review state mostly follows thread state:
 By default, agent providers use persistent transports instead of spawning a one-shot CLI prompt for every thread. OpenCode uses ACP with `opencode acp`, Codex and Claude use configured ACP adapters, and Pi uses `pi --mode rpc --no-session`. Set a provider's `transport = "cli"` in `.parley/config.toml` only when you explicitly need the old one-shot behavior.
 
 Parley stores AI output as per-file session logs in memory while the TUI is open. `H` shows transcripts for the current file, and `L` shows a global activity index for running and recent sessions. Review comments are separate durable state; AI output is added to a thread only when the AI review flow persists a reply.
+
+The thread selector is separate from the per-file thread navigator. `Ctrl+t` searches all threads in the active review and jumps to the selected file/thread with `Enter`. In root mode, comments whose original anchor text no longer matches are still displayed at their stored line reference so pending threads do not disappear after refactors.
 
 ### Split diff layout
 

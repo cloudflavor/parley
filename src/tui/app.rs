@@ -41,9 +41,9 @@ mod state;
 
 use helpers::{
     MOUSE_WHEEL_FILE_SCROLL_FILES, MOUSE_WHEEL_SCROLL_LINES,
-    comment_line_range_contains_display_row, comment_matches_display_row, format_comment_reference,
-    format_line_range_reference, format_line_reference, insert_char_at, point_in_rect,
-    remove_char_at, suspend_tui_process,
+    comment_line_range_contains_display_row, comment_matches_display_row,
+    comment_reference_matches_display_row, format_comment_reference, format_line_range_reference,
+    format_line_reference, insert_char_at, point_in_rect, remove_char_at, suspend_tui_process,
 };
 use render::draw;
 pub(super) use render::{
@@ -393,6 +393,23 @@ struct ReviewPickerState {
 }
 
 #[derive(Debug, Clone)]
+struct ThreadSelectorEntry {
+    comment_id: u64,
+    file_path: String,
+    status: CommentStatus,
+    line_reference: String,
+    preview: String,
+}
+
+#[derive(Debug, Clone)]
+struct ThreadSelectorState {
+    query: String,
+    cursor_col: usize,
+    selected_index: usize,
+    scroll: usize,
+}
+
+#[derive(Debug, Clone)]
 struct FileSearchState {
     query: String,
     cursor_col: usize,
@@ -452,6 +469,7 @@ enum CommandPaletteAction {
     OpenThemePicker,
     OpenCommitPicker,
     OpenReviewPicker,
+    OpenThreadSelector,
     CreateReview,
     OpenCodeSearch,
     ToggleLightDarkTheme,
@@ -637,6 +655,7 @@ struct TuiApp {
     theme_picker: Option<ThemePickerState>,
     commit_picker: Option<CommitPickerState>,
     review_picker: Option<ReviewPickerState>,
+    thread_selector: Option<ThreadSelectorState>,
     code_search: Option<CodeSearchState>,
     file_search: FileSearchState,
     file_filter_mode: FileFilterMode,
@@ -676,6 +695,9 @@ struct TuiApp {
     last_file_search_area: Option<Rect>,
     last_code_search_area: Option<Rect>,
     last_ai_activity_area: Option<Rect>,
+    last_thread_selector_area: Option<Rect>,
+    last_thread_selector_scroll: usize,
+    last_thread_selector_visible_rows: usize,
     last_code_search_scroll: usize,
     last_code_search_visible_rows: usize,
     last_file_scroll: usize,
