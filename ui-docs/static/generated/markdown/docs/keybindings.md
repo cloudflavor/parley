@@ -85,8 +85,8 @@
 - Heatmap color follows the active sort metric
 - `Ctrl+f`: file filter input
 - `Shift+U`: edit user name
-- `Ctrl+v`: toggle split diff
-- Command palette `Toggle Split Diff View`: toggle split diff without using the visual-selection key
+- `Ctrl+v`: toggle split view
+- Command palette `Toggle Split View`: toggle split view without using the visual-selection key
 - `S`: toggle side-by-side diff
 - `Tab`: switch active diff pane
 - `</>`: resize files pane

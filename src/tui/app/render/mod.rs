@@ -234,9 +234,9 @@ mod tests {
     use anyhow::{Result, anyhow};
 
     use super::diff::{
-        build_side_by_side_row_lines, build_unified_row_lines, editor_cursor_visual_position,
-        inline_comment_editor_area, keep_source_row_range_visible, resolve_diff_scroll,
-        source_row_visual_range, wrap_editor_buffer_lines,
+        RowSelectionKind, build_side_by_side_row_lines, build_unified_row_lines,
+        editor_cursor_visual_position, inline_comment_editor_area, keep_source_row_range_visible,
+        resolve_diff_scroll, source_row_visual_range, wrap_editor_buffer_lines,
     };
     use super::helpers::line_plain_text;
     use super::status::{build_status_field_line, truncate_with_ellipsis};
@@ -276,7 +276,7 @@ mod tests {
         let rendered = build_unified_row_lines(
             &row,
             &highlighted_segments,
-            false,
+            RowSelectionKind::None,
             false,
             pane_inner_width,
             &colors,
@@ -322,7 +322,7 @@ mod tests {
         let rendered = build_unified_row_lines(
             &row,
             &highlighted_segments,
-            false,
+            RowSelectionKind::None,
             false,
             pane_inner_width,
             &colors,
@@ -365,7 +365,7 @@ mod tests {
         let added_lines = build_unified_row_lines(
             &added,
             &highlighted_segments,
-            false,
+            RowSelectionKind::None,
             false,
             pane_inner_width,
             &colors,
@@ -373,7 +373,7 @@ mod tests {
         let removed_lines = build_unified_row_lines(
             &removed,
             &highlighted_segments,
-            false,
+            RowSelectionKind::None,
             false,
             pane_inner_width,
             &colors,
@@ -381,7 +381,7 @@ mod tests {
         let context_lines = build_unified_row_lines(
             &context,
             &highlighted_segments,
-            false,
+            RowSelectionKind::None,
             false,
             pane_inner_width,
             &colors,
@@ -407,10 +407,43 @@ mod tests {
         let highlighted_segments =
             vec![(Style::default().fg(colors.text_primary), "changed".into())];
 
-        let rendered =
-            build_unified_row_lines(&row, &highlighted_segments, true, true, 50, &colors);
+        let rendered = build_unified_row_lines(
+            &row,
+            &highlighted_segments,
+            RowSelectionKind::Current,
+            true,
+            50,
+            &colors,
+        );
 
         assert_eq!(rendered[0].style.bg, Some(colors.selected_line_bg));
+        Ok(())
+    }
+
+    #[test]
+    fn range_selected_diff_row_uses_distinct_background() -> Result<()> {
+        let colors = test_colors()?;
+        let row = DisplayRow {
+            kind: DiffLineKind::Context,
+            old_line: Some(8),
+            new_line: Some(8),
+            raw: " unchanged".to_string(),
+            code: "unchanged".to_string(),
+        };
+        let highlighted_segments =
+            vec![(Style::default().fg(colors.text_primary), "unchanged".into())];
+
+        let rendered = build_unified_row_lines(
+            &row,
+            &highlighted_segments,
+            RowSelectionKind::Range,
+            true,
+            50,
+            &colors,
+        );
+
+        assert!(rendered[0].style.bg.is_some());
+        assert_ne!(rendered[0].style.bg, Some(colors.selected_line_bg));
         Ok(())
     }
 
@@ -427,8 +460,14 @@ mod tests {
             code: "changed".to_string(),
         };
 
-        let rendered =
-            build_side_by_side_row_lines(&row, &highlighted_segments, false, false, 80, &colors);
+        let rendered = build_side_by_side_row_lines(
+            &row,
+            &highlighted_segments,
+            RowSelectionKind::None,
+            false,
+            80,
+            &colors,
+        );
 
         let text = line_plain_text(&rendered[0]);
         let separator_index = text

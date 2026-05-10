@@ -155,11 +155,22 @@ Comment drafts wrap inside the editor instead of extending as one long terminal 
 
 ## Split diffs, logs, and AI sessions
 
-Use `Ctrl+v` or command palette `Toggle Split Diff View` to toggle split diff mode, `S` to toggle side-by-side diff layout, and `Tab` to switch the active pane. Added and removed lines use tinted backgrounds so large diffs are easier to scan.
+Use `Ctrl+v` or command palette `Toggle Split View` to toggle split view, `S` to toggle side-by-side diff layout, and `Tab` to switch the active pane. Added and removed lines use tinted backgrounds so large diffs are easier to scan.
 
 Use `v` or `V` for visual line selection before creating a range comment. After selecting a range, `m` or `c` opens the comment box at the bottom of the selection. Saved range comments keep the covered lines highlighted and send the selected line range to AI prompt context.
 
 AI task output is tracked per file in the TUI. `H` opens the AI logs popup for the current file; navigating away does not discard that file's session output. `L` opens the review TUI log file in `less` for the lower-level runtime log.
+
+## AI agent transports
+
+Parley prefers persistent agent transports over one-shot CLI prompt execution:
+
+- `opencode`: ACP via `opencode acp`
+- `codex`: ACP via a configured Codex ACP adapter
+- `claude`: ACP via a configured Claude ACP adapter
+- `pi`: persistent JSONL RPC via `pi --mode rpc --no-session`
+
+Provider config still supports `transport = "cli"` as an explicit fallback. ACP agents stream `session/update` events into the per-file AI logs, and final thread replies are built from agent message chunks rather than thought chunks.
 
 ## Local state and diff filtering
 

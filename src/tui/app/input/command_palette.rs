@@ -26,7 +26,7 @@ impl TuiApp {
             },
             CommandPaletteItem {
                 action: CommandPaletteAction::ToggleSplitDiff,
-                label: "Toggle Split Diff View",
+                label: "Toggle Split View",
                 keywords: "layout pane",
             },
             CommandPaletteItem {

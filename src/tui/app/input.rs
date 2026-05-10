@@ -529,7 +529,7 @@ mod tests {
             app.comment_selection_row_range_for_pane(DiffPane::Primary),
             None
         );
-        assert_eq!(app.status_line, "split diff enabled");
+        assert_eq!(app.status_line, "split view enabled");
         Ok(())
     }
 

@@ -361,7 +361,8 @@ impl TuiApp {
         self.ai_provider = match self.ai_provider {
             AiProvider::Codex => AiProvider::Claude,
             AiProvider::Claude => AiProvider::Opencode,
-            AiProvider::Opencode => AiProvider::Codex,
+            AiProvider::Opencode => AiProvider::Pi,
+            AiProvider::Pi => AiProvider::Codex,
         };
         self.config.ai.default_provider = self.ai_provider;
         service.save_config(&self.config).await?;

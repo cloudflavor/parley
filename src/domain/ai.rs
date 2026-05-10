@@ -8,6 +8,7 @@ pub enum AiProvider {
     Codex,
     Claude,
     Opencode,
+    Pi,
 }
 
 impl AiProvider {
@@ -17,6 +18,7 @@ impl AiProvider {
             Self::Codex => "codex",
             Self::Claude => "claude",
             Self::Opencode => "opencode",
+            Self::Pi => "pi",
         }
     }
 }
@@ -29,6 +31,7 @@ impl FromStr for AiProvider {
             "codex" => Ok(Self::Codex),
             "claude" => Ok(Self::Claude),
             "opencode" => Ok(Self::Opencode),
+            "pi" => Ok(Self::Pi),
             _ => Err(format!("invalid ai provider: {input}")),
         }
     }

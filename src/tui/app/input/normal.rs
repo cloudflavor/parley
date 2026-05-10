@@ -61,9 +61,9 @@ impl TuiApp {
             KeyCode::Char('v' | 'V') if key.modifiers.contains(KeyModifiers::CONTROL) => {
                 self.toggle_split_diff_view();
                 self.status_line = if self.split_diff_view {
-                    "split diff enabled".into()
+                    "split view enabled".into()
                 } else {
-                    "split diff disabled".into()
+                    "split view disabled".into()
                 };
             }
             KeyCode::Char('v' | 'V') => {

@@ -278,10 +278,12 @@ Review state mostly follows thread state:
 - `Ctrl+f`: focus files filter input
 - `?`: open in-app docs/help overlay
 
+By default, agent providers use persistent transports instead of spawning a one-shot CLI prompt for every thread. OpenCode uses ACP with `opencode acp`, Codex and Claude use configured ACP adapters, and Pi uses `pi --mode rpc --no-session`. Set a provider's `transport = "cli"` in `.parley/config.toml` only when you explicitly need the old one-shot behavior.
+
 ### Split diff layout
 
-- `Ctrl+v`: toggle split diff mode
-- Command palette `Toggle Split Diff View`: toggle split diff from the command list
+- `Ctrl+v`: toggle split view
+- Command palette `Toggle Split View`: toggle split view from the command list
 - `S`: toggle side-by-side diff layout
 - `Tab`: switch active diff pane
 - Added and removed lines use tinted backgrounds to make changed regions easier to scan

@@ -43,15 +43,30 @@ pub enum PromptTransport {
     Argv,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+pub enum AgentTransport {
+    Acp,
+    Cli,
+    PiRpc,
+}
+
 impl Default for PromptTransport {
     fn default() -> Self {
         Self::Stdin
     }
 }
 
+impl Default for AgentTransport {
+    fn default() -> Self {
+        Self::Acp
+    }
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(default)]
 pub struct AiProviderConfig {
+    pub transport: AgentTransport,
     #[serde(alias = "program")]
     pub client: String,
     pub model: Option<String>,
@@ -71,6 +86,7 @@ pub struct AiConfig {
     pub codex: AiProviderConfig,
     pub claude: AiProviderConfig,
     pub opencode: AiProviderConfig,
+    pub pi: AiProviderConfig,
 }
 
 #[must_use]
@@ -109,6 +125,7 @@ impl Default for AppConfig {
 impl Default for AiProviderConfig {
     fn default() -> Self {
         Self {
+            transport: AgentTransport::Acp,
             client: String::new(),
             model: None,
             model_arg: Some("--model".to_string()),
@@ -131,18 +148,27 @@ impl AiProviderConfig {
 
 impl Default for AiConfig {
     fn default() -> Self {
-        let mut codex = AiProviderConfig::with_client("codex");
-        codex.args = vec!["exec".to_string()];
+        let mut codex = AiProviderConfig::with_client("codex-acp");
+        codex.args = Vec::new();
         codex.prompt_transport = PromptTransport::Argv;
 
-        let mut claude = AiProviderConfig::with_client("claude");
-        claude.args = vec!["-p".to_string()];
+        let mut claude = AiProviderConfig::with_client("claude-agent-acp");
+        claude.args = Vec::new();
         claude.prompt_transport = PromptTransport::Argv;
 
         let mut opencode = AiProviderConfig::with_client("opencode");
-        opencode.args = vec!["run".to_string()];
+        opencode.args = vec!["acp".to_string()];
         opencode.model_arg = Some("-m".to_string());
         opencode.prompt_transport = PromptTransport::Argv;
+
+        let mut pi = AiProviderConfig::with_client("pi");
+        pi.transport = AgentTransport::PiRpc;
+        pi.args = vec![
+            "--mode".to_string(),
+            "rpc".to_string(),
+            "--no-session".to_string(),
+        ];
+        pi.prompt_transport = PromptTransport::Argv;
         Self {
             timeout_seconds: 120,
             default_provider: AiProvider::Opencode,
@@ -152,6 +178,7 @@ impl Default for AiConfig {
             codex,
             claude,
             opencode,
+            pi,
         }
     }
 }
@@ -163,6 +190,7 @@ impl AiConfig {
             AiProvider::Codex => &self.codex,
             AiProvider::Claude => &self.claude,
             AiProvider::Opencode => &self.opencode,
+            AiProvider::Pi => &self.pi,
         }
     }
 
@@ -184,7 +212,7 @@ mod tests {
     use crate::domain::ai::AiSessionMode;
     use anyhow::Result;
 
-    use super::{AiConfig, AppConfig};
+    use super::{AgentTransport, AiConfig, AppConfig};
 
     #[test]
     fn default_config_ignores_parley_dir() {
@@ -210,6 +238,18 @@ mod tests {
             config.prompt_path_for_mode(AiSessionMode::Refactor),
             Some("prompts/default.md")
         );
+    }
+
+    #[test]
+    fn default_ai_config_uses_persistent_agent_transports() {
+        let config = AiConfig::default();
+
+        assert_eq!(config.codex.transport, AgentTransport::Acp);
+        assert_eq!(config.claude.transport, AgentTransport::Acp);
+        assert_eq!(config.opencode.transport, AgentTransport::Acp);
+        assert_eq!(config.pi.transport, AgentTransport::PiRpc);
+        assert_eq!(config.opencode.args, vec!["acp"]);
+        assert_eq!(config.pi.args, vec!["--mode", "rpc", "--no-session"]);
     }
 
     #[test]

@@ -12,11 +12,14 @@ use tokio::time::timeout;
 use tracing::{debug, info, warn};
 
 use crate::domain::ai::{AiProvider, AiSessionMode};
-use crate::domain::config::{AppConfig, PromptTransport};
+use crate::domain::config::{AgentTransport, AppConfig, PromptTransport};
 use crate::utils::time::now_ms;
 
 use super::AiProgressEvent;
 use super::progress::emit_progress;
+
+mod acp;
+mod pi_rpc;
 
 #[derive(Debug, Clone)]
 pub(super) struct ProviderInvocation {
@@ -37,6 +40,18 @@ pub(super) async fn invoke_provider(
             "provider {} has no configured client in config.toml",
             provider.as_str()
         ));
+    }
+
+    match provider_cfg.transport {
+        AgentTransport::Acp => {
+            return acp::invoke_acp_provider(provider, provider_cfg, mode, prompt, progress_sender)
+                .await;
+        }
+        AgentTransport::PiRpc => {
+            return pi_rpc::invoke_pi_rpc_provider(provider_cfg, mode, prompt, progress_sender)
+                .await;
+        }
+        AgentTransport::Cli => {}
     }
 
     let mut command = Command::new(&provider_cfg.client);
@@ -258,7 +273,7 @@ fn detect_runtime_model(provider: AiProvider, stdout: &str, stderr: &str) -> Opt
             .or_else(|| detect_model_from_json_stream(stderr))
             .or_else(|| detect_model_from_text(stdout))
             .or_else(|| detect_model_from_text(stderr)),
-        AiProvider::Claude | AiProvider::Opencode => {
+        AiProvider::Claude | AiProvider::Opencode | AiProvider::Pi => {
             detect_model_from_text(stdout).or_else(|| detect_model_from_text(stderr))
         }
     }
@@ -373,6 +388,7 @@ fn normalized_provider_args(
                 args.insert(0, "run".to_string());
             }
         }
+        AiProvider::Pi => {}
     }
     args
 }
@@ -438,7 +454,9 @@ fn normalized_prompt_transport(
     let _ = configured;
     match provider {
         // Prefer explicit prompt argv for deterministic headless execution.
-        AiProvider::Codex | AiProvider::Claude | AiProvider::Opencode => PromptTransport::Argv,
+        AiProvider::Codex | AiProvider::Claude | AiProvider::Opencode | AiProvider::Pi => {
+            PromptTransport::Argv
+        }
     }
 }
 

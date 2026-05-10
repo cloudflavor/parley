@@ -163,12 +163,19 @@ pub(super) fn draw_diff_view_for_pane(
             let Some(row) = app.row_for_file(file_index, index) else {
                 continue;
             };
-            let is_selected = index == selected_line
-                || selected_row_range
-                    .is_some_and(|(start, end)| is_active && index >= start && index <= end)
+            let is_current_line = index == selected_line;
+            let is_range_selected = selected_row_range
+                .is_some_and(|(start, end)| is_active && index >= start && index <= end)
                 || file_comments
                     .iter()
                     .any(|comment| comment_line_range_contains_display_row(comment, row));
+            let selection = if is_current_line {
+                RowSelectionKind::Current
+            } else if is_range_selected {
+                RowSelectionKind::Range
+            } else {
+                RowSelectionKind::None
+            };
             let rendered = if effective_side_by_side_diff
                 && matches!(
                     row.kind,
@@ -177,7 +184,7 @@ pub(super) fn draw_diff_view_for_pane(
                 build_side_by_side_row_lines(
                     row,
                     &highlighted_segments,
-                    is_selected,
+                    selection,
                     is_active,
                     pane_inner_width,
                     &colors,
@@ -186,7 +193,7 @@ pub(super) fn draw_diff_view_for_pane(
                 build_unified_row_lines(
                     row,
                     &highlighted_segments,
-                    is_selected,
+                    selection,
                     is_active,
                     pane_inner_width,
                     &colors,
@@ -465,7 +472,7 @@ pub(super) fn resolve_diff_scroll(
 pub(super) fn build_unified_row_lines(
     row: &DisplayRow,
     highlighted_segments: &[(Style, String)],
-    is_selected: bool,
+    selection: RowSelectionKind,
     is_active: bool,
     pane_inner_width: usize,
     colors: &ThemeColors,
@@ -473,6 +480,7 @@ pub(super) fn build_unified_row_lines(
     const UNIFIED_PREFIX_WIDTH: usize = 16;
     const UNIFIED_CONTINUATION_GUTTER_WIDTH: usize = 13;
 
+    let is_selected = !matches!(selection, RowSelectionKind::None);
     let marker_style = if is_selected {
         Style::default()
             .fg(colors.selection_marker)
@@ -550,11 +558,7 @@ pub(super) fn build_unified_row_lines(
     for (visual_index, content_line) in wrapped_content.into_iter().enumerate() {
         let mut spans = Vec::new();
         spans.push(Span::styled(
-            if visual_index == 0 && is_selected {
-                "▌"
-            } else {
-                " "
-            },
+            selection_marker(selection, visual_index),
             marker_style,
         ));
         spans.push(Span::styled(
@@ -572,12 +576,10 @@ pub(super) fn build_unified_row_lines(
         ));
         spans.extend(content_line.spans.into_iter());
 
-        let line_style = if is_selected && is_active {
-            Some(
-                Style::default()
-                    .bg(colors.selected_line_bg)
-                    .add_modifier(Modifier::BOLD),
-            )
+        let line_style = if is_active && matches!(selection, RowSelectionKind::Current) {
+            Some(Style::default().bg(colors.selected_line_bg))
+        } else if is_active && matches!(selection, RowSelectionKind::Range) {
+            Some(Style::default().bg(range_selection_background(colors)))
         } else {
             row_background.map(|background| Style::default().bg(background))
         };
@@ -594,11 +596,12 @@ pub(super) fn build_unified_row_lines(
 pub(super) fn build_side_by_side_row_lines(
     row: &DisplayRow,
     highlighted_segments: &[(Style, String)],
-    is_selected: bool,
+    selection: RowSelectionKind,
     is_active: bool,
     pane_inner_width: usize,
     colors: &ThemeColors,
 ) -> Vec<Line<'static>> {
+    let is_selected = !matches!(selection, RowSelectionKind::None);
     let marker_style = if is_selected {
         Style::default()
             .fg(colors.selection_marker)
@@ -621,20 +624,20 @@ pub(super) fn build_side_by_side_row_lines(
     let left_background = side_by_side_line_background(
         &row.kind,
         DiffSideColumn::Left,
-        is_selected,
+        selection,
         is_active,
         colors,
     );
     let right_background = side_by_side_line_background(
         &row.kind,
         DiffSideColumn::Right,
-        is_selected,
+        selection,
         is_active,
         colors,
     );
     let separator_background =
-        (is_selected && is_active && matches!(row.kind, DiffLineKind::Context))
-            .then_some(colors.selected_line_bg);
+        (is_active && is_selected && matches!(row.kind, DiffLineKind::Context))
+            .then_some(selection_background(selection, colors));
 
     let left_sign_style = if matches!(row.kind, DiffLineKind::Removed) {
         Style::default()
@@ -679,14 +682,7 @@ pub(super) fn build_side_by_side_row_lines(
     let mut out = Vec::with_capacity(line_count);
     for visual_index in 0..line_count {
         let mut spans = vec![
-            Span::styled(
-                if visual_index == 0 && is_selected {
-                    "▌"
-                } else {
-                    " "
-                },
-                marker_style,
-            ),
+            Span::styled(selection_marker(selection, visual_index), marker_style),
             Span::styled(
                 if visual_index == 0 {
                     format!("{old:>5} ")
@@ -754,7 +750,7 @@ pub(super) fn build_side_by_side_row_lines(
                 .map(|span| apply_span_background(span, right_background)),
         );
 
-        let line = if is_selected && is_active {
+        let line = if is_active && matches!(selection, RowSelectionKind::Current) {
             Line::from(spans).patch_style(Style::default().add_modifier(Modifier::BOLD))
         } else {
             Line::from(spans)
@@ -770,18 +766,25 @@ enum DiffSideColumn {
     Right,
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(super) enum RowSelectionKind {
+    None,
+    Current,
+    Range,
+}
+
 fn side_by_side_line_background(
     kind: &DiffLineKind,
     column: DiffSideColumn,
-    is_selected: bool,
+    selection: RowSelectionKind,
     is_active: bool,
     colors: &ThemeColors,
 ) -> Option<Color> {
-    if is_selected && is_active {
+    if !matches!(selection, RowSelectionKind::None) && is_active {
         return match (kind, column) {
             (DiffLineKind::Removed | DiffLineKind::Context, DiffSideColumn::Left)
             | (DiffLineKind::Added | DiffLineKind::Context, DiffSideColumn::Right) => {
-                Some(colors.selected_line_bg)
+                Some(selection_background(selection, colors))
             }
             _ => None,
         };
@@ -792,6 +795,29 @@ fn side_by_side_line_background(
         (DiffLineKind::Added, DiffSideColumn::Right) => diff_line_background(kind, colors),
         _ => None,
     }
+}
+
+fn selection_marker(selection: RowSelectionKind, visual_index: usize) -> &'static str {
+    if visual_index != 0 {
+        return " ";
+    }
+    match selection {
+        RowSelectionKind::Current => "▌",
+        RowSelectionKind::Range => "▏",
+        RowSelectionKind::None => " ",
+    }
+}
+
+fn selection_background(selection: RowSelectionKind, colors: &ThemeColors) -> Color {
+    match selection {
+        RowSelectionKind::Current => colors.selected_line_bg,
+        RowSelectionKind::Range => range_selection_background(colors),
+        RowSelectionKind::None => colors.thread_background,
+    }
+}
+
+fn range_selection_background(colors: &ThemeColors) -> Color {
+    blend_color(colors.thread_background, colors.accent, 0.12)
 }
 
 fn apply_span_background(mut span: Span<'static>, background: Option<Color>) -> Span<'static> {
