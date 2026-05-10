@@ -25,3 +25,21 @@ Priority work:
 7. Cache wrapped/rendered thread bodies by width plus thread revision.
 
 Keep the ignored perf tests updated with each optimization so regressions are measurable.
+
+## Refactoring follow-up
+
+Source: merged from the `t3code/b1b92b25` worktree refactoring notes.
+
+Completed items from that worktree:
+
+1. Removed production `unwrap`/`expect` paths in AI session, TUI input, TUI helpers, and related state handling.
+2. Consolidated duplicate time helpers into `src/utils/time.rs`.
+3. Kept small prompt template reads as acceptable for now; revisit only if profiling shows measurable impact.
+
+Pending items:
+
+1. Migrate CLI parsing from `structopt` to `clap` 4 derive APIs.
+2. Replace stringly CLI parse errors with a typed error enum.
+3. Review MCP runtime JSON-RPC optional field handling for clearer default/null behavior.
+4. Consider a project error hierarchy if `anyhow` contexts stop being sufficient at service boundaries.
+5. Extract reusable async filesystem and validation helpers only where repeated call sites justify it.
