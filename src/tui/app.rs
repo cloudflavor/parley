@@ -12,7 +12,7 @@ use tokio::sync::mpsc::UnboundedReceiver;
 use tokio::task::{self, JoinHandle};
 
 use crate::domain::ai::{AiProvider, AiSessionMode};
-use crate::domain::config::{AppConfig, default_user_name};
+use crate::domain::config::{AgentTransport, AppConfig, default_user_name};
 use crate::domain::diff::{DiffDocument, DiffFile, DiffLineKind};
 use crate::domain::review::{
     Author, CommentLineRange, CommentStatus, DiffSide, LineAnchorSnapshot, LineComment,
@@ -473,6 +473,7 @@ enum CommandPaletteAction {
     OpenCodeSearch,
     ToggleLightDarkTheme,
     CycleAiProvider,
+    ToggleAiTransport,
     RunAiReviewRefactor,
     RunAiThreadRefactor,
     RunAiThreadReply,
@@ -628,6 +629,7 @@ struct TuiApp {
     theme_index: usize,
     diff: DiffDocument,
     ai_provider: AiProvider,
+    ai_transport: Option<AgentTransport>,
     log_path: PathBuf,
     selected_file: usize,
     secondary_selected_file: usize,

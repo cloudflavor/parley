@@ -75,7 +75,11 @@ pub(super) fn draw_status_panel(frame: &mut ratatui::Frame<'_>, app: &TuiApp, ar
             app.ai_tasks.len()
         )
     } else {
-        app.ai_provider.as_str().to_string()
+        format!(
+            "{}:{}",
+            app.ai_provider.as_str(),
+            app.effective_ai_transport().as_str()
+        )
     };
     let ai_style = if app.ai_tasks.is_empty() {
         Style::default().fg(colors.text_primary)

@@ -544,25 +544,30 @@ impl TuiApp {
         }
 
         let provider = self.ai_provider;
+        let transport = self.ai_transport;
         let log_session_id = self.start_ai_log_session(&file_path, provider, mode);
         self.ai_progress_visible = true;
         self.ai_progress_scroll_end();
         self.mark_ai_sessions_for_file_read(&file_path);
-        let provider_config = self.config.ai.provider_config(provider);
+        let provider_config = self
+            .config
+            .ai
+            .provider_config_for_transport(provider, transport);
         self.push_ai_event_for_session(
             log_session_id,
             "system",
             format!(
-                "provider={} client={} transport={:?} model={}",
+                "provider={} client={} transport={} model={}",
                 provider.as_str(),
                 provider_config.client,
-                provider_config.transport,
+                provider_config.transport.as_str(),
                 provider_config.model.as_deref().unwrap_or("-")
             ),
         );
         let input = RunAiSessionInput {
             review_name: self.review_name.clone(),
             provider,
+            transport,
             comment_ids,
             mode,
             diff_source: self.diff_source.clone(),
@@ -614,8 +619,48 @@ impl TuiApp {
         };
         self.config.ai.default_provider = self.ai_provider;
         service.save_config(&self.config).await?;
-        self.status_line = format!("ai provider set to {}", self.ai_provider.as_str());
+        self.status_line = format!(
+            "ai provider set to {} ({})",
+            self.ai_provider.as_str(),
+            self.effective_ai_transport().as_str()
+        );
         Ok(())
+    }
+
+    pub(crate) async fn toggle_ai_transport(&mut self, service: &ReviewService) -> Result<()> {
+        if matches!(self.ai_provider, AiProvider::Pi) {
+            self.ai_transport = None;
+            self.config.ai.default_transport = None;
+            service.save_config(&self.config).await?;
+            self.status_line = "pi uses pi_rpc; ACP/CLI toggle unavailable".into();
+            return Ok(());
+        }
+
+        let next = match self.effective_ai_transport() {
+            AgentTransport::Acp => AgentTransport::Cli,
+            AgentTransport::Cli | AgentTransport::PiRpc => AgentTransport::Acp,
+        };
+        self.ai_transport = Some(next);
+        self.config.ai.default_transport = Some(next);
+        service.save_config(&self.config).await?;
+        let provider_config = self
+            .config
+            .ai
+            .provider_config_for_transport(self.ai_provider, self.ai_transport);
+        self.status_line = format!(
+            "ai transport set to {} for {} ({})",
+            next.as_str(),
+            self.ai_provider.as_str(),
+            provider_config.client
+        );
+        Ok(())
+    }
+
+    pub(crate) fn effective_ai_transport(&self) -> AgentTransport {
+        self.config
+            .ai
+            .provider_config_for_transport(self.ai_provider, self.ai_transport)
+            .transport
     }
 
     fn normalized_ai_stream_message(stream: &str, message: &str) -> Option<String> {

@@ -4,6 +4,7 @@ use tokio::sync::mpsc;
 use tracing::{debug, error, info, warn};
 
 use crate::domain::ai::{AiProvider, AiSessionMode};
+use crate::domain::config::AgentTransport;
 use crate::domain::review::{Author, CommentStatus};
 use crate::git::diff::{DiffSource, load_git_diff};
 use crate::services::review_service::{AddReplyInput, ReviewService};
@@ -24,6 +25,7 @@ use provider::{format_ai_reply_body, invoke_provider};
 pub struct RunAiSessionInput {
     pub review_name: String,
     pub provider: AiProvider,
+    pub transport: Option<AgentTransport>,
     pub comment_ids: Vec<u64>,
     pub mode: AiSessionMode,
     pub diff_source: DiffSource,
@@ -35,6 +37,7 @@ pub struct AiSessionResult {
     pub review_name: String,
     pub provider: String,
     pub mode: String,
+    pub transport: String,
     pub client: String,
     pub model: Option<String>,
     pub session_id: String,
@@ -114,11 +117,15 @@ async fn run_ai_session_inner(
         }
     };
     let now_ms = now_ms()?;
-    let provider_cfg = config.ai.provider_config(input.provider);
+    let effective_transport = input.transport.or(config.ai.default_transport);
+    let provider_cfg = config
+        .ai
+        .provider_config_for_transport(input.provider, effective_transport);
     let mut result = AiSessionResult {
         review_name: input.review_name.clone(),
         provider: input.provider.as_str().to_string(),
         mode: input.mode.as_str().to_string(),
+        transport: provider_cfg.transport.as_str().to_string(),
         client: provider_cfg.client.clone(),
         model: provider_cfg.model.clone(),
         session_id: format!("{}-{}-{now_ms}", input.review_name, input.provider.as_str()),
@@ -244,6 +251,7 @@ async fn run_ai_session_inner(
         let provider_reply = match invoke_provider(
             &config,
             input.provider,
+            input.transport,
             input.mode,
             &prompt,
             progress_sender.clone(),

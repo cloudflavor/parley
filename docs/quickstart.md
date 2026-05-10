@@ -261,6 +261,7 @@ Review state mostly follows thread state:
 - `X`: AI reply selected thread
 - `A`: AI refactor full review
 - `i`: cycle AI provider (`codex`, `claude`, `opencode`, `pi`)
+- `I`: toggle AI transport (`acp` or `cli`) for providers that support both
 - `K`: cancel current AI run
 - `H`: toggle per-file AI logs popup
 - `L`: toggle the global AI activity pane
@@ -268,6 +269,7 @@ Review state mostly follows thread state:
 - `Ctrl+k`: open command palette
 - Command palette `Search Codebase`: open live repository search
 - Command palette `Show AI Activity`: open the global AI session activity pane
+- Command palette `Toggle AI Transport`: switch between ACP and CLI for the active provider
 - Command palette `Open Thread Selector`: search and jump across all review threads
 - Command palette `Show Git File Heatmap`: scan git history on demand and show file hotspots
 - Command palette `Open Commit Picker`: switch the active diff source to a recent commit
@@ -287,6 +289,7 @@ The default `.parley/config.toml` AI shape is:
 [ai]
 timeout_seconds = 120
 default_provider = "opencode"
+default_transport = "acp"
 
 [ai.codex]
 transport = "acp"
@@ -318,6 +321,8 @@ transport = "cli"
 client = "codex"
 args = ["exec"]
 ```
+
+The TUI can also switch transport at runtime with `I`. The active selection is stored as `ai.default_transport`; Parley uses built-in CLI profiles for `codex`, `claude`, and `opencode` when that value is `cli`. Pi keeps using `pi_rpc`.
 
 Parley stores AI output as per-file session logs in memory while the TUI is open. Starting an AI run opens/follows the current file logs. `H` shows transcripts for the current file, and `L` shows a global activity index for running and recent sessions. Review comments are separate durable state; AI output is added to a thread only when the AI review flow persists a reply.
 

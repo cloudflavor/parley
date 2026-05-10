@@ -67,6 +67,7 @@
 - `X`: AI reply selected thread
 - `A`: AI refactor review
 - `i`: cycle AI provider (`codex`, `claude`, `opencode`, `pi`)
+- `I`: toggle AI transport between ACP and CLI for providers that support both
 - `K`: cancel active AI run
 - `H`: toggle per-file AI logs popup
 - `L`: toggle global AI activity pane
@@ -80,6 +81,7 @@
 - `Ctrl+k`: command palette
 - Command palette `Search Codebase`: open live repository search
 - Command palette `Show AI Activity`: open the global AI session activity pane
+- Command palette `Toggle AI Transport`: switch between ACP and CLI for the active provider
 - Command palette `Toggle Active File Group`: collapse or expand the active file group
 - Command palette `Collapse All File Groups`: collapse every file group visible under the current filter
 - Command palette `Open Commit Picker`: open recent commits, filter by message or SHA, and apply the selected commit as the active diff source

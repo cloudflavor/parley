@@ -433,6 +433,7 @@ async fn handle_tools_call(service: &ReviewService, params: Value) -> Result<Val
                 RunAiSessionInput {
                     review_name,
                     provider,
+                    transport: None,
                     comment_ids,
                     mode,
                     diff_source: DiffSource::WorkingTree,

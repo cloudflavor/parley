@@ -13,6 +13,7 @@ impl TuiApp {
             log_path,
         } = init;
         let ai_provider = config.ai.default_provider;
+        let ai_transport = config.ai.default_transport;
         let side_by_side_diff = config.diff_view.is_side_by_side();
         let comment_indices_by_file = Self::build_comment_index(&review);
         let comment_stats_by_file = Self::build_comment_stats(&review);
@@ -27,6 +28,7 @@ impl TuiApp {
             theme_index,
             diff,
             ai_provider,
+            ai_transport,
             log_path,
             selected_file: 0,
             secondary_selected_file: 0,

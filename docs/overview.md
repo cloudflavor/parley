@@ -178,6 +178,8 @@ If an older config points ACP transport at a one-shot CLI command such as `codex
 
 Use `i` in the TUI to cycle the active AI provider. The active provider is shown in the status panel.
 
+Use `I` in the TUI to toggle the active AI transport between ACP and CLI for providers that support both. The selected transport is saved as `ai.default_transport`. Pi ignores the toggle and keeps using `pi_rpc`.
+
 ### `.parley/config.toml` AI provider config
 
 Parley reads project-local config from `.parley/config.toml`. If the file is missing, these AI defaults are used:
@@ -186,6 +188,7 @@ Parley reads project-local config from `.parley/config.toml`. If the file is mis
 [ai]
 timeout_seconds = 120
 default_provider = "opencode"
+default_transport = "acp"
 
 [ai.codex]
 transport = "acp"

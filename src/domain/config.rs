@@ -43,7 +43,7 @@ pub enum PromptTransport {
     Argv,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum AgentTransport {
     Acp,
@@ -60,6 +60,17 @@ impl Default for PromptTransport {
 impl Default for AgentTransport {
     fn default() -> Self {
         Self::Acp
+    }
+}
+
+impl AgentTransport {
+    #[must_use]
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Acp => "acp",
+            Self::Cli => "cli",
+            Self::PiRpc => "pi_rpc",
+        }
     }
 }
 
@@ -80,6 +91,7 @@ pub struct AiProviderConfig {
 pub struct AiConfig {
     pub timeout_seconds: u64,
     pub default_provider: AiProvider,
+    pub default_transport: Option<AgentTransport>,
     pub prompt_path: Option<String>,
     pub reply_prompt_path: Option<String>,
     pub refactor_prompt_path: Option<String>,
@@ -172,6 +184,7 @@ impl Default for AiConfig {
         Self {
             timeout_seconds: 120,
             default_provider: AiProvider::Opencode,
+            default_transport: Some(AgentTransport::Acp),
             prompt_path: None,
             reply_prompt_path: None,
             refactor_prompt_path: None,
@@ -195,6 +208,27 @@ impl AiConfig {
     }
 
     #[must_use]
+    pub fn provider_config_for_transport(
+        &self,
+        provider: AiProvider,
+        transport: Option<AgentTransport>,
+    ) -> AiProviderConfig {
+        let configured = self.provider_config(provider);
+        match transport {
+            Some(AgentTransport::Acp) if configured.transport != AgentTransport::Acp => {
+                default_acp_provider_config(provider)
+            }
+            Some(AgentTransport::Cli) if configured.transport != AgentTransport::Cli => {
+                default_cli_provider_config(provider).unwrap_or_else(|| configured.clone())
+            }
+            Some(AgentTransport::PiRpc) if configured.transport != AgentTransport::PiRpc => {
+                configured.clone()
+            }
+            _ => configured.clone(),
+        }
+    }
+
+    #[must_use]
     pub fn prompt_path_for_mode(&self, mode: crate::domain::ai::AiSessionMode) -> Option<&str> {
         let mode_path = match mode {
             crate::domain::ai::AiSessionMode::Reply => self.reply_prompt_path.as_deref(),
@@ -204,6 +238,69 @@ impl AiConfig {
             .or(self.prompt_path.as_deref())
             .map(str::trim)
             .filter(|path| !path.is_empty())
+    }
+}
+
+fn default_acp_provider_config(provider: AiProvider) -> AiProviderConfig {
+    match provider {
+        AiProvider::Codex => {
+            let mut config = AiProviderConfig::with_client("codex-acp");
+            config.args = Vec::new();
+            config.prompt_transport = PromptTransport::Argv;
+            config
+        }
+        AiProvider::Claude => {
+            let mut config = AiProviderConfig::with_client("claude-agent-acp");
+            config.args = Vec::new();
+            config.prompt_transport = PromptTransport::Argv;
+            config
+        }
+        AiProvider::Opencode => {
+            let mut config = AiProviderConfig::with_client("opencode");
+            config.args = vec!["acp".to_string()];
+            config.model_arg = Some("-m".to_string());
+            config.prompt_transport = PromptTransport::Argv;
+            config
+        }
+        AiProvider::Pi => {
+            let mut config = AiProviderConfig::with_client("pi");
+            config.transport = AgentTransport::PiRpc;
+            config.args = vec![
+                "--mode".to_string(),
+                "rpc".to_string(),
+                "--no-session".to_string(),
+            ];
+            config.prompt_transport = PromptTransport::Argv;
+            config
+        }
+    }
+}
+
+fn default_cli_provider_config(provider: AiProvider) -> Option<AiProviderConfig> {
+    match provider {
+        AiProvider::Codex => {
+            let mut config = AiProviderConfig::with_client("codex");
+            config.transport = AgentTransport::Cli;
+            config.args = vec!["exec".to_string()];
+            config.prompt_transport = PromptTransport::Argv;
+            Some(config)
+        }
+        AiProvider::Claude => {
+            let mut config = AiProviderConfig::with_client("claude");
+            config.transport = AgentTransport::Cli;
+            config.args = vec!["-p".to_string()];
+            config.prompt_transport = PromptTransport::Argv;
+            Some(config)
+        }
+        AiProvider::Opencode => {
+            let mut config = AiProviderConfig::with_client("opencode");
+            config.transport = AgentTransport::Cli;
+            config.args = vec!["run".to_string()];
+            config.model_arg = Some("-m".to_string());
+            config.prompt_transport = PromptTransport::Argv;
+            Some(config)
+        }
+        AiProvider::Pi => None,
     }
 }
 
@@ -245,11 +342,33 @@ mod tests {
         let config = AiConfig::default();
 
         assert_eq!(config.codex.transport, AgentTransport::Acp);
+        assert_eq!(config.default_transport, Some(AgentTransport::Acp));
         assert_eq!(config.claude.transport, AgentTransport::Acp);
         assert_eq!(config.opencode.transport, AgentTransport::Acp);
         assert_eq!(config.pi.transport, AgentTransport::PiRpc);
         assert_eq!(config.opencode.args, vec!["acp"]);
         assert_eq!(config.pi.args, vec!["--mode", "rpc", "--no-session"]);
+    }
+
+    #[test]
+    fn provider_config_for_transport_uses_builtin_cli_profiles() {
+        let config = AiConfig::default();
+
+        let codex = config.provider_config_for_transport(
+            crate::domain::ai::AiProvider::Codex,
+            Some(AgentTransport::Cli),
+        );
+        let opencode = config.provider_config_for_transport(
+            crate::domain::ai::AiProvider::Opencode,
+            Some(AgentTransport::Cli),
+        );
+
+        assert_eq!(codex.transport, AgentTransport::Cli);
+        assert_eq!(codex.client, "codex");
+        assert_eq!(codex.args, vec!["exec"]);
+        assert_eq!(opencode.transport, AgentTransport::Cli);
+        assert_eq!(opencode.client, "opencode");
+        assert_eq!(opencode.args, vec!["run"]);
     }
 
     #[test]

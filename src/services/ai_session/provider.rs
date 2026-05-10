@@ -30,11 +30,15 @@ pub(super) struct ProviderInvocation {
 pub(super) async fn invoke_provider(
     config: &AppConfig,
     provider: AiProvider,
+    transport: Option<AgentTransport>,
     mode: AiSessionMode,
     prompt: &str,
     progress_sender: Option<mpsc::UnboundedSender<AiProgressEvent>>,
 ) -> Result<ProviderInvocation> {
-    let provider_cfg = config.ai.provider_config(provider);
+    let effective_transport = transport.or(config.ai.default_transport);
+    let provider_cfg = config
+        .ai
+        .provider_config_for_transport(provider, effective_transport);
     if provider_cfg.client.trim().is_empty() {
         return Err(anyhow!(
             "provider {} has no configured client in config.toml",
@@ -44,10 +48,10 @@ pub(super) async fn invoke_provider(
 
     match provider_cfg.transport {
         AgentTransport::Acp => {
-            validate_acp_provider_command(provider, provider_cfg)?;
+            validate_acp_provider_command(provider, &provider_cfg)?;
             return acp::invoke_acp_provider(
                 provider,
-                provider_cfg,
+                &provider_cfg,
                 mode,
                 prompt,
                 effective_timeout_seconds(config, mode),
@@ -57,7 +61,7 @@ pub(super) async fn invoke_provider(
         }
         AgentTransport::PiRpc => {
             return pi_rpc::invoke_pi_rpc_provider(
-                provider_cfg,
+                &provider_cfg,
                 mode,
                 prompt,
                 effective_timeout_seconds(config, mode),
@@ -70,7 +74,7 @@ pub(super) async fn invoke_provider(
 
     let mut command = Command::new(&provider_cfg.client);
     command.kill_on_drop(true);
-    let args = normalized_provider_args(provider, provider_cfg, mode);
+    let args = normalized_provider_args(provider, &provider_cfg, mode);
     command.args(&args);
     let codex_output_path = codex_output_path(provider)?;
     if let Some(path) = codex_output_path.as_ref() {

@@ -78,6 +78,9 @@ impl TuiApp {
             CommandPaletteAction::CycleAiProvider => {
                 self.cycle_ai_provider(service).await?;
             }
+            CommandPaletteAction::ToggleAiTransport => {
+                self.toggle_ai_transport(service).await?;
+            }
             CommandPaletteAction::RunAiReviewRefactor => {
                 self.start_ai_session(service, false, AiSessionMode::Refactor)
                     .await?;

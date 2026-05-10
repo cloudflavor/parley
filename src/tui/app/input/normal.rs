@@ -224,6 +224,11 @@ impl TuiApp {
                     self.status_line = format!("ai provider change failed: {error}");
                 }
             }
+            KeyCode::Char('I') => {
+                if let Err(error) = self.toggle_ai_transport(service).await {
+                    self.status_line = format!("ai transport change failed: {error}");
+                }
+            }
             KeyCode::Char('A') => {
                 if let Err(error) = self
                     .start_ai_session(service, false, AiSessionMode::Refactor)

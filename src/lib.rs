@@ -222,6 +222,7 @@ async fn handle_review_command(command: ReviewCommand, service: &ReviewService) 
                 RunAiSessionInput {
                     review_name: name,
                     provider: provider.0,
+                    transport: None,
                     comment_ids,
                     mode,
                     diff_source: DiffSource::WorkingTree,

@@ -140,6 +140,11 @@ impl TuiApp {
                 keywords: "ai model provider",
             },
             CommandPaletteItem {
+                action: CommandPaletteAction::ToggleAiTransport,
+                label: "Toggle AI Transport",
+                keywords: "ai transport acp cli provider",
+            },
+            CommandPaletteItem {
                 action: CommandPaletteAction::RunAiReviewRefactor,
                 label: "Run AI Refactor on Review",
                 keywords: "ai run review refactor",
