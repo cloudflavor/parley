@@ -1,6 +1,5 @@
 use std::{
     path::PathBuf,
-    time::{SystemTime, UNIX_EPOCH},
 };
 
 use anyhow::{Context, Result, anyhow};
@@ -14,6 +13,7 @@ use crate::{
         },
     },
     persistence::store::Store,
+    utils::time::now_ms,
 };
 
 #[derive(Debug, Clone)]
@@ -236,11 +236,4 @@ impl ReviewService {
             .context("failed to persist comment status")?;
         Ok(session)
     }
-}
-
-fn now_ms() -> Result<u64> {
-    let elapsed = SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .context("system clock is before unix epoch")?;
-    Ok(elapsed.as_millis() as u64)
 }

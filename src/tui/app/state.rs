@@ -1509,14 +1509,14 @@ impl TuiApp {
     pub(super) async fn poll_ai_task(&mut self, service: &ReviewService) -> Result<bool> {
         let mut changed = self.drain_ai_progress();
 
-        let Some(task) = self.ai_task.as_ref() else {
+        let Some(task) = self.ai_task.take() else {
             return Ok(changed);
         };
         if !task.handle.is_finished() {
+            self.ai_task = Some(task);
             return Ok(changed);
         }
 
-        let task = self.ai_task.take().expect("checked as some");
         while let Ok(event) = task.progress_rx.try_recv() {
             self.record_ai_progress(event);
         }
@@ -2105,13 +2105,6 @@ fn row_to_comment_anchor(row: &DisplayRow) -> (DiffSide, Option<u32>, Option<u32
         DiffLineKind::Context => (DiffSide::Right, row.old_line, row.new_line),
         _ => (DiffSide::Right, None, None),
     }
-}
-
-pub(super) fn now_ms_utc() -> u64 {
-    std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|elapsed| elapsed.as_millis() as u64)
-        .unwrap_or(0)
 }
 
 #[cfg(test)]

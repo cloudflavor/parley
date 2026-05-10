@@ -22,6 +22,7 @@ use crate::domain::reference::parse_file_references;
 use crate::domain::review::{Author, CommentStatus, LineComment, ReviewState};
 use crate::git::diff::{DiffSource, load_git_diff};
 use crate::services::review_service::{AddReplyInput, ReviewService};
+use crate::utils::time::now_ms;
 
 static AI_SESSION_PROMPTS_DIR: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/prompts/ai_session");
 
@@ -420,10 +421,14 @@ fn build_thread_prompt(
 
     match mode {
         AiSessionMode::Reply => {
-            thread.push_str(prompt_template("reply_task.md"));
+            if let Ok(template) = prompt_template("reply_task.md") {
+                thread.push_str(template);
+            }
         }
         AiSessionMode::Refactor => {
-            thread.push_str(prompt_template("refactor_task.md"));
+            if let Ok(template) = prompt_template("refactor_task.md") {
+                thread.push_str(template);
+            }
         }
     }
     thread
@@ -635,18 +640,23 @@ fn file_line_snippet(path: &Path, line: u32) -> Option<String> {
     Some(out)
 }
 
-fn prompt_template(path: &str) -> &'static str {
+fn prompt_template(path: &str) -> Result<&'static str> {
     AI_SESSION_PROMPTS_DIR
         .get_file(path)
-        .unwrap_or_else(|| panic!("missing ai session prompt template: {path}"))
-        .contents_utf8()
-        .unwrap_or_else(|| panic!("invalid utf-8 in ai session prompt template: {path}"))
+        .ok_or_else(|| anyhow!("missing ai session prompt template: {path}"))
+        .and_then(|file| {
+            file.contents_utf8()
+                .ok_or_else(|| anyhow!("invalid utf-8 in ai session prompt template: {path}"))
+        })
 }
 
 fn missing_comment_prompt(review_name: &str, comment_id: u64) -> String {
-    prompt_template("comment_not_found.md")
-        .replace("{review_name}", review_name)
-        .replace("{comment_id}", &comment_id.to_string())
+    match prompt_template("comment_not_found.md") {
+        Ok(template) => template
+            .replace("{review_name}", review_name)
+            .replace("{comment_id}", &comment_id.to_string()),
+        Err(error) => format!("Comment #{comment_id} not found in review {review_name}. Error: {error}"),
+    }
 }
 
 async fn invoke_provider(
@@ -818,7 +828,10 @@ async fn invoke_provider(
             }
         ));
     }
-    let status = status.expect("status is present when not timed out");
+
+    let Some(status) = status else {
+        return Err(anyhow!("provider process completed without status"));
+    };
 
     if !status.success() {
         warn!(
@@ -1104,13 +1117,6 @@ fn effective_timeout_seconds(config: &AppConfig, mode: AiSessionMode) -> u64 {
         // Refactor mode can involve tool execution and file edits; keep a higher floor.
         AiSessionMode::Refactor => configured.max(600),
     }
-}
-
-fn now_ms() -> Result<u64> {
-    let elapsed = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .context("system clock is before unix epoch")?;
-    Ok(elapsed.as_millis() as u64)
 }
 
 #[cfg(test)]

@@ -6,6 +6,7 @@ pub mod mcp;
 pub mod persistence;
 pub mod services;
 pub mod tui;
+pub mod utils;
 
 use anyhow::{Context, Result, anyhow};
 use std::ffi::OsString;

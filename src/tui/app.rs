@@ -22,6 +22,7 @@ use crate::services::ai_session::{
     AiProgressEvent, RunAiSessionInput, run_ai_session_with_progress,
 };
 use crate::services::review_service::ReviewService;
+use crate::utils::time::now_ms_utc;
 
 use super::syntax::SyntaxPainter;
 use super::terminal::TerminalSession;
