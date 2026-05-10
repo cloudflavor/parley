@@ -63,6 +63,9 @@ impl TuiApp {
             self.open_code_search().await?;
             return Ok(());
         }
+        if self.ai_activity_visible && self.handle_ai_activity_key(key) {
+            return Ok(());
+        }
         if self.file_heatmap.is_some() || self.file_heatmap_started_at.is_some() {
             return self.handle_file_heatmap_key(key);
         }

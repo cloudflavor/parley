@@ -20,8 +20,9 @@ use crate::domain::diff::DiffLineKind;
 
 use super::ThreadDensityMode;
 use super::{
-    CommandPromptMode, DiffPane, FileHeatmapSortMode, InlineDraftMode, InlineFileMentionState,
-    InlineFileReferencePickerState, SettingsEditorKind, TuiApp,
+    AiLogEvent, AiLogSessionStatus, CommandPromptMode, DiffPane, FileHeatmapSortMode,
+    InlineDraftMode, InlineFileMentionState, InlineFileReferencePickerState, SettingsEditorKind,
+    TuiApp,
 };
 
 const INLINE_FILE_MENTION_MAX_VISIBLE_ROWS: usize = 6;
@@ -85,8 +86,9 @@ impl DiffRenderCacheEntry {
 use diff::draw_diff_view_for_pane;
 use modals::{draw_commit_picker, draw_review_picker, draw_settings_editor, draw_theme_picker};
 use overlays::{
-    draw_ai_progress_popup, draw_code_search, draw_command_palette, draw_command_prompt,
-    draw_file_heatmap_overlay, draw_shortcuts_modal, draw_thread_navigator_overlay,
+    draw_ai_activity_overlay, draw_ai_progress_popup, draw_code_search, draw_command_palette,
+    draw_command_prompt, draw_file_heatmap_overlay, draw_shortcuts_modal,
+    draw_thread_navigator_overlay,
 };
 use sidebar::draw_file_sidebar;
 use status::{compute_status_height, draw_status_panel, draw_status_toast};
@@ -102,6 +104,7 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &mut TuiApp) {
         || app.code_search.is_some()
         || app.settings_editor.is_some()
         || app.shortcuts_modal_visible
+        || app.ai_activity_visible
         || app.file_heatmap.is_some()
         || app.file_heatmap_started_at.is_some();
     app.last_shortcuts_modal_area = None;
@@ -112,6 +115,7 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &mut TuiApp) {
     app.last_ai_progress_area = None;
     app.last_file_search_area = None;
     app.last_code_search_area = None;
+    app.last_ai_activity_area = None;
     app.last_code_search_scroll = 0;
     app.last_code_search_visible_rows = 0;
     app.last_diff_area_secondary = None;
@@ -158,6 +162,9 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &mut TuiApp) {
         }
         if app.ai_progress_visible && !blocking_overlay_visible {
             draw_ai_progress_popup(frame, app);
+        }
+        if app.ai_activity_visible {
+            draw_ai_activity_overlay(frame, app);
         }
         if app.shortcuts_modal_visible {
             draw_shortcuts_modal(frame, app);
@@ -220,6 +227,9 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &mut TuiApp) {
     }
     if app.ai_progress_visible && !blocking_overlay_visible {
         draw_ai_progress_popup(frame, app);
+    }
+    if app.ai_activity_visible {
+        draw_ai_activity_overlay(frame, app);
     }
     if app.shortcuts_modal_visible {
         draw_shortcuts_modal(frame, app);

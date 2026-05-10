@@ -265,9 +265,11 @@ Review state mostly follows thread state:
 - `A`: AI refactor full review
 - `K`: cancel current AI run
 - `H`: toggle per-file AI logs popup
-- `L`: open the review TUI log file in `less`
+- `L`: toggle the global AI activity pane
+- AI activity `Enter`: jump to the selected file/session logs
 - `Ctrl+k`: open command palette
 - Command palette `Search Codebase`: open live repository search
+- Command palette `Show AI Activity`: open the global AI session activity pane
 - Command palette `Show Git File Heatmap`: scan git history on demand and show file hotspots
 - Command palette `Open Commit Picker`: switch the active diff source to a recent commit
 - Command palette `Open Review Picker`: switch the active review context
@@ -279,6 +281,8 @@ Review state mostly follows thread state:
 - `?`: open in-app docs/help overlay
 
 By default, agent providers use persistent transports instead of spawning a one-shot CLI prompt for every thread. OpenCode uses ACP with `opencode acp`, Codex and Claude use configured ACP adapters, and Pi uses `pi --mode rpc --no-session`. Set a provider's `transport = "cli"` in `.parley/config.toml` only when you explicitly need the old one-shot behavior.
+
+Parley stores AI output as per-file session logs in memory while the TUI is open. `H` shows transcripts for the current file, and `L` shows a global activity index for running and recent sessions. Review comments are separate durable state; AI output is added to a thread only when the AI review flow persists a reply.
 
 ### Split diff layout
 

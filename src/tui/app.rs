@@ -42,8 +42,8 @@ mod state;
 use helpers::{
     MOUSE_WHEEL_FILE_SCROLL_FILES, MOUSE_WHEEL_SCROLL_LINES,
     comment_line_range_contains_display_row, comment_matches_display_row, format_comment_reference,
-    format_line_range_reference, format_line_reference, format_timestamp_utc, insert_char_at,
-    open_log_in_less, point_in_rect, remove_char_at, suspend_tui_process,
+    format_line_range_reference, format_line_reference, insert_char_at, point_in_rect,
+    remove_char_at, suspend_tui_process,
 };
 use render::draw;
 pub(super) use render::{
@@ -201,17 +201,6 @@ async fn run_loop(
 
         if let Some(action) = app.pending_action.take() {
             match action {
-                PendingUiAction::OpenLogsInLess => {
-                    match open_log_in_less(terminal, &app.log_path, mouse_capture_enabled) {
-                        Ok(()) => {
-                            app.status_line =
-                                format!("opened logs in less: {}", app.log_path.display());
-                        }
-                        Err(error) => {
-                            app.status_line = format!("open logs failed: {error}");
-                        }
-                    }
-                }
                 PendingUiAction::SuspendTuiProcess => {
                     match suspend_tui_process(terminal, mouse_capture_enabled) {
                         Ok(()) => {
@@ -243,6 +232,7 @@ async fn run_loop(
 }
 
 const AI_PROGRESS_MAX_LINES: usize = 300;
+const AI_LOG_MAX_SESSIONS_PER_FILE: usize = 32;
 const DIFF_RENDER_CACHE_MAX_ENTRIES: usize = 64;
 const INLINE_FILE_MENTION_MAX_VISIBLE_ROWS: usize = 6;
 const INLINE_FILE_MENTION_MAX_CANDIDATES: usize = 120;
@@ -470,6 +460,7 @@ enum CommandPaletteAction {
     RunAiThreadRefactor,
     RunAiThreadReply,
     CancelAiRun,
+    ShowAiActivity,
     JumpNextThread,
     JumpPrevThread,
     CycleFileFilter,
@@ -520,12 +511,66 @@ struct CommandPaletteState {
 
 #[derive(Debug, Clone)]
 enum PendingUiAction {
-    OpenLogsInLess,
     SuspendTuiProcess,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+enum AiLogSessionStatus {
+    Running,
+    Finished,
+    Failed,
+    Cancelled,
+}
+
+impl AiLogSessionStatus {
+    fn as_str(self) -> &'static str {
+        match self {
+            AiLogSessionStatus::Running => "running",
+            AiLogSessionStatus::Finished => "finished",
+            AiLogSessionStatus::Failed => "failed",
+            AiLogSessionStatus::Cancelled => "cancelled",
+        }
+    }
+}
+
+#[derive(Debug, Clone)]
+struct AiLogEvent {
+    timestamp_ms: u64,
+    stream: String,
+    message: String,
+}
+
+#[derive(Debug, Clone)]
+struct AiLogSession {
+    id: u64,
+    file_path: String,
+    provider: AiProvider,
+    mode: AiSessionMode,
+    started_at: Instant,
+    started_at_ms: u64,
+    finished_at_ms: Option<u64>,
+    status: AiLogSessionStatus,
+    unread_events: usize,
+    events: VecDeque<AiLogEvent>,
+}
+
+#[derive(Debug, Clone)]
+struct AiActivityEntry {
+    session_id: u64,
+    file_path: String,
+    provider: AiProvider,
+    mode: AiSessionMode,
+    status: AiLogSessionStatus,
+    started_at_ms: u64,
+    finished_at_ms: Option<u64>,
+    unread_events: usize,
+    event_count: usize,
+    last_event: Option<AiLogEvent>,
 }
 
 #[derive(Debug)]
 struct AiRunTask {
+    log_session_id: u64,
     started_at: Instant,
     file_path: String,
     provider: AiProvider,
@@ -605,7 +650,11 @@ struct TuiApp {
     pending_action: Option<PendingUiAction>,
     ai_tasks: Vec<AiRunTask>,
     ai_progress_visible: bool,
-    ai_progress_lines_by_file: HashMap<String, VecDeque<String>>,
+    ai_activity_visible: bool,
+    ai_activity_selected: usize,
+    ai_activity_scroll: usize,
+    next_ai_log_session_id: u64,
+    ai_log_sessions_by_file: HashMap<String, VecDeque<AiLogSession>>,
     ai_progress_scroll: usize,
     ai_progress_follow_tail: bool,
     file_heatmap: Option<FileHeatmapState>,
@@ -626,6 +675,7 @@ struct TuiApp {
     last_file_area: Option<Rect>,
     last_file_search_area: Option<Rect>,
     last_code_search_area: Option<Rect>,
+    last_ai_activity_area: Option<Rect>,
     last_code_search_scroll: usize,
     last_code_search_visible_rows: usize,
     last_file_scroll: usize,

@@ -1,4 +1,4 @@
-use std::{io, path::Path, process::Command, sync::OnceLock};
+use std::{io, process::Command, sync::OnceLock};
 
 use anyhow::{Context, Result};
 use crossterm::{
@@ -189,67 +189,6 @@ pub(super) fn point_in_rect(x: u16, y: u16, rect: Rect) -> bool {
         && x < rect.x.saturating_add(rect.width)
         && y >= rect.y
         && y < rect.y.saturating_add(rect.height)
-}
-
-pub(super) fn open_log_in_less(
-    terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
-    log_path: &Path,
-    mouse_capture_enabled: bool,
-) -> Result<()> {
-    if let Some(parent) = log_path.parent() {
-        std::fs::create_dir_all(parent)
-            .with_context(|| format!("failed to create log directory {}", parent.display()))?;
-    }
-    let _ = std::fs::OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(log_path)
-        .with_context(|| format!("failed to create/open log file {}", log_path.display()))?;
-
-    disable_raw_mode().context("failed to disable raw mode before launching less")?;
-    if mouse_capture_enabled {
-        execute!(
-            terminal.backend_mut(),
-            LeaveAlternateScreen,
-            DisableMouseCapture
-        )
-        .context("failed to leave alternate screen before launching less")?;
-    } else {
-        execute!(terminal.backend_mut(), LeaveAlternateScreen)
-            .context("failed to leave alternate screen before launching less")?;
-    }
-    terminal.show_cursor().context("failed to show cursor")?;
-
-    let less_result = Command::new("less")
-        .arg("+G")
-        .arg(log_path)
-        .status()
-        .with_context(|| format!("failed to launch less for {}", log_path.display()));
-
-    if mouse_capture_enabled {
-        execute!(
-            terminal.backend_mut(),
-            EnterAlternateScreen,
-            EnableMouseCapture
-        )
-        .context("failed to re-enter alternate screen after less")?;
-    } else {
-        execute!(terminal.backend_mut(), EnterAlternateScreen)
-            .context("failed to re-enter alternate screen after less")?;
-    }
-    enable_raw_mode().context("failed to re-enable raw mode after less")?;
-    terminal
-        .hide_cursor()
-        .context("failed to hide cursor after less")?;
-    terminal
-        .clear()
-        .context("failed to clear terminal after less")?;
-
-    let status = less_result?;
-    if !status.success() {
-        return Err(anyhow::anyhow!("less exited with status {status}"));
-    }
-    Ok(())
 }
 
 pub(super) fn suspend_tui_process(

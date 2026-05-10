@@ -67,13 +67,16 @@
 - `A`: AI refactor review
 - `K`: cancel active AI run
 - `H`: toggle per-file AI logs popup
-- `L`: open review TUI log file in `less`
+- `L`: toggle global AI activity pane
+- AI activity `Enter`: jump to the selected file/session logs
+- AI activity `j/k`, `PgUp/PgDn`, `Home`, `End`: select a session
 
 ## Layout and tools
 
 - `?`: open help docs
 - `Ctrl+k`: command palette
 - Command palette `Search Codebase`: open live repository search
+- Command palette `Show AI Activity`: open the global AI session activity pane
 - Command palette `Toggle Active File Group`: collapse or expand the active file group
 - Command palette `Collapse All File Groups`: collapse every file group visible under the current filter
 - Command palette `Open Commit Picker`: open recent commits, filter by message or SHA, and apply the selected commit as the active diff source

@@ -101,6 +101,9 @@ impl TuiApp {
             CommandPaletteAction::CancelAiRun => {
                 self.cancel_ai_task();
             }
+            CommandPaletteAction::ShowAiActivity => {
+                self.toggle_ai_activity_overlay();
+            }
             CommandPaletteAction::JumpNextThread => {
                 self.ensure_row_cache();
                 self.jump_thread(true);

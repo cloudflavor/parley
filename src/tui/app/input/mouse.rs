@@ -37,6 +37,32 @@ impl TuiApp {
             return Ok(());
         }
 
+        if self.ai_activity_visible {
+            if let Some(area) = self.last_ai_activity_area
+                && point_in_rect(mouse.column, mouse.row, area)
+            {
+                match mouse.kind {
+                    MouseEventKind::ScrollUp => {
+                        self.ai_activity_scroll_up(3);
+                    }
+                    MouseEventKind::ScrollDown => {
+                        self.ai_activity_scroll_down(3);
+                    }
+                    MouseEventKind::Down(MouseButton::Left)
+                        if mouse.row > area.y
+                            && mouse.row < area.y + area.height.saturating_sub(1) =>
+                    {
+                        let view_row = usize::from(mouse.row.saturating_sub(area.y + 2));
+                        self.ai_activity_selected =
+                            self.ai_activity_scroll.saturating_add(view_row);
+                        self.ai_activity_jump_selected();
+                    }
+                    _ => {}
+                }
+            }
+            return Ok(());
+        }
+
         if self.inline_file_reference_picker_active() {
             self.handle_inline_file_reference_picker_mouse(mouse);
             self.constrain_selection();

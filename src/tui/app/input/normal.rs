@@ -247,8 +247,7 @@ impl TuiApp {
             }
             KeyCode::Char('H') => self.toggle_ai_progress_popup(),
             KeyCode::Char('L') => {
-                self.pending_action = Some(PendingUiAction::OpenLogsInLess);
-                self.status_line = format!("opening logs in less: {}", self.log_path.display());
+                self.toggle_ai_activity_overlay();
             }
             KeyCode::Char('t') => {
                 self.open_theme_picker();

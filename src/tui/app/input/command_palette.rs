@@ -160,6 +160,11 @@ impl TuiApp {
                 keywords: "ai stop cancel",
             },
             CommandPaletteItem {
+                action: CommandPaletteAction::ShowAiActivity,
+                label: "Show AI Activity",
+                keywords: "ai logs activity sessions providers",
+            },
+            CommandPaletteItem {
                 action: CommandPaletteAction::OpenShortcuts,
                 label: "Open Help Docs",
                 keywords: "help docs keys",

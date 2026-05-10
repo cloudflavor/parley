@@ -14,6 +14,7 @@ impl TuiApp {
         self.settings_editor = None;
         self.command_prompt = None;
         self.shortcuts_modal_visible = false;
+        self.ai_activity_visible = false;
     }
 
     pub(crate) fn open_command_prompt(&mut self, mode: CommandPromptMode) {

@@ -6,10 +6,10 @@ use ratatui::{
     widgets::{Block, Borders, Clear, Paragraph, Wrap},
 };
 
-use super::super::helpers::{format_comment_reference, slice_chars};
+use super::super::helpers::{format_comment_reference, format_timestamp_utc, slice_chars};
 use super::helpers::{compute_scroll, fit_to_width, wrap_markdown_lines};
 use super::status::spinner_frame;
-use super::{CommandPromptMode, FileHeatmapSortMode, TuiApp};
+use super::{AiLogEvent, AiLogSessionStatus, CommandPromptMode, FileHeatmapSortMode, TuiApp};
 use crate::git::history::FileHeatmapEntry;
 use crate::tui::app::help_docs::HELP_DOCS;
 use crate::tui::theme::ThemeColors;
@@ -128,11 +128,14 @@ pub(super) fn draw_ai_progress_popup(frame: &mut Frame<'_>, app: &mut TuiApp) {
     }
     let log_rows = inner_height.saturating_sub(1).max(1);
 
-    let log_entries = app
-        .ai_progress_lines_for_file(&file_path)
+    let sessions = app
+        .ai_log_sessions_for_file(&file_path)
         .cloned()
         .unwrap_or_default();
-    let total = log_entries.len();
+    let total = sessions
+        .iter()
+        .map(|session| session.events.len())
+        .sum::<usize>();
     let mut lines = Vec::new();
     if total == 0 {
         lines.push(Line::from(Span::styled(
@@ -142,15 +145,37 @@ pub(super) fn draw_ai_progress_popup(frame: &mut Frame<'_>, app: &mut TuiApp) {
     } else {
         let content_width = usize::from(area.width.saturating_sub(2)).max(1);
         let mut wrapped_entries = Vec::new();
-        for entry in &log_entries {
-            let style = if entry.starts_with("stderr: ") || entry.contains(" stderr: ") {
-                Style::default().fg(colors.removed_sign)
-            } else if entry.contains(" system: ") {
-                Style::default().fg(colors.accent)
+        for session in sessions.iter().rev() {
+            let status_label = if matches!(session.status, AiLogSessionStatus::Running) {
+                format!(
+                    "{} {}",
+                    session.status.as_str(),
+                    spinner_frame(session.started_at)
+                )
             } else {
-                Style::default().fg(colors.text_primary)
+                session.status.as_str().to_string()
             };
-            wrapped_entries.extend(wrap_plain_styled_lines(entry, content_width, style));
+            let header = format!(
+                "#{} {}:{} {} {}",
+                session.id,
+                session.provider.as_str(),
+                session.mode.as_str(),
+                status_label,
+                format_timestamp_utc(session.started_at_ms),
+            );
+            wrapped_entries.extend(wrap_plain_styled_lines(
+                &header,
+                content_width,
+                ai_session_status_style(session.status, &colors),
+            ));
+            for event in &session.events {
+                let text = format_ai_event_line(event);
+                wrapped_entries.extend(wrap_plain_styled_lines(
+                    &text,
+                    content_width,
+                    ai_event_style(event, &colors),
+                ));
+            }
         }
         let max_scroll = wrapped_entries.len().saturating_sub(log_rows);
         let scroll = app.ai_progress_resolved_scroll(max_scroll);
@@ -179,6 +204,160 @@ pub(super) fn draw_ai_progress_popup(frame: &mut Frame<'_>, app: &mut TuiApp) {
             .wrap(Wrap { trim: false }),
         area,
     );
+}
+
+pub(super) fn draw_ai_activity_overlay(frame: &mut Frame<'_>, app: &mut TuiApp) {
+    let colors = app.theme().colors.clone();
+    let root = frame.area();
+    if root.width < 48 || root.height < 10 {
+        return;
+    }
+
+    let width = root.width.saturating_sub(4).clamp(68, 140);
+    let height = root.height.saturating_sub(4).clamp(12, 28);
+    let area = Rect {
+        x: root.x + root.width.saturating_sub(width) / 2,
+        y: root.y + root.height.saturating_sub(height) / 2,
+        width,
+        height,
+    };
+    app.last_ai_activity_area = Some(area);
+
+    let inner_height = usize::from(area.height.saturating_sub(2)).max(1);
+    let list_rows = inner_height.saturating_sub(3).max(1);
+    let content_width = usize::from(area.width.saturating_sub(2)).max(1);
+    let entries = app.ai_activity_entries();
+    let max_index = entries.len().saturating_sub(1);
+    app.ai_activity_selected = app.ai_activity_selected.min(max_index);
+    if app.ai_activity_selected < app.ai_activity_scroll {
+        app.ai_activity_scroll = app.ai_activity_selected;
+    }
+    if app.ai_activity_selected >= app.ai_activity_scroll.saturating_add(list_rows) {
+        app.ai_activity_scroll = app
+            .ai_activity_selected
+            .saturating_sub(list_rows.saturating_sub(1));
+    }
+    let max_scroll = entries.len().saturating_sub(list_rows);
+    app.ai_activity_scroll = app.ai_activity_scroll.min(max_scroll);
+
+    let mut lines = Vec::new();
+    lines.push(Line::from(Span::styled(
+        format!(
+            "{} running | {} unread | Enter opens file session logs",
+            app.ai_activity_running_count(),
+            app.ai_activity_unread_count()
+        ),
+        Style::default().fg(colors.text_muted),
+    )));
+
+    if entries.is_empty() {
+        lines.push(Line::from(Span::styled(
+            "(no AI sessions yet)",
+            Style::default().fg(colors.text_muted),
+        )));
+    } else {
+        for (index, entry) in entries
+            .iter()
+            .enumerate()
+            .skip(app.ai_activity_scroll)
+            .take(list_rows)
+        {
+            let marker = if index == app.ai_activity_selected {
+                ">"
+            } else {
+                " "
+            };
+            let finished = entry
+                .finished_at_ms
+                .map(format_timestamp_utc)
+                .unwrap_or_else(|| "active".to_string());
+            let unread = if entry.unread_events > 0 {
+                format!(" unread:{}", entry.unread_events)
+            } else {
+                String::new()
+            };
+            let last = entry
+                .last_event
+                .as_ref()
+                .map(|event| format!(" - {}", event.message.trim()))
+                .unwrap_or_default();
+            let raw = format!(
+                "{marker} #{} {}:{} {} events:{}{} {} -> {}{}",
+                entry.session_id,
+                entry.provider.as_str(),
+                entry.mode.as_str(),
+                entry.status.as_str(),
+                entry.event_count,
+                unread,
+                finished,
+                entry.file_path,
+                last,
+            );
+            let line = fit_to_width(&raw, content_width);
+            let mut style = ai_session_status_style(entry.status, &colors);
+            if index == app.ai_activity_selected {
+                style = style
+                    .bg(colors.sidebar_highlight_bg)
+                    .fg(colors.sidebar_highlight_fg);
+            }
+            lines.push(Line::from(Span::styled(line, style)));
+        }
+    }
+    lines.push(Line::from(Span::styled(
+        "L/Esc close | Enter jump | j/k/PgUp/PgDn/Home/End select",
+        Style::default().fg(colors.status_help),
+    )));
+    lines.push(Line::from(Span::styled(
+        format!("runtime log: {}", app.log_path.display()),
+        Style::default().fg(colors.text_muted),
+    )));
+
+    frame.render_widget(Clear, area);
+    frame.render_widget(
+        Paragraph::new(lines)
+            .block(
+                Block::default()
+                    .title("AI Activity")
+                    .borders(Borders::ALL)
+                    .border_style(Style::default().fg(colors.thread_border))
+                    .title_style(
+                        Style::default()
+                            .fg(colors.accent)
+                            .add_modifier(Modifier::BOLD),
+                    ),
+            )
+            .wrap(Wrap { trim: false }),
+        area,
+    );
+}
+
+fn format_ai_event_line(event: &AiLogEvent) -> String {
+    format!(
+        "[{}] {}: {}",
+        format_timestamp_utc(event.timestamp_ms),
+        event.stream,
+        event.message.trim()
+    )
+}
+
+fn ai_event_style(event: &AiLogEvent, colors: &ThemeColors) -> Style {
+    match event.stream.as_str() {
+        "stderr" => Style::default().fg(colors.removed_sign),
+        "system" => Style::default().fg(colors.accent),
+        "tool" => Style::default().fg(colors.added_sign),
+        "plan" => Style::default().fg(colors.accent),
+        "thought" => Style::default().fg(colors.text_muted),
+        _ => Style::default().fg(colors.text_primary),
+    }
+}
+
+fn ai_session_status_style(status: AiLogSessionStatus, colors: &ThemeColors) -> Style {
+    match status {
+        AiLogSessionStatus::Running => Style::default().fg(colors.accent),
+        AiLogSessionStatus::Finished => Style::default().fg(colors.added_sign),
+        AiLogSessionStatus::Failed => Style::default().fg(colors.removed_sign),
+        AiLogSessionStatus::Cancelled => Style::default().fg(colors.text_muted),
+    }
 }
 
 pub(super) fn draw_file_heatmap_overlay(frame: &mut Frame<'_>, app: &mut TuiApp) {
