@@ -463,6 +463,7 @@ enum CommandPaletteAction {
     OpenCommitPicker,
     OpenReviewPicker,
     CreateReview,
+    OpenCodeSearch,
     ToggleLightDarkTheme,
     CycleAiProvider,
     RunAiReviewRefactor,

@@ -319,34 +319,18 @@ pub(super) fn draw_diff_view_for_pane(
         (lines, row_map, link_hits)
     };
 
-    let selected_visual_row = app.visual_row_for_pane(pane);
-    let selected_visual_row_is_exact = selected_visual_row.is_some_and(|visual_row| {
-        row_map
-            .get(visual_row)
-            .is_some_and(|row_index| *row_index == selected_line)
-    });
     let selected_visual_range =
-        selected_visual_range(&row_map, selected_line, selected_visual_row).unwrap_or((0, 0));
+        selected_visual_range(&row_map, selected_line, app.visual_row_for_pane(pane))
+            .unwrap_or((0, 0));
 
     let viewport_height = app.effective_viewport_height_for_pane(pane);
-    let max_scroll = lines.len().saturating_sub(viewport_height);
-    let mut scroll = app.viewport_top_for_pane(pane).min(max_scroll);
-
-    if let Some(anchor_row) = app.take_pending_scroll_anchor(pane) {
-        let clamped_anchor = anchor_row.min(lines.len().saturating_sub(1));
-        scroll = clamped_anchor.saturating_sub(viewport_height.saturating_sub(1));
-    }
-
-    scroll = keep_source_row_range_visible(scroll, viewport_height, selected_visual_range);
-    scroll = scroll.min(max_scroll);
-
-    let end_proximity_threshold = (lines.len() as f64 * 0.8) as usize;
-    if !selected_visual_row_is_exact
-        && (selected_visual_range.1 >= end_proximity_threshold
-            || selected_visual_range.0 >= end_proximity_threshold)
-    {
-        scroll = max_scroll;
-    }
+    let scroll = resolve_diff_scroll(
+        app.viewport_top_for_pane(pane),
+        lines.len(),
+        viewport_height,
+        selected_visual_range,
+        app.take_pending_scroll_anchor(pane),
+    );
     app.set_viewport_top_for_pane(pane, scroll);
 
     if pane == DiffPane::Primary {
@@ -454,6 +438,25 @@ pub(super) fn keep_source_row_range_visible(
     } else {
         scroll
     }
+}
+
+pub(super) fn resolve_diff_scroll(
+    current_scroll: usize,
+    total_lines: usize,
+    viewport_height: usize,
+    selected_range: (usize, usize),
+    pending_anchor_row: Option<usize>,
+) -> usize {
+    let viewport_height = viewport_height.max(1);
+    let max_scroll = total_lines.saturating_sub(viewport_height);
+    let mut scroll = current_scroll.min(max_scroll);
+
+    if let Some(anchor_row) = pending_anchor_row {
+        let clamped_anchor = anchor_row.min(total_lines.saturating_sub(1));
+        scroll = clamped_anchor.saturating_sub(viewport_height.saturating_sub(1));
+    }
+
+    keep_source_row_range_visible(scroll, viewport_height, selected_range).min(max_scroll)
 }
 
 pub(super) fn build_unified_row_lines(

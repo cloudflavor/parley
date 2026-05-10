@@ -120,6 +120,11 @@ impl TuiApp {
                 keywords: "review context session comments threads",
             },
             CommandPaletteItem {
+                action: CommandPaletteAction::OpenCodeSearch,
+                label: "Search Codebase",
+                keywords: "search code rg grep find files text",
+            },
+            CommandPaletteItem {
                 action: CommandPaletteAction::CreateReview,
                 label: "Create Review",
                 keywords: "review new create context session",

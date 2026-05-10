@@ -235,8 +235,8 @@ mod tests {
 
     use super::diff::{
         build_side_by_side_row_lines, build_unified_row_lines, editor_cursor_visual_position,
-        inline_comment_editor_area, keep_source_row_range_visible, source_row_visual_range,
-        wrap_editor_buffer_lines,
+        inline_comment_editor_area, keep_source_row_range_visible, resolve_diff_scroll,
+        source_row_visual_range, wrap_editor_buffer_lines,
     };
     use super::helpers::line_plain_text;
     use super::status::{build_status_field_line, truncate_with_ellipsis};
@@ -596,16 +596,15 @@ mod tests {
     }
 
     #[test]
-    fn last_line_comment_should_force_max_scroll() {
-        let range = (49, 52);
-        let lines_len = 53;
-        let viewport_height = 20;
-        let max_scroll = lines_len - viewport_height;
-        let mut scroll = 30;
-        let end_proximity_threshold = (lines_len as f64 * 0.8) as usize;
-        if range.1 >= end_proximity_threshold || range.0 >= end_proximity_threshold {
-            scroll = max_scroll;
-        }
+    fn diff_scroll_does_not_jump_to_bottom_when_selection_nears_end() {
+        let scroll = resolve_diff_scroll(70, 100, 10, (80, 80), None);
+
+        assert_eq!(scroll, 71);
+    }
+
+    #[test]
+    fn diff_scroll_keeps_pending_anchor_visible_without_skipping() {
+        let scroll = resolve_diff_scroll(0, 100, 10, (42, 42), Some(42));
 
         assert_eq!(scroll, 33);
     }

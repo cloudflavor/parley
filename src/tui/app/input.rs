@@ -303,6 +303,24 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn command_palette_can_open_code_search() -> Result<()> {
+        let mut app = make_test_app(vec!["src/a.rs"])?;
+        let service = make_test_service()?;
+        let item =
+            TuiApp::command_palette_filtered_items("search", &TuiApp::command_palette_items())
+                .into_iter()
+                .find(|item| item.action == CommandPaletteAction::OpenCodeSearch)
+                .ok_or_else(|| anyhow!("search command should be in command palette"))?;
+
+        app.apply_command_palette_action(item.action, &service)
+            .await?;
+
+        assert!(app.code_search.is_some());
+        assert_eq!(app.status_line, "code search opened");
+        Ok(())
+    }
+
+    #[tokio::test]
     async fn clicking_code_search_result_opens_match_line() -> Result<()> {
         let mut app = make_test_app_with_files(vec![
             empty_diff_file("src/a.rs"),
