@@ -176,9 +176,11 @@ pub(super) fn draw_file_sidebar(frame: &mut Frame<'_>, app: &mut TuiApp, area: R
         });
     if let Some(selected_row) = selected_row {
         state.select(Some(selected_row));
-        app.last_file_scroll = compute_scroll(
+        app.last_file_scroll = resolve_file_sidebar_scroll(
             selected_row,
-            usize::from(list_area.height.saturating_sub(2)),
+            app.last_file_scroll,
+            usize::from(list_area.height.saturating_sub(2)).max(1),
+            items.len(),
         );
         *state.offset_mut() = app.last_file_scroll;
     } else {
@@ -267,4 +269,37 @@ pub(super) fn draw_file_sidebar(frame: &mut Frame<'_>, app: &mut TuiApp, area: R
 
     frame.render_stateful_widget(list, list_area, &mut state);
     app.last_file_scroll = state.offset();
+}
+
+fn resolve_file_sidebar_scroll(
+    selected_row: usize,
+    current_scroll: usize,
+    viewport_height: usize,
+    total_rows: usize,
+) -> usize {
+    let viewport_height = viewport_height.max(1);
+    let max_scroll = total_rows.saturating_sub(viewport_height);
+    let current_scroll = current_scroll.min(max_scroll);
+    let visible_end = current_scroll.saturating_add(viewport_height);
+    if selected_row >= current_scroll && selected_row < visible_end {
+        current_scroll
+    } else {
+        compute_scroll(selected_row, viewport_height).min(max_scroll)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::resolve_file_sidebar_scroll;
+
+    #[test]
+    fn sidebar_scroll_stays_when_selected_row_is_visible() {
+        assert_eq!(resolve_file_sidebar_scroll(24, 20, 10, 50), 20);
+    }
+
+    #[test]
+    fn sidebar_scroll_moves_only_when_selected_row_is_not_visible() {
+        assert_eq!(resolve_file_sidebar_scroll(35, 20, 10, 50), 26);
+        assert_eq!(resolve_file_sidebar_scroll(8, 20, 10, 50), 0);
+    }
 }
