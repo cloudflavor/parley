@@ -124,11 +124,32 @@ AI sessions use the same selected revision source for prompt context.
 
 ## 10. Reviewing the current root directory
 
-Use `parley tui --review <name> --root` to review the current repository root without requiring a git diff or commit. `--review` is required, and the TUI opens that review name while using root-directory diff mode. The review is created if it does not exist.
+Use `parley tui --review <name> --root` to review the current repository root without requiring a git diff or commit. `--review` is required, and the review must already exist. Create it first with `parley review create <name>`.
 
 Root-directory review mode loads tracked files plus untracked files that are not ignored by gitignore rules. It skips `.git`, `.parley`, and `worktrees/` directories. Each file is shown as context lines so comments can attach to the current file line numbers.
 
-## 11. Custom AI task prompts
+Root-directory review mode lazy-loads file content for startup performance. The TUI shows the file tree first, shows progress while file data loads, and opens file content when selected or when code search jumps to a match.
+
+## 11. Searching and hotspot review
+
+Use `/`, `Ctrl+g`, or command palette `Search Codebase` to search the repository from inside the TUI. Parley uses `rg` when available and falls back to `grep`. Results update while typing and `Enter` or mouse click opens the selected file and line.
+
+Use `M` or command palette `Show Git File Heatmap` to scan git history on demand. The heatmap ranks files by the selected metric and colors each file cell from the active sort value.
+
+Heatmap sort modes:
+
+- `churn`: added plus removed lines
+- `added`: total lines added
+- `removed`: total lines removed
+- `commits`: commits touching the file
+- `net-growth`: added minus removed lines
+- `net-shrink`: removed minus added lines
+- `volatility`: churn per touching commit
+- `path`: path name
+
+Inside the heatmap, `s` cycles sort mode and `S` reverses direction.
+
+## 12. Custom AI task prompts
 
 Parley's AI prompt has two parts:
 

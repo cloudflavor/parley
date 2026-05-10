@@ -12,8 +12,13 @@
 ## Search and jump
 
 - `:<line>`: go to line
-- `/query`: set search query
-- `n/p`: next/previous search match
+- `/` or `Ctrl+g`: open codebase search popup (`rg`, falling back to `grep`)
+- Code search `type`: update results live
+- Code search `Enter`: open selected file and line
+- Code search `↑/↓`, `j/k`, `PgUp/PgDn`, `Home`, `End`: move selected result
+- Code search mouse: click a result to open that file and line
+- Code search `Esc`: close search
+- `n/p`: next/previous in-diff search match
 
 ## Threads
 
@@ -44,6 +49,7 @@
 
 - `Alt+b`: move backward one whitespace-delimited word in the draft
 - `Alt+d`: delete forward through the next whitespace-delimited word in the draft
+- Long comments wrap inside the editor, preserving whole words when possible
 
 ## Review state
 
@@ -58,22 +64,32 @@
 - `X`: AI reply selected thread
 - `A`: AI refactor review
 - `K`: cancel active AI run
-- `H`: toggle AI stream popup
-- `L`: open logs in `less`
+- `H`: toggle per-file AI logs popup
+- `L`: open review TUI log file in `less`
 
 ## Layout and tools
 
 - `?`: open help docs
 - `Ctrl+k`: command palette
+- Command palette `Search Codebase`: open live repository search
+- Command palette `Toggle Active File Group`: collapse or expand the active file group
+- Command palette `Collapse All File Groups`: collapse every file group visible under the current filter
 - Command palette `Open Commit Picker`: open recent commits, filter by message or SHA, and apply the selected commit as the active diff source
 - Command palette `Open Review Picker`: open reviews, filter by name or state, and apply the selected review as the active comment context
 - Command palette `Create Review`: create a new review context and switch to it
+- `M` or command palette `Show Git File Heatmap`: scan full git history on demand and show file hotspots
+- Heatmap `s`: cycle sort (`churn`, `added`, `removed`, `commits`, `net-growth`, `net-shrink`, `volatility`, `path`)
+- Heatmap `S`: reverse sort direction
+- Heatmap color follows the active sort metric
 - `Ctrl+f`: file filter input
 - `Shift+U`: edit user name
 - `V`: toggle split diff
 - `S`: toggle side-by-side diff
 - `Tab`: switch active diff pane
 - `</>`: resize files pane
+- `Enter`: collapse or expand the active file group
+- `Shift+C`: collapse all visible file groups
+- Mouse: click a file group header to collapse or expand it
 - `b`: toggle thread navigator
 
 ## Help pane

@@ -108,6 +108,39 @@ Current limitation:
 
 - the selected revision source is not persisted into the review session yet, so reopening the review later still requires passing the same CLI flags again.
 
+## Root directory reviews
+
+Use `--root` when you want to review files in the current repository root instead of a git diff:
+
+```bash
+parley tui --review my-review --root
+```
+
+`--review` is still required, and the review must already exist. Create it first with `parley review create <name>`.
+
+Root mode loads tracked files plus untracked files that are not ignored by git. It skips `.git/`, `.parley/`, and `worktrees/`. Files are shown as context lines, so comments attach to the current file line numbers instead of added or removed diff lines.
+
+Root mode is lazy-loaded for startup performance. The TUI builds the file tree first, shows load progress while file data hydrates, and loads file content when the file is selected or opened from search.
+
+## Finding code and hotspots
+
+Code search is available from `/`, `Ctrl+g`, or command palette `Search Codebase`. It searches the repository with `rg` when available and falls back to `grep` otherwise. Results update while typing, show the match count and search engine, and `Enter` or mouse click opens the selected file at the matched line.
+
+The git file heatmap is available from `M` or command palette `Show Git File Heatmap`. It scans git history only when requested, not at startup, and renders per-file hotspots as colored cells.
+
+Heatmap sort modes:
+
+- `churn`: added plus removed lines
+- `added`: total lines added
+- `removed`: total lines removed
+- `commits`: commits touching the file
+- `net-growth`: added minus removed lines
+- `net-shrink`: removed minus added lines
+- `volatility`: churn per touching commit
+- `path`: path name
+
+Press `s` in the heatmap to cycle sort mode and `S` to reverse sort direction. Heatmap color intensity follows the active sort metric, so the strongest color always means the file is hottest for the current sort.
+
 ## File references in comment drafts
 
 Inside the inline comment or reply editor, `@` opens file matching against the current diff. Accepting a file switches the active diff pane to that file and enters a line-picker mode so you can move to or click the exact diff line before Parley inserts `@path:line` into the draft.
@@ -117,6 +150,14 @@ The editor itself calls out that a line still needs to be selected, and once the
 This keeps file references understandable to humans reading the thread instead of relying on a bare path plus a manually typed line number.
 
 Inside that same draft editor, `Alt+b` moves backward by the previous whitespace-delimited word and `Alt+d` deletes forward through the next one.
+
+Comment drafts wrap inside the editor instead of extending as one long terminal line. Wrapped display preserves words when possible, so long comments remain readable before saving.
+
+## Split diffs, logs, and AI sessions
+
+Use `V` to toggle split diff mode, `S` to toggle side-by-side diff layout, and `Tab` to switch the active pane. Added and removed lines use tinted backgrounds so large diffs are easier to scan.
+
+AI task output is tracked per file in the TUI. `H` opens the AI logs popup for the current file; navigating away does not discard that file's session output. `L` opens the review TUI log file in `less` for the lower-level runtime log.
 
 ## Local state and diff filtering
 

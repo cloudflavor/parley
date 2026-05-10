@@ -18,6 +18,7 @@ The diff source is the code you see in the TUI:
 - the current working tree by default
 - a specific commit with `--commit`
 - a base/head range with `--base` and `--head`
+- the current repository root with `--root`
 
 The review session is the structured review state Parley keeps locally:
 
@@ -101,6 +102,20 @@ To create a new review from inside the TUI, use `Ctrl+k` and `Create Review`. Th
 Current limitation:
 
 - reopening the review later does not restore the revision source automatically; pass the same flags again.
+
+## Review the current root directory
+
+Use root mode when you want to review the repository as files, not as a git diff:
+
+```bash
+./target/release/parley tui --review my-review --root
+```
+
+`--review` is still required, and the review must already exist. Root mode does not create or guess a review.
+
+Root mode includes tracked files and untracked files that are not ignored by gitignore rules. It skips `.git/`, `.parley/`, and `worktrees/`. Each file is displayed as context lines, so comments attach to the file's current line numbers.
+
+Startup in root mode lazy-loads file content. The file tree appears first, load progress is shown while data hydrates, and individual files load when selected or opened from search.
 
 ## The core workflow
 
@@ -194,7 +209,10 @@ Mode-specific paths take precedence over `prompt_path`. Relative paths are resol
 ### Search and jump
 
 - `:<line>`: go to line
-- `/query`: set diff search query
+- `/` or `Ctrl+g`: open codebase search popup
+- Code search uses `rg` when available and falls back to `grep`
+- Search respects gitignore rules and updates results while you type
+- `Enter` or mouse click on a result opens the matched file and line
 - `n/p`: next or previous search hit
 
 ### Threads
@@ -221,6 +239,7 @@ Mode-specific paths take precedence over `prompt_path`. Relative paths are resol
 
 - `Alt+b`: move backward one whitespace-delimited word in the draft
 - `Alt+d`: delete forward through the next whitespace-delimited word in the draft
+- Long comment drafts wrap inside the editor, preserving whole words when possible
 
 ### Review state
 
@@ -243,14 +262,26 @@ Review state mostly follows thread state:
 - `X`: AI reply selected thread
 - `A`: AI refactor full review
 - `K`: cancel current AI run
-- `H`: toggle AI stream popup
-- `L`: open log file in `less`
+- `H`: toggle per-file AI logs popup
+- `L`: open the review TUI log file in `less`
 - `Ctrl+k`: open command palette
+- Command palette `Search Codebase`: open live repository search
+- Command palette `Show Git File Heatmap`: scan git history on demand and show file hotspots
 - Command palette `Open Commit Picker`: switch the active diff source to a recent commit
 - Command palette `Open Review Picker`: switch the active review context
 - Command palette `Create Review`: create a new review context and switch to it
+- `M`: open the git file heatmap
+- Heatmap `s`: cycle sort by churn, added, removed, commits, net growth, net shrink, volatility, or path
+- Heatmap `S`: reverse the active heatmap sort
 - `Ctrl+f`: focus files filter input
 - `?`: open in-app docs/help overlay
+
+### Split diff layout
+
+- `V`: toggle split diff mode
+- `S`: toggle side-by-side diff layout
+- `Tab`: switch active diff pane
+- Added and removed lines use tinted backgrounds to make changed regions easier to scan
 
 ## A realistic first session
 
