@@ -20,9 +20,9 @@ use super::{
     INLINE_FILE_MENTION_MAX_CANDIDATES, INLINE_FILE_MENTION_MAX_VISIBLE_ROWS, InlineCommentState,
     InlineDraftMode, InlineFileMentionState, MOUSE_WHEEL_FILE_SCROLL_FILES,
     MOUSE_WHEEL_SCROLL_LINES, PendingUiAction, ReplyTarget, SettingsEditorKind,
-    SettingsEditorState, TextBuffer, ThreadAnchor, TuiApp, comment_matches_display_row,
-    format_comment_reference, format_line_range_reference, format_line_reference, insert_char_at,
-    point_in_rect, remove_char_at,
+    SettingsEditorState, TextBuffer, ThreadAnchor, TuiApp, comment_line_range_contains_display_row,
+    comment_matches_display_row, format_comment_reference, format_line_range_reference,
+    format_line_reference, insert_char_at, point_in_rect, remove_char_at,
 };
 
 mod code_search;
@@ -490,6 +490,123 @@ mod tests {
 
         assert!(app.code_search.is_some());
         assert_eq!(app.status_line, "code search opened");
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn shift_v_starts_line_range_selection_without_toggling_split() -> Result<()> {
+        let mut app = make_test_app(vec!["src/a.rs"])?;
+        let service = make_test_service()?;
+
+        app.handle_key(
+            KeyEvent::new(KeyCode::Char('V'), KeyModifiers::SHIFT),
+            &service,
+        )
+        .await?;
+
+        assert!(!app.split_diff_view);
+        assert_eq!(
+            app.comment_selection_row_range_for_pane(DiffPane::Primary),
+            Some((0, 0))
+        );
+        assert_eq!(app.status_line, "line range selection started");
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn ctrl_v_toggles_split_without_starting_line_range_selection() -> Result<()> {
+        let mut app = make_test_app(vec!["src/a.rs"])?;
+        let service = make_test_service()?;
+
+        app.handle_key(
+            KeyEvent::new(KeyCode::Char('v'), KeyModifiers::CONTROL),
+            &service,
+        )
+        .await?;
+
+        assert!(app.split_diff_view);
+        assert_eq!(
+            app.comment_selection_row_range_for_pane(DiffPane::Primary),
+            None
+        );
+        assert_eq!(app.status_line, "split diff enabled");
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn creating_comment_from_line_range_places_box_at_range_end_and_persists_range()
+    -> Result<()> {
+        let tempdir = tempdir()?;
+        let service = ReviewService::new(Store::from_project_root(tempdir.path()));
+        service.create_review("test-review").await?;
+        let review = service.load_review("test-review").await?;
+        let mut app = make_test_app_with_review_and_files(
+            review,
+            vec![diff_file_with_lines(
+                "src/a.rs",
+                &[(10, "fn ten() {}"), (11, "fn eleven() {}")],
+            )],
+        )?;
+        app.ensure_row_cache();
+        app.set_active_line_index(1);
+
+        app.handle_key(
+            KeyEvent::new(KeyCode::Char('V'), KeyModifiers::SHIFT),
+            &service,
+        )
+        .await?;
+        app.handle_key(KeyEvent::new(KeyCode::Down, KeyModifiers::NONE), &service)
+            .await?;
+        app.handle_key(
+            KeyEvent::new(KeyCode::Char('c'), KeyModifiers::NONE),
+            &service,
+        )
+        .await?;
+
+        let inline = app
+            .inline_comment
+            .as_mut()
+            .ok_or_else(|| anyhow!("inline comment should exist"))?;
+        assert_eq!(inline.row_index, 2);
+        let InlineDraftMode::Comment(target) = &inline.mode else {
+            return Err(anyhow!("draft should be a comment"));
+        };
+        assert_eq!(target.new_line, Some(10));
+        assert_eq!(
+            target.line_range,
+            Some(CommentLineRange {
+                start_old_line: Some(10),
+                start_new_line: Some(10),
+                end_old_line: Some(11),
+                end_new_line: Some(11),
+            })
+        );
+        inline.buffer = text_buffer_with_line("range comment");
+
+        app.handle_inline_comment_key(
+            KeyEvent::new(KeyCode::Char('s'), KeyModifiers::CONTROL),
+            &service,
+        )
+        .await?;
+
+        let updated = service.load_review("test-review").await?;
+        let comment = updated
+            .comments
+            .first()
+            .ok_or_else(|| anyhow!("saved comment should exist"))?;
+        assert_eq!(
+            comment.line_range,
+            Some(CommentLineRange {
+                start_old_line: Some(10),
+                start_new_line: Some(10),
+                end_old_line: Some(11),
+                end_new_line: Some(11),
+            })
+        );
+        assert!(
+            app.comment_selection_row_range_for_pane(DiffPane::Primary)
+                .is_none()
+        );
         Ok(())
     }
 

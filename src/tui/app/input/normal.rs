@@ -58,21 +58,17 @@ impl TuiApp {
                 self.scroll_active_pane_page(true, false);
                 self.status_line = "paged down".into();
             }
-            KeyCode::Char('V') if key.modifiers.contains(KeyModifiers::SHIFT) => {
-                self.ensure_row_cache();
-                self.toggle_comment_line_selection();
-            }
-            KeyCode::Char('v') => {
-                self.ensure_row_cache();
-                self.toggle_comment_line_selection();
-            }
-            KeyCode::Char('V') => {
+            KeyCode::Char('v' | 'V') if key.modifiers.contains(KeyModifiers::CONTROL) => {
                 self.toggle_split_diff_view();
                 self.status_line = if self.split_diff_view {
                     "split diff enabled".into()
                 } else {
                     "split diff disabled".into()
                 };
+            }
+            KeyCode::Char('v' | 'V') => {
+                self.ensure_row_cache();
+                self.toggle_comment_line_selection();
             }
             KeyCode::Char('S') => {
                 self.side_by_side_diff = !self.side_by_side_diff;

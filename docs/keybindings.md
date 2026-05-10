@@ -23,6 +23,8 @@
 ## Threads
 
 - `m` or `c`: create thread on selected line
+- `v` or `V`: start or clear visual line selection for a range comment
+- With visual line selection active, move with `j/k` or arrows, then press `m` or `c` to open the comment box at the bottom of the selected range
 - `r`: reply to selected thread
 - `N/P`: next/previous thread
 - `[/]`: previous/next selected thread in file
@@ -83,7 +85,8 @@
 - Heatmap color follows the active sort metric
 - `Ctrl+f`: file filter input
 - `Shift+U`: edit user name
-- `V`: toggle split diff
+- `Ctrl+v`: toggle split diff
+- Command palette `Toggle Split Diff View`: toggle split diff without using the visual-selection key
 - `S`: toggle side-by-side diff
 - `Tab`: switch active diff pane
 - `</>`: resize files pane

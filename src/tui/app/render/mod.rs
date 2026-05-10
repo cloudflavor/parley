@@ -539,9 +539,9 @@ mod tests {
             inline_comment_editor_area(area).ok_or_else(|| anyhow!("editor should fit"))?;
 
         assert_eq!(editor.x, 11);
-        assert_eq!(editor.width, 68);
-        assert_eq!(editor.height, 10);
-        assert_eq!(editor.y, 23);
+        assert_eq!(editor.width, 88);
+        assert_eq!(editor.height, 12);
+        assert_eq!(editor.y, 21);
         Ok(())
     }
 

@@ -350,7 +350,10 @@ impl TuiApp {
         let matches: Vec<(usize, &LineComment)> = comments
             .into_iter()
             .enumerate()
-            .filter(|(_, comment)| comment_matches_display_row(comment, row))
+            .filter(|(_, comment)| {
+                comment_matches_display_row(comment, row)
+                    || comment_line_range_contains_display_row(comment, row)
+            })
             .collect();
         if matches.is_empty() {
             return None;

@@ -22,8 +22,8 @@ use super::{
 };
 
 use super::super::helpers::{
-    comment_matches_display_row, format_comment_reference, format_line_range_reference,
-    format_timestamp_utc,
+    comment_line_range_contains_display_row, comment_matches_display_row, format_comment_reference,
+    format_line_range_reference, format_timestamp_utc,
 };
 use super::helpers::{
     compact_preview, compute_compact_thread_content_width, compute_thread_inner_width,
@@ -165,7 +165,10 @@ pub(super) fn draw_diff_view_for_pane(
             };
             let is_selected = index == selected_line
                 || selected_row_range
-                    .is_some_and(|(start, end)| is_active && index >= start && index <= end);
+                    .is_some_and(|(start, end)| is_active && index >= start && index <= end)
+                || file_comments
+                    .iter()
+                    .any(|comment| comment_line_range_contains_display_row(comment, row));
             let rendered = if effective_side_by_side_diff
                 && matches!(
                     row.kind,
@@ -1114,8 +1117,8 @@ pub(super) fn inline_comment_editor_area(area: Rect) -> Option<Rect> {
         return None;
     }
 
-    let editor_width = available_width.min(68);
-    let editor_height = available_height.min(10);
+    let editor_width = available_width.min(88);
+    let editor_height = available_height.min(12);
 
     Some(Rect {
         x: area.x.saturating_add(1),

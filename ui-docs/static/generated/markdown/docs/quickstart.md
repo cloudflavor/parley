@@ -218,6 +218,8 @@ Mode-specific paths take precedence over `prompt_path`. Relative paths are resol
 ### Threads
 
 - `m` or `c`: create thread on selected line
+- `v` or `V`: start or clear visual line selection
+- With visual line selection active, move to the end of the range and press `m` or `c` to open the comment box at the bottom of that range
 - `r`: reply to selected thread
 - `N/P`: jump next or previous thread
 - `[/]`: select previous or next thread in current file
@@ -278,7 +280,8 @@ Review state mostly follows thread state:
 
 ### Split diff layout
 
-- `V`: toggle split diff mode
+- `Ctrl+v`: toggle split diff mode
+- Command palette `Toggle Split Diff View`: toggle split diff from the command list
 - `S`: toggle side-by-side diff layout
 - `Tab`: switch active diff pane
 - Added and removed lines use tinted backgrounds to make changed regions easier to scan

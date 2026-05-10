@@ -8,7 +8,8 @@ use super::provider::{
 use crate::domain::ai::AiSessionMode;
 use crate::domain::diff::{DiffFile, DiffHunk, DiffLine, DiffLineKind};
 use crate::domain::review::{
-    Author, CommentReply, CommentStatus, DiffSide, LineComment, ReviewSession, ReviewState,
+    Author, CommentLineRange, CommentReply, CommentStatus, DiffSide, LineComment, ReviewSession,
+    ReviewState,
 };
 use anyhow::{Result, anyhow};
 
@@ -145,6 +146,48 @@ async fn thread_prompt_uses_custom_task_prompt_when_provided() -> anyhow::Result
     assert!(!prompt.contains("Provide a concise markdown reply only"));
     assert!(prompt.contains("Output contract:"));
     assert!(prompt.contains("Maximum 120 words."));
+    Ok(())
+}
+
+#[tokio::test]
+async fn thread_prompt_includes_selected_line_range_for_ai_context() -> anyhow::Result<()> {
+    let review = ReviewSession {
+        name: "review".into(),
+        state: ReviewState::Open,
+        created_at_ms: 0,
+        updated_at_ms: 0,
+        done_at_ms: None,
+        comments: vec![LineComment {
+            id: 7,
+            file_path: "src/lib.rs".into(),
+            old_line: Some(10),
+            new_line: Some(10),
+            line_range: Some(CommentLineRange {
+                start_old_line: Some(10),
+                start_new_line: Some(10),
+                end_old_line: Some(12),
+                end_new_line: Some(12),
+            }),
+            side: DiffSide::Right,
+            line_anchor: None,
+            detached: false,
+            body: "handle this whole block".into(),
+            author: Author::User,
+            status: CommentStatus::Open,
+            replies: Vec::new(),
+            created_at_ms: 0,
+            updated_at_ms: 0,
+            addressed_at_ms: None,
+        }],
+        next_comment_id: 8,
+        next_reply_id: 1,
+    };
+
+    let prompt =
+        build_thread_prompt("review", 7, &review, None, AiSessionMode::Refactor, None).await?;
+
+    assert!(prompt.contains("Selected line range: 10-12:10-12"));
+    assert!(prompt.contains("- thread anchor: src/lib.rs:10"));
     Ok(())
 }
 

@@ -31,6 +31,10 @@ pub(super) fn comment_matches_display_row(comment: &LineComment, row: &DisplayRo
         return false;
     }
 
+    if let Some(range) = comment.line_range.as_ref() {
+        return comment_line_range_end_matches_display_row(range, row);
+    }
+
     match (comment.old_line, comment.new_line) {
         (Some(old), Some(new)) => row.old_line == Some(old) && row.new_line == Some(new),
         (Some(old), None) => {
@@ -49,6 +53,40 @@ pub(super) fn comment_matches_display_row(comment: &LineComment, row: &DisplayRo
         }
         (None, None) => false,
     }
+}
+
+pub(super) fn comment_line_range_contains_display_row(
+    comment: &LineComment,
+    row: &DisplayRow,
+) -> bool {
+    if comment.detached {
+        return false;
+    }
+    let Some(range) = comment.line_range.as_ref() else {
+        return false;
+    };
+    line_in_optional_range(row.old_line, range.start_old_line, range.end_old_line)
+        || line_in_optional_range(row.new_line, range.start_new_line, range.end_new_line)
+}
+
+fn comment_line_range_end_matches_display_row(range: &CommentLineRange, row: &DisplayRow) -> bool {
+    range
+        .end_old_line
+        .is_some_and(|line| row.old_line == Some(line))
+        || range
+            .end_new_line
+            .is_some_and(|line| row.new_line == Some(line))
+}
+
+fn line_in_optional_range(line: Option<u32>, start: Option<u32>, end: Option<u32>) -> bool {
+    let Some(line) = line else {
+        return false;
+    };
+    let Some(start) = start else {
+        return false;
+    };
+    let end = end.unwrap_or(start);
+    line >= start.min(end) && line <= start.max(end)
 }
 
 pub(super) fn format_line_reference(old_line: Option<u32>, new_line: Option<u32>) -> String {
