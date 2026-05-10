@@ -168,15 +168,74 @@ Comments and AI logs are intentionally separate. Comments remain durable review 
 Parley prefers persistent agent transports over one-shot CLI prompt execution:
 
 - `opencode`: ACP via `opencode acp`
-- `codex`: ACP via a configured Codex ACP adapter
-- `claude`: ACP via a configured Claude ACP adapter
-- `pi`: persistent JSONL RPC via `pi --mode rpc --no-session`
+- `codex`: ACP via `codex-acp`
+- `claude`: ACP via `claude-agent-acp`
+- `pi`: persistent JSONL RPC via `pi --mode rpc --no-session`, not ACP
 
 Provider config still supports `transport = "cli"` as an explicit fallback. ACP agents stream `session/update` events into the per-file AI logs, and final thread replies are built from agent message chunks rather than thought chunks.
 
 If an older config points ACP transport at a one-shot CLI command such as `codex exec`, `claude -p`, or `opencode run`, Parley rejects the run before spawning the process and shows the config error in the AI logs. Configure an ACP-capable command such as `codex-acp`, `claude-agent-acp`, or `opencode acp`, or set `transport = "cli"` when one-shot CLI mode is intentional.
 
 Use `i` in the TUI to cycle the active AI provider. The active provider is shown in the status panel.
+
+### `.parley/config.toml` AI provider config
+
+Parley reads project-local config from `.parley/config.toml`. If the file is missing, these AI defaults are used:
+
+```toml
+[ai]
+timeout_seconds = 120
+default_provider = "opencode"
+
+[ai.codex]
+transport = "acp"
+client = "codex-acp"
+args = []
+
+[ai.claude]
+transport = "acp"
+client = "claude-agent-acp"
+args = []
+
+[ai.opencode]
+transport = "acp"
+client = "opencode"
+args = ["acp"]
+model_arg = "-m"
+
+[ai.pi]
+transport = "pi_rpc"
+client = "pi"
+args = ["--mode", "rpc", "--no-session"]
+```
+
+Use CLI transport only for explicit one-shot command mode:
+
+```toml
+[ai.codex]
+transport = "cli"
+client = "codex"
+args = ["exec"]
+
+[ai.claude]
+transport = "cli"
+client = "claude"
+args = ["-p"]
+
+[ai.opencode]
+transport = "cli"
+client = "opencode"
+args = ["run"]
+```
+
+Custom prompt templates can be configured globally or per AI mode:
+
+```toml
+[ai]
+prompt_path = "prompts/ai.md"
+reply_prompt_path = "prompts/reply.md"
+refactor_prompt_path = "prompts/refactor.md"
+```
 
 ## Local state and diff filtering
 

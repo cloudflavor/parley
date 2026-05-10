@@ -279,7 +279,45 @@ Review state mostly follows thread state:
 - `Ctrl+f`: focus files filter input
 - `?`: open in-app docs/help overlay
 
-By default, agent providers use persistent transports instead of spawning a one-shot CLI prompt for every thread. OpenCode uses ACP with `opencode acp`, Codex uses `codex-acp`, Claude uses `claude-agent-acp`, and Pi uses `pi --mode rpc --no-session`. Set a provider's `transport = "cli"` in `.parley/config.toml` only when you explicitly need the old one-shot behavior. If ACP is configured with a non-ACP command such as `codex exec` or `opencode run`, Parley fails fast and shows the config error in the AI logs.
+By default, agent providers use persistent transports instead of spawning a one-shot CLI prompt for every thread. OpenCode uses ACP with `opencode acp`, Codex uses `codex-acp`, Claude uses `claude-agent-acp`, and Pi uses `pi --mode rpc --no-session`. Pi is RPC, not ACP. Set a provider's `transport = "cli"` in `.parley/config.toml` only when you explicitly need the old one-shot behavior. If ACP is configured with a non-ACP command such as `codex exec` or `opencode run`, Parley fails fast and shows the config error in the AI logs.
+
+The default `.parley/config.toml` AI shape is:
+
+```toml
+[ai]
+timeout_seconds = 120
+default_provider = "opencode"
+
+[ai.codex]
+transport = "acp"
+client = "codex-acp"
+args = []
+
+[ai.claude]
+transport = "acp"
+client = "claude-agent-acp"
+args = []
+
+[ai.opencode]
+transport = "acp"
+client = "opencode"
+args = ["acp"]
+model_arg = "-m"
+
+[ai.pi]
+transport = "pi_rpc"
+client = "pi"
+args = ["--mode", "rpc", "--no-session"]
+```
+
+For one-shot CLI mode, configure the provider explicitly:
+
+```toml
+[ai.codex]
+transport = "cli"
+client = "codex"
+args = ["exec"]
+```
 
 Parley stores AI output as per-file session logs in memory while the TUI is open. Starting an AI run opens/follows the current file logs. `H` shows transcripts for the current file, and `L` shows a global activity index for running and recent sessions. Review comments are separate durable state; AI output is added to a thread only when the AI review flow persists a reply.
 
