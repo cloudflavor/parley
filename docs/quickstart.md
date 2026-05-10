@@ -25,7 +25,7 @@ The review session is the structured review state Parley keeps locally:
 - named reviews such as `my-review`
 - line-anchored comment threads
 - thread statuses: `open`, `pending`, `addressed`
-- review states: `open`, `under_review`, `done`
+- review state exists for compatibility, but TUI completion is thread-based
 
 That matters because comments are not just free-form notes. Each thread is attached to a file path and line reference, and replies update the parent thread status.
 
@@ -115,7 +115,7 @@ Use root mode when you want to review the repository as files, not as a git diff
 
 Root mode includes tracked files and untracked files that are not ignored by gitignore rules. It skips `.git/`, `.parley/`, and `worktrees/`. Each file is displayed as context lines, so comments attach to the file's current line numbers.
 
-Startup in root mode lazy-loads file content. The file tree appears first, load progress is shown while data hydrates, and individual files load when selected or opened from search.
+Startup in root mode lazy-loads file content. The file tree appears first, load progress is shown while data hydrates, and individual files load when selected or opened from search. JSON files are pretty-printed for display, and Markdown files are rendered into readable text rows.
 
 ## The core workflow
 
@@ -126,7 +126,7 @@ Think of the normal flow like this:
 3. Create a thread on that line.
 4. Reply until the issue is resolved.
 5. Mark the thread addressed.
-6. When nothing unresolved remains, move the review to `done`.
+6. When each issue is resolved, mark its thread addressed.
 
 ### Example: review one issue end to end
 
@@ -160,7 +160,7 @@ Only the original commenter can normally change a thread to `open`, `pending`, o
 
 ### Example: use AI on a thread
 
-- `x` runs AI refactor on the selected `open` thread
+- `x` runs AI refactor on the selected unresolved thread
 - `X` runs AI reply on the selected thread
 - `A` runs AI refactor across all eligible threads in the review
 
@@ -172,7 +172,7 @@ Typical pattern:
 4. Because AI is a different author, the thread becomes `pending`.
 5. You inspect the code changes and either reopen the thread or mark it addressed.
 
-If the review is already `done`, AI runs are skipped.
+Starting an AI run opens and follows the current file's AI logs so provider startup/config errors and stream output are visible.
 
 ### Customize AI task prompts
 
@@ -248,22 +248,19 @@ Mode-specific paths take precedence over `prompt_path`. Relative paths are resol
 
 - `s`: set review `open`
 - `w`: set review `under_review`
-- `d`: set review `done` (blocked if unresolved threads exist)
-- `Shift+D`: force set review `done`
 
 Review state mostly follows thread state:
 
 - any `open` thread means the review is `open`
 - no `open` threads means the review is `under_review`
-- `done` is explicit and guarded
-
-`done` is blocked while unresolved threads remain. In practice, that means both `open` and `pending` threads prevent a normal transition to `done`.
+- thread `addressed` is the completion signal used in the TUI
 
 ### AI and tools
 
 - `x`: AI refactor selected thread
 - `X`: AI reply selected thread
 - `A`: AI refactor full review
+- `i`: cycle AI provider (`codex`, `claude`, `opencode`, `pi`)
 - `K`: cancel current AI run
 - `H`: toggle per-file AI logs popup
 - `L`: toggle the global AI activity pane
@@ -284,7 +281,7 @@ Review state mostly follows thread state:
 
 By default, agent providers use persistent transports instead of spawning a one-shot CLI prompt for every thread. OpenCode uses ACP with `opencode acp`, Codex and Claude use configured ACP adapters, and Pi uses `pi --mode rpc --no-session`. Set a provider's `transport = "cli"` in `.parley/config.toml` only when you explicitly need the old one-shot behavior.
 
-Parley stores AI output as per-file session logs in memory while the TUI is open. `H` shows transcripts for the current file, and `L` shows a global activity index for running and recent sessions. Review comments are separate durable state; AI output is added to a thread only when the AI review flow persists a reply.
+Parley stores AI output as per-file session logs in memory while the TUI is open. Starting an AI run opens/follows the current file logs. `H` shows transcripts for the current file, and `L` shows a global activity index for running and recent sessions. Review comments are separate durable state; AI output is added to a thread only when the AI review flow persists a reply.
 
 The thread selector is separate from the per-file thread navigator. `Ctrl+t` searches all threads in the active review and jumps to the selected file/thread with `Enter`. In root mode, comments whose original anchor text no longer matches are still displayed at their stored line reference so pending threads do not disappear after refactors.
 
@@ -347,10 +344,8 @@ ignore_parley_dir = false
 
 ### Which status to set before AI
 
-- For `refactor` (`x` or `A`): thread must be `open`.
-- For `reply` (`X`): thread should be `open` or `pending`.
-- If review is `done`, AI runs are skipped.
-- Use explicit thread selection from MCP if you need reply mode on an `addressed` thread.
+- For review-wide `refactor` (`A`): target threads must be `open` or `pending`.
+- For selected-thread AI (`x` or `X`): the selected thread is sent unless it is `addressed`.
 
 ## Refresh after edits
 

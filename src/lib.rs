@@ -210,14 +210,6 @@ async fn handle_review_command(command: ReviewCommand, service: &ReviewService) 
             service.mark_open(&name, comment_id, author.0).await?;
             println!("comment #{comment_id} marked open");
         }
-        ReviewCommand::Done { name } => {
-            service.set_state(&name, ReviewState::Done).await?;
-            println!("review {name} marked done");
-        }
-        ReviewCommand::Resolve { name } => {
-            service.set_state(&name, ReviewState::Done).await?;
-            println!("review {name} resolved");
-        }
         ReviewCommand::RunAiSession {
             name,
             provider,

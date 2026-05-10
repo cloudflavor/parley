@@ -31,13 +31,9 @@ Review state is reconciled from thread statuses:
 
 - if any thread is `open`, review is `open`
 - else if no thread is `open`, review is `under_review`
-- `done` is explicit and guarded
+- TUI completion is handled per thread with `addressed`.
 
-`done` guard:
-
-- normal set to `done` fails when unresolved threads (`open` or `pending`) exist
-- force done bypasses this check
-- if new unresolved activity appears after `done`, review auto-reopens to `open`
+Review-level completion is not exposed by the TUI. Thread `addressed` is the completion signal.
 
 ## 4. Threading practice
 
@@ -58,23 +54,19 @@ Example:
 
 ## 6. AI eligibility matrix (what status to use before sending to AI)
 
-Global precondition:
-
-- review must not be `done` (AI session is skipped otherwise)
-
 ### Mode = `refactor`
 
 - No explicit `comment_ids` (auto-target):
   - processed: `open`
   - skipped: `pending`, `addressed`
 - Explicit `comment_ids`:
-  - processed: `open`
-  - skipped: `pending`, `addressed`
+  - processed: any selected status
+  - skipped by status filter: none
 
 What this means:
 
-- set thread to `open` before running AI refactor
-- `pending` or `addressed` threads will not be processed in refactor mode
+- review-wide AI refactor selects `open` and `pending` threads by default
+- explicit selected-thread refactor targets the selected thread unless it is `addressed`
 
 ### Mode = `reply`
 
@@ -88,7 +80,7 @@ What this means:
 What this means:
 
 - for normal reply runs, use `open` or `pending`
-- explicit thread targeting can still send an `addressed` thread to AI reply mode
+- explicit selected-thread reply targets the selected thread unless it is `addressed`
 
 ## 7. Post-AI behavior
 
@@ -128,7 +120,7 @@ Use `parley tui --review <name> --root` to review the current repository root wi
 
 Root-directory review mode loads tracked files plus untracked files that are not ignored by gitignore rules. It skips `.git`, `.parley`, and `worktrees/` directories. Each file is shown as context lines so comments can attach to the current file line numbers.
 
-Root-directory review mode lazy-loads file content for startup performance. The TUI shows the file tree first, shows progress while file data loads, and opens file content when selected or when code search jumps to a match.
+Root-directory review mode lazy-loads file content for startup performance. The TUI shows the file tree first, shows progress while file data loads, and opens file content when selected or when code search jumps to a match. JSON files are pretty-printed for display, and Markdown files are rendered into readable text rows.
 
 ## 11. Searching and hotspot review
 

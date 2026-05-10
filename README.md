@@ -10,7 +10,7 @@ Primary docs site: [https://parley.cloudflavor.io](https://parley.cloudflavor.io
 
 - Review threads are anchored to specific diff lines, not loose notes.
 - Thread status is explicit: `open`, `pending`, `addressed`.
-- Review state is explicit: `open`, `under_review`, `done`.
+- Review state exists for compatibility, but TUI completion is thread-based.
 - TUI workflow is keyboard-first and optimized for rapid navigation.
 - AI operations integrate into the same thread model instead of bypassing review state.
 
@@ -32,10 +32,9 @@ Parley separates:
 
 ### Review lifecycle
 
-- Any `open` thread -> review is `open`
-- No `open` threads -> review is `under_review`
-- `done` is explicit and guarded
-- Normal `done` transition is blocked while unresolved threads exist (`open` or `pending`)
+- Any `open` thread keeps review work active.
+- `pending` means waiting for human review.
+- `addressed` means the individual thread is resolved.
 
 ## Installation and Build
 
@@ -96,6 +95,14 @@ parley tui --review my-review --base HEAD~2 --head HEAD
 parley tui --review my-review --base HEAD~2^ --head HEAD
 ```
 
+Review the repository root as files instead of a git diff:
+
+```bash
+parley tui --review my-review --root
+```
+
+Root mode lazy-loads file contents. JSON files are displayed with pretty formatting, and Markdown files are rendered into readable text rows.
+
 ## CLI Reference
 
 Top-level commands:
@@ -110,13 +117,12 @@ Common `review` subcommands:
 - `start <name>`
 - `list`
 - `show <name> [--json]`
-- `set-state <name> <open|under_review|done>`
+- `set-state <name> <open|under_review>`
 - `add-comment ...`
 - `add-reply ...`
 - `mark-addressed ...`
 - `mark-open ...`
 - `run-ai-session ...`
-- `done <name>`
 - `resolve <name>`
 
 ## TUI Workflow and Key Controls
@@ -134,8 +140,7 @@ Review state actions:
 
 - `s`: set `open`
 - `w`: set `under_review`
-- `d`: set `done` (guarded)
-- `Shift+D`: force set `done`
+- Thread completion is handled with `a`/`o`.
 
 AI actions:
 
@@ -143,6 +148,8 @@ AI actions:
 - `X`: AI reply selected thread
 - `A`: AI refactor review
 - `K`: cancel active AI run
+- `H`: per-file AI logs
+- `L`: global AI activity/session list
 
 Useful navigation:
 
@@ -167,10 +174,10 @@ Modes:
 
 Eligibility summary:
 
-- If review state is `done`, AI session is skipped.
-- `refactor` targets `open` threads.
+- `refactor` targets `open` and `pending` threads.
 - `reply` targets `open` and `pending` by default.
-- Explicit `comment_ids` can override default reply-mode filtering behavior.
+- Explicit selected-thread AI actions target the selected thread regardless of status.
+- Provider startup/config errors and stderr are surfaced in the per-file AI logs popup.
 
 ## MCP Integration
 

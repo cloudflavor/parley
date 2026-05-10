@@ -142,22 +142,6 @@ impl ReviewService {
 
     /// # Errors
     ///
-    /// Returns an error when the review cannot be loaded, the clock is invalid, or the updated
-    /// review cannot be saved.
-    pub async fn set_state_force(&self, name: &str, next: ReviewState) -> Result<ReviewSession> {
-        let mut session = self.load_review(name).await?;
-        session
-            .set_state_force(next, now_ms()?)
-            .map_err(|error| anyhow!(error))?;
-        self.store
-            .save_review(&session)
-            .await
-            .context("failed to save forced state change")?;
-        Ok(session)
-    }
-
-    /// # Errors
-    ///
     /// Returns an error when the review cannot be loaded, the clock is invalid, or the new comment
     /// cannot be persisted.
     pub async fn add_comment(&self, name: &str, input: AddCommentInput) -> Result<ReviewSession> {

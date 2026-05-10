@@ -2,12 +2,14 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::process::Stdio;
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, anyhow};
 use serde_json::{Value, json};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, ChildStdin, Command};
 use tokio::sync::{Mutex, OnceCell, mpsc};
+use tokio::time::timeout;
 use tracing::{info, warn};
 
 use crate::domain::ai::{AiProvider, AiSessionMode};
@@ -21,6 +23,8 @@ use crate::services::ai_session::progress::emit_progress;
 type SharedAcpClient = Arc<Mutex<AcpClient>>;
 
 static ACP_CLIENTS: OnceCell<Mutex<HashMap<String, SharedAcpClient>>> = OnceCell::const_new();
+const ACP_REQUEST_TIMEOUT: Duration = Duration::from_secs(20);
+const ACP_PROGRESS_HEARTBEAT: Duration = Duration::from_secs(5);
 
 struct AcpClient {
     provider: AiProvider,
@@ -37,9 +41,10 @@ pub(super) async fn invoke_acp_provider(
     provider_cfg: &AiProviderConfig,
     mode: AiSessionMode,
     prompt: &str,
+    timeout_seconds: u64,
     progress_sender: Option<mpsc::UnboundedSender<AiProgressEvent>>,
 ) -> Result<ProviderInvocation> {
-    let client = client_for(provider, provider_cfg).await?;
+    let client = client_for(provider, provider_cfg, progress_sender.as_ref()).await?;
     let mut client = client.lock().await;
     client
         .ensure_initialized(progress_sender.as_ref())
@@ -50,13 +55,20 @@ pub(super) async fn invoke_acp_provider(
         .await
         .context("failed to create ACP session")?;
     client
-        .prompt(&session_id, mode, prompt, progress_sender.as_ref())
+        .prompt(
+            &session_id,
+            mode,
+            prompt,
+            Duration::from_secs(timeout_seconds),
+            progress_sender.as_ref(),
+        )
         .await
 }
 
 async fn client_for(
     provider: AiProvider,
     provider_cfg: &AiProviderConfig,
+    progress_sender: Option<&mpsc::UnboundedSender<AiProgressEvent>>,
 ) -> Result<SharedAcpClient> {
     if provider_cfg.client.trim().is_empty() {
         return Err(anyhow!(
@@ -80,7 +92,7 @@ async fn client_for(
         return Ok(client.clone());
     }
     let client = Arc::new(Mutex::new(
-        AcpClient::spawn(provider, provider_cfg, cwd).await?,
+        AcpClient::spawn(provider, provider_cfg, cwd, progress_sender).await?,
     ));
     clients.insert(key, client.clone());
     Ok(client)
@@ -91,7 +103,18 @@ impl AcpClient {
         provider: AiProvider,
         provider_cfg: &AiProviderConfig,
         cwd: PathBuf,
+        progress_sender: Option<&mpsc::UnboundedSender<AiProgressEvent>>,
     ) -> Result<Self> {
+        emit_progress(
+            progress_sender,
+            provider,
+            "system",
+            format!(
+                "starting ACP client: {} {}",
+                provider_cfg.client,
+                provider_cfg.args.join(" ")
+            ),
+        );
         let mut command = Command::new(&provider_cfg.client);
         command.args(&provider_cfg.args);
         command.current_dir(&cwd);
@@ -102,6 +125,12 @@ impl AcpClient {
         let mut child = command
             .spawn()
             .with_context(|| format!("failed to start ACP client '{}'", provider_cfg.client))?;
+        emit_progress(
+            progress_sender,
+            provider,
+            "system",
+            format!("ACP process spawned pid={:?}", child.id()),
+        );
         let stdin = child
             .stdin
             .take()
@@ -111,14 +140,17 @@ impl AcpClient {
             .take()
             .ok_or_else(|| anyhow!("ACP client stdout unavailable"))?;
         if let Some(stderr) = child.stderr.take() {
+            let progress_sender = progress_sender.cloned();
             tokio::spawn(async move {
                 let mut lines = BufReader::new(stderr).lines();
                 while let Ok(Some(line)) = lines.next_line().await {
                     info!(provider = %provider.as_str(), stream = "stderr", payload = %line, "acp_stream");
+                    emit_progress(progress_sender.as_ref(), provider, "stderr", line);
                 }
             });
         }
         let (tx, rx) = mpsc::unbounded_channel();
+        let parse_progress_sender = progress_sender.cloned();
         tokio::spawn(async move {
             let mut lines = BufReader::new(stdout).lines();
             while let Ok(Some(line)) = lines.next_line().await {
@@ -127,13 +159,31 @@ impl AcpClient {
                 }
                 match serde_json::from_str::<Value>(&line) {
                     Ok(value) => {
+                        emit_progress(
+                            parse_progress_sender.as_ref(),
+                            provider,
+                            "acp",
+                            format!("<- {}", compact_json_for_log(&value)),
+                        );
                         let _ = tx.send(value);
                     }
                     Err(error) => {
                         warn!(error = %error, payload = %line, "failed to parse ACP stdout JSON");
+                        emit_progress(
+                            parse_progress_sender.as_ref(),
+                            provider,
+                            "stderr",
+                            format!("ACP stdout was not JSON: {line}"),
+                        );
                     }
                 }
             }
+            emit_progress(
+                parse_progress_sender.as_ref(),
+                provider,
+                "system",
+                "ACP stdout closed",
+            );
         });
         Ok(Self {
             provider,
@@ -153,6 +203,12 @@ impl AcpClient {
         if self.initialized {
             return Ok(());
         }
+        emit_progress(
+            progress_sender,
+            self.provider,
+            "system",
+            "ACP initialize started",
+        );
         let params = json!({
             "protocolVersion": 1,
             "clientCapabilities": {
@@ -195,6 +251,7 @@ impl AcpClient {
         session_id: &str,
         mode: AiSessionMode,
         prompt: &str,
+        full_timeout: Duration,
         progress_sender: Option<&mpsc::UnboundedSender<AiProgressEvent>>,
     ) -> Result<ProviderInvocation> {
         let id = self.next_request_id();
@@ -210,6 +267,12 @@ impl AcpClient {
                 }]
             }
         });
+        emit_progress(
+            progress_sender,
+            self.provider,
+            "acp",
+            format!("-> {}", compact_json_for_log(&request)),
+        );
         self.write_json(request).await?;
         emit_progress(
             progress_sender,
@@ -220,12 +283,38 @@ impl AcpClient {
 
         let mut reply = String::new();
         let mut model = None;
+        let started_at = Instant::now();
         loop {
-            let message = self
-                .rx
-                .recv()
-                .await
-                .ok_or_else(|| anyhow!("ACP client stdout closed"))?;
+            if started_at.elapsed() >= full_timeout {
+                return Err(anyhow!(
+                    "ACP prompt timed out after {}s",
+                    full_timeout.as_secs()
+                ));
+            }
+            let remaining = full_timeout.saturating_sub(started_at.elapsed());
+            let wait_for = remaining.min(ACP_PROGRESS_HEARTBEAT);
+            let message = match timeout(wait_for, self.rx.recv()).await {
+                Ok(Some(message)) => message,
+                Ok(None) => return Err(anyhow!("ACP client stdout closed")),
+                Err(_) => {
+                    emit_progress(
+                        progress_sender,
+                        self.provider,
+                        "system",
+                        format!(
+                            "waiting for ACP prompt response ({}s elapsed)",
+                            started_at.elapsed().as_secs()
+                        ),
+                    );
+                    continue;
+                }
+            };
+            emit_progress(
+                progress_sender,
+                self.provider,
+                "acp",
+                format!("<- {}", compact_json_for_log(&message)),
+            );
             if message.get("id").and_then(Value::as_u64) == Some(id) {
                 if let Some(error) = message.get("error") {
                     return Err(anyhow!("ACP prompt failed: {error}"));
@@ -257,19 +346,42 @@ impl AcpClient {
         progress_sender: Option<&mpsc::UnboundedSender<AiProgressEvent>>,
     ) -> Result<Value> {
         let id = self.next_request_id();
-        self.write_json(json!({
+        emit_progress(
+            progress_sender,
+            self.provider,
+            "system",
+            format!("ACP request started: {method}"),
+        );
+        let request = json!({
             "jsonrpc": "2.0",
             "id": id,
             "method": method,
             "params": params
-        }))
-        .await?;
+        });
+        emit_progress(
+            progress_sender,
+            self.provider,
+            "acp",
+            format!("-> {}", compact_json_for_log(&request)),
+        );
+        self.write_json(request).await?;
         loop {
-            let message = self
-                .rx
-                .recv()
-                .await
-                .ok_or_else(|| anyhow!("ACP client stdout closed"))?;
+            let message = match timeout(ACP_REQUEST_TIMEOUT, self.rx.recv()).await {
+                Ok(Some(message)) => message,
+                Ok(None) => return Err(anyhow!("ACP client stdout closed during {method}")),
+                Err(_) => {
+                    return Err(anyhow!(
+                        "ACP request {method} timed out after {}s",
+                        ACP_REQUEST_TIMEOUT.as_secs()
+                    ));
+                }
+            };
+            emit_progress(
+                progress_sender,
+                self.provider,
+                "acp",
+                format!("<- {}", compact_json_for_log(&message)),
+            );
             if message.get("id").and_then(Value::as_u64) == Some(id) {
                 if let Some(error) = message.get("error") {
                     return Err(anyhow!("ACP request {method} failed: {error}"));
@@ -377,6 +489,37 @@ fn extract_text(value: &Value) -> Option<String> {
             None
         }
         _ => None,
+    }
+}
+
+fn compact_json_for_log(value: &Value) -> String {
+    let mut redacted = value.clone();
+    redact_prompt_text(&mut redacted);
+    serde_json::to_string(&redacted).unwrap_or_else(|_| "<invalid json>".to_string())
+}
+
+fn redact_prompt_text(value: &mut Value) {
+    match value {
+        Value::Object(map) => {
+            let looks_like_prompt_item = map
+                .get("type")
+                .and_then(Value::as_str)
+                .is_some_and(|kind| kind == "text")
+                && map.contains_key("text");
+            if looks_like_prompt_item && let Some(Value::String(text)) = map.get_mut("text") {
+                let chars = text.chars().count();
+                *text = format!("<redacted prompt: {chars} chars>");
+            }
+            for nested in map.values_mut() {
+                redact_prompt_text(nested);
+            }
+        }
+        Value::Array(items) => {
+            for item in items {
+                redact_prompt_text(item);
+            }
+        }
+        _ => {}
     }
 }
 

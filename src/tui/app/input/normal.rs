@@ -322,34 +322,6 @@ impl TuiApp {
                     self.status_line = error.to_string();
                 }
             }
-            KeyCode::Char('d') => {
-                let unresolved_ids = self.unresolved_thread_ids();
-                if !unresolved_ids.is_empty() {
-                    self.status_line = format!(
-                        "done blocked: unresolved threads {}",
-                        format_unresolved_ids(&unresolved_ids)
-                    );
-                    self.constrain_selection();
-                    return Ok(());
-                }
-                if let Err(error) = self.set_state(service, ReviewState::Done).await {
-                    self.status_line = error.to_string();
-                }
-            }
-            KeyCode::Char('D') if key.modifiers.contains(KeyModifiers::SHIFT) => {
-                match service
-                    .set_state_force(&self.review_name, ReviewState::Done)
-                    .await
-                {
-                    Ok(_) => {
-                        self.reload_review(service).await?;
-                        self.status_line = "review force-marked done".into();
-                    }
-                    Err(error) => {
-                        self.status_line = format!("force done failed: {error}");
-                    }
-                }
-            }
             KeyCode::Char('R') => {
                 if let Err(error) = self.refresh_review_and_diff(service).await {
                     self.status_line = format!("refresh failed: {error}");

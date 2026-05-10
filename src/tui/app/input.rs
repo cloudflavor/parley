@@ -112,19 +112,6 @@ fn is_code_search_shortcut(key: KeyEvent) -> bool {
         || matches!(key.code, KeyCode::Char('\u{7}'))
 }
 
-fn format_unresolved_ids(ids: &[u64]) -> String {
-    const LIMIT: usize = 8;
-    let mut visible = ids
-        .iter()
-        .take(LIMIT)
-        .map(u64::to_string)
-        .collect::<Vec<_>>();
-    if ids.len() > LIMIT {
-        visible.push(format!("+{}", ids.len() - LIMIT));
-    }
-    visible.join(",")
-}
-
 #[cfg(test)]
 mod tests {
     use std::path::PathBuf;
@@ -801,7 +788,6 @@ mod tests {
             state: ReviewState::Open,
             created_at_ms: 0,
             updated_at_ms: 0,
-            done_at_ms: None,
             comments: Vec::new(),
             next_comment_id: 1,
             next_reply_id: 1,
@@ -818,7 +804,6 @@ mod tests {
             state: review.state,
             created_at_ms: review.created_at_ms,
             updated_at_ms: review.updated_at_ms,
-            done_at_ms: review.done_at_ms,
             comments: review.comments,
             next_comment_id: review.next_comment_id,
             next_reply_id: review.next_reply_id,

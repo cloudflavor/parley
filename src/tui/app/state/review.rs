@@ -127,7 +127,6 @@ impl TuiApp {
         match self.review.state {
             ReviewState::Open => 0,
             ReviewState::UnderReview => 1,
-            ReviewState::Done => 2,
         }
     }
 

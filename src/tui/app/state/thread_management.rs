@@ -100,15 +100,6 @@ impl TuiApp {
         );
     }
 
-    pub(crate) fn unresolved_thread_ids(&self) -> Vec<u64> {
-        self.review
-            .comments
-            .iter()
-            .filter(|comment| !matches!(comment.status, CommentStatus::Addressed))
-            .map(|comment| comment.id)
-            .collect()
-    }
-
     pub(crate) fn expanded_thread_ids_for_file(&self, file_path: &str) -> Vec<u64> {
         let mut ids = self
             .comments_for_file(file_path)

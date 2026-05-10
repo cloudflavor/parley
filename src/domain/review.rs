@@ -5,7 +5,6 @@ use serde::{Deserialize, Serialize};
 pub enum ReviewState {
     Open,
     UnderReview,
-    Done,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -83,7 +82,6 @@ pub struct ReviewSession {
     pub state: ReviewState,
     pub created_at_ms: u64,
     pub updated_at_ms: u64,
-    pub done_at_ms: Option<u64>,
     pub comments: Vec<LineComment>,
     pub next_comment_id: u64,
     pub next_reply_id: u64,
@@ -119,7 +117,6 @@ impl ReviewSession {
             state: ReviewState::Open,
             created_at_ms: now_ms,
             updated_at_ms: now_ms,
-            done_at_ms: None,
             comments: Vec::new(),
             next_comment_id: 1,
             next_reply_id: 1,
@@ -128,42 +125,8 @@ impl ReviewSession {
 
     /// # Errors
     ///
-    /// Returns an error when marking the review done while unresolved threads remain.
+    /// Currently does not fail, but returns `Result` to match other state-transition APIs.
     pub fn set_state(&mut self, next: ReviewState, now_ms: u64) -> Result<(), String> {
-        self.set_state_with_options(next, now_ms, false)
-    }
-
-    /// # Errors
-    ///
-    /// Currently does not fail, but returns `Result` to match the checked state transition API.
-    pub fn set_state_force(&mut self, next: ReviewState, now_ms: u64) -> Result<(), String> {
-        self.set_state_with_options(next, now_ms, true)
-    }
-
-    fn set_state_with_options(
-        &mut self,
-        next: ReviewState,
-        now_ms: u64,
-        force_done: bool,
-    ) -> Result<(), String> {
-        if matches!(next, ReviewState::Done) {
-            let unresolved_threads = self
-                .comments
-                .iter()
-                .filter(|comment| !matches!(comment.status, CommentStatus::Addressed))
-                .count();
-            if unresolved_threads > 0 && !force_done {
-                return Err(format!(
-                    "cannot set review to done: {unresolved_threads} unresolved thread(s)"
-                ));
-            }
-        }
-
-        if matches!(next, ReviewState::Done) {
-            self.done_at_ms = Some(now_ms);
-        } else if matches!(self.state, ReviewState::Done) {
-            self.done_at_ms = None;
-        }
         self.state = next;
         self.updated_at_ms = now_ms;
         Ok(())
@@ -337,21 +300,6 @@ impl ReviewSession {
             .comments
             .iter()
             .any(|comment| matches!(comment.status, CommentStatus::Open));
-        let has_pending = self
-            .comments
-            .iter()
-            .any(|comment| matches!(comment.status, CommentStatus::Pending));
-        let has_unresolved = has_open || has_pending;
-
-        if matches!(self.state, ReviewState::Done) && has_unresolved {
-            self.state = ReviewState::Open;
-            self.done_at_ms = None;
-            return;
-        }
-        if matches!(self.state, ReviewState::Done) {
-            return;
-        }
-
         self.state = if has_open {
             ReviewState::Open
         } else {
@@ -365,93 +313,6 @@ mod tests {
     use anyhow::Result;
 
     use super::{Author, CommentStatus, DiffSide, NewLineComment, ReviewSession, ReviewState};
-
-    #[test]
-    fn set_state_should_allow_reopen_after_done() -> Result<()> {
-        let mut session = ReviewSession::new("r1".into(), 1);
-        session
-            .set_state(ReviewState::Done, 2)
-            .map_err(anyhow::Error::msg)?;
-        assert_eq!(session.done_at_ms, Some(2));
-
-        session
-            .set_state(ReviewState::UnderReview, 3)
-            .map_err(anyhow::Error::msg)?;
-        assert_eq!(session.state, ReviewState::UnderReview);
-        assert_eq!(session.done_at_ms, None);
-        Ok(())
-    }
-
-    #[test]
-    fn set_state_done_should_require_no_unresolved_threads() {
-        let mut session = ReviewSession::new("r1".into(), 1);
-        session.add_comment(
-            NewLineComment {
-                file_path: "src/lib.rs".into(),
-                old_line: None,
-                new_line: Some(1),
-                line_range: None,
-                side: DiffSide::Right,
-                line_anchor: None,
-                body: "needs refactor".into(),
-                author: Author::User,
-            },
-            2,
-        );
-
-        let result = session.set_state(ReviewState::Done, 3);
-        assert!(result.is_err());
-    }
-
-    #[test]
-    fn set_state_force_done_should_allow_unresolved_threads() -> Result<()> {
-        let mut session = ReviewSession::new("r1".into(), 1);
-        session.add_comment(
-            NewLineComment {
-                file_path: "src/lib.rs".into(),
-                old_line: None,
-                new_line: Some(1),
-                line_range: None,
-                side: DiffSide::Right,
-                line_anchor: None,
-                body: "needs refactor".into(),
-                author: Author::User,
-            },
-            2,
-        );
-
-        session
-            .set_state_force(ReviewState::Done, 3)
-            .map_err(anyhow::Error::msg)?;
-        assert_eq!(session.state, ReviewState::Done);
-        Ok(())
-    }
-
-    #[test]
-    fn add_comment_should_reopen_done_review() -> Result<()> {
-        let mut session = ReviewSession::new("r1".into(), 1);
-        session
-            .set_state(ReviewState::Done, 2)
-            .map_err(anyhow::Error::msg)?;
-
-        session.add_comment(
-            NewLineComment {
-                file_path: "src/lib.rs".into(),
-                old_line: None,
-                new_line: Some(1),
-                line_range: None,
-                side: DiffSide::Right,
-                line_anchor: None,
-                body: "new thread".into(),
-                author: Author::User,
-            },
-            3,
-        );
-
-        assert_eq!(session.state, ReviewState::Open);
-        assert_eq!(session.done_at_ms, None);
-        Ok(())
-    }
 
     #[test]
     fn add_reply_from_ai_should_set_pending_and_under_review() -> Result<()> {

@@ -45,6 +45,7 @@ impl TuiApp {
     }
 
     pub(crate) fn select_file(&mut self, index: usize) {
+        self.file_sidebar_manual_scroll = false;
         if self.diff.files.is_empty() {
             self.set_active_file_index(0);
             return;
@@ -64,6 +65,7 @@ impl TuiApp {
     }
 
     pub(crate) fn move_file_selection(&mut self, delta: isize) {
+        self.file_sidebar_manual_scroll = false;
         let ordered_files = self.ordered_file_selection_indices();
         if ordered_files.is_empty() {
             self.set_active_file_index(0);
@@ -76,6 +78,15 @@ impl TuiApp {
             .unwrap_or(0);
         let next_pos = offset_index(current_pos, ordered_files.len(), delta);
         self.select_file(ordered_files[next_pos]);
+    }
+
+    pub(crate) fn scroll_file_sidebar(&mut self, delta: isize) {
+        if delta < 0 {
+            self.last_file_scroll = self.last_file_scroll.saturating_sub(delta.unsigned_abs());
+        } else {
+            self.last_file_scroll = self.last_file_scroll.saturating_add(delta as usize);
+        }
+        self.file_sidebar_manual_scroll = true;
     }
 
     fn ordered_file_selection_indices(&self) -> Vec<usize> {

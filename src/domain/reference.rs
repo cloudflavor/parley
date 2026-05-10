@@ -179,19 +179,16 @@ mod tests {
     #[test]
     fn parses_markdown_link_reference() {
         let refs = parse_file_references(
-            "changed [src/tui/app/input.rs](/Users/vicp/projects/rust/parley/src/tui/app/input.rs#L30)",
+            "changed [src/tui/app/input.rs](/workspace/parley/src/tui/app/input.rs#L30)",
         );
         assert_eq!(refs.len(), 1);
-        assert_eq!(
-            refs[0].path,
-            "/Users/vicp/projects/rust/parley/src/tui/app/input.rs"
-        );
+        assert_eq!(refs[0].path, "/workspace/parley/src/tui/app/input.rs");
         assert_eq!(refs[0].line, Some(30));
     }
 
     #[test]
     fn ignores_non_paths() {
-        let refs = parse_file_references("@vicp ping @AI done");
+        let refs = parse_file_references("@reviewer ping @AI resolved");
         assert!(refs.is_empty());
     }
 }

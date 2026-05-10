@@ -2,12 +2,14 @@ use std::collections::HashMap;
 use std::path::PathBuf;
 use std::process::Stdio;
 use std::sync::Arc;
+use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, anyhow};
 use serde_json::{Value, json};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, ChildStdin, Command};
 use tokio::sync::{Mutex, OnceCell, mpsc};
+use tokio::time::timeout;
 use tracing::{info, warn};
 
 use crate::domain::ai::{AiProvider, AiSessionMode};
@@ -20,6 +22,7 @@ use super::{ProviderInvocation, detect_model_from_text};
 type SharedPiClient = Arc<Mutex<PiRpcClient>>;
 
 static PI_CLIENTS: OnceCell<Mutex<HashMap<String, SharedPiClient>>> = OnceCell::const_new();
+const PI_PROGRESS_HEARTBEAT: Duration = Duration::from_secs(5);
 
 struct PiRpcClient {
     child: Child,
@@ -31,14 +34,25 @@ pub(super) async fn invoke_pi_rpc_provider(
     provider_cfg: &AiProviderConfig,
     mode: AiSessionMode,
     prompt: &str,
+    timeout_seconds: u64,
     progress_sender: Option<mpsc::UnboundedSender<AiProgressEvent>>,
 ) -> Result<ProviderInvocation> {
-    let client = client_for(provider_cfg).await?;
+    let client = client_for(provider_cfg, progress_sender.as_ref()).await?;
     let mut client = client.lock().await;
-    client.prompt(mode, prompt, progress_sender.as_ref()).await
+    client
+        .prompt(
+            mode,
+            prompt,
+            Duration::from_secs(timeout_seconds),
+            progress_sender.as_ref(),
+        )
+        .await
 }
 
-async fn client_for(provider_cfg: &AiProviderConfig) -> Result<SharedPiClient> {
+async fn client_for(
+    provider_cfg: &AiProviderConfig,
+    progress_sender: Option<&mpsc::UnboundedSender<AiProgressEvent>>,
+) -> Result<SharedPiClient> {
     if provider_cfg.client.trim().is_empty() {
         return Err(anyhow!(
             "provider pi has no configured RPC client in config.toml"
@@ -58,13 +72,29 @@ async fn client_for(provider_cfg: &AiProviderConfig) -> Result<SharedPiClient> {
     if let Some(client) = clients.get(&key) {
         return Ok(client.clone());
     }
-    let client = Arc::new(Mutex::new(PiRpcClient::spawn(provider_cfg, cwd).await?));
+    let client = Arc::new(Mutex::new(
+        PiRpcClient::spawn(provider_cfg, cwd, progress_sender).await?,
+    ));
     clients.insert(key, client.clone());
     Ok(client)
 }
 
 impl PiRpcClient {
-    async fn spawn(provider_cfg: &AiProviderConfig, cwd: PathBuf) -> Result<Self> {
+    async fn spawn(
+        provider_cfg: &AiProviderConfig,
+        cwd: PathBuf,
+        progress_sender: Option<&mpsc::UnboundedSender<AiProgressEvent>>,
+    ) -> Result<Self> {
+        emit_progress(
+            progress_sender,
+            AiProvider::Pi,
+            "system",
+            format!(
+                "starting Pi RPC client: {} {}",
+                provider_cfg.client,
+                provider_cfg.args.join(" ")
+            ),
+        );
         let mut command = Command::new(&provider_cfg.client);
         command.args(&provider_cfg.args);
         command.current_dir(cwd);
@@ -75,6 +105,12 @@ impl PiRpcClient {
         let mut child = command
             .spawn()
             .with_context(|| format!("failed to start Pi RPC client '{}'", provider_cfg.client))?;
+        emit_progress(
+            progress_sender,
+            AiProvider::Pi,
+            "system",
+            format!("Pi RPC process spawned pid={:?}", child.id()),
+        );
         let stdin = child
             .stdin
             .take()
@@ -84,14 +120,17 @@ impl PiRpcClient {
             .take()
             .ok_or_else(|| anyhow!("Pi RPC stdout unavailable"))?;
         if let Some(stderr) = child.stderr.take() {
+            let progress_sender = progress_sender.cloned();
             tokio::spawn(async move {
                 let mut lines = BufReader::new(stderr).lines();
                 while let Ok(Some(line)) = lines.next_line().await {
                     info!(provider = "pi", stream = "stderr", payload = %line, "pi_rpc_stream");
+                    emit_progress(progress_sender.as_ref(), AiProvider::Pi, "stderr", line);
                 }
             });
         }
         let (tx, rx) = mpsc::unbounded_channel();
+        let parse_progress_sender = progress_sender.cloned();
         tokio::spawn(async move {
             let mut lines = BufReader::new(stdout).lines();
             while let Ok(Some(line)) = lines.next_line().await {
@@ -104,9 +143,21 @@ impl PiRpcClient {
                     }
                     Err(error) => {
                         warn!(error = %error, payload = %line, "failed to parse Pi RPC JSON");
+                        emit_progress(
+                            parse_progress_sender.as_ref(),
+                            AiProvider::Pi,
+                            "stderr",
+                            format!("Pi RPC stdout was not JSON: {line}"),
+                        );
                     }
                 }
             }
+            emit_progress(
+                parse_progress_sender.as_ref(),
+                AiProvider::Pi,
+                "system",
+                "Pi RPC stdout closed",
+            );
         });
         Ok(Self { child, stdin, rx })
     }
@@ -115,6 +166,7 @@ impl PiRpcClient {
         &mut self,
         mode: AiSessionMode,
         prompt: &str,
+        full_timeout: Duration,
         progress_sender: Option<&mpsc::UnboundedSender<AiProgressEvent>>,
     ) -> Result<ProviderInvocation> {
         let request = json!({
@@ -130,12 +182,32 @@ impl PiRpcClient {
         );
         let mut reply = String::new();
         let mut model = None;
+        let started_at = Instant::now();
         loop {
-            let event = self
-                .rx
-                .recv()
-                .await
-                .ok_or_else(|| anyhow!("Pi RPC stdout closed"))?;
+            if started_at.elapsed() >= full_timeout {
+                return Err(anyhow!(
+                    "Pi RPC prompt timed out after {}s",
+                    full_timeout.as_secs()
+                ));
+            }
+            let remaining = full_timeout.saturating_sub(started_at.elapsed());
+            let wait_for = remaining.min(PI_PROGRESS_HEARTBEAT);
+            let event = match timeout(wait_for, self.rx.recv()).await {
+                Ok(Some(event)) => event,
+                Ok(None) => return Err(anyhow!("Pi RPC stdout closed")),
+                Err(_) => {
+                    emit_progress(
+                        progress_sender,
+                        AiProvider::Pi,
+                        "system",
+                        format!(
+                            "waiting for Pi RPC response ({}s elapsed)",
+                            started_at.elapsed().as_secs()
+                        ),
+                    );
+                    continue;
+                }
+            };
             if model.is_none() {
                 model = detect_model_from_text(&event.to_string());
             }

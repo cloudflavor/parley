@@ -44,12 +44,25 @@ pub(super) async fn invoke_provider(
 
     match provider_cfg.transport {
         AgentTransport::Acp => {
-            return acp::invoke_acp_provider(provider, provider_cfg, mode, prompt, progress_sender)
-                .await;
+            return acp::invoke_acp_provider(
+                provider,
+                provider_cfg,
+                mode,
+                prompt,
+                effective_timeout_seconds(config, mode),
+                progress_sender,
+            )
+            .await;
         }
         AgentTransport::PiRpc => {
-            return pi_rpc::invoke_pi_rpc_provider(provider_cfg, mode, prompt, progress_sender)
-                .await;
+            return pi_rpc::invoke_pi_rpc_provider(
+                provider_cfg,
+                mode,
+                prompt,
+                effective_timeout_seconds(config, mode),
+                progress_sender,
+            )
+            .await;
         }
         AgentTransport::Cli => {}
     }

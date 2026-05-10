@@ -464,7 +464,6 @@ enum CommandPaletteAction {
     RefreshReviewAndDiff,
     SetReviewOpen,
     SetReviewUnderReview,
-    SetReviewDone,
     OpenUserNameEditor,
     OpenThemePicker,
     OpenCommitPicker,
@@ -590,6 +589,7 @@ struct AiActivityEntry {
 struct AiRunTask {
     log_session_id: u64,
     started_at: Instant,
+    last_log_heartbeat_at: Instant,
     file_path: String,
     provider: AiProvider,
     mode: AiSessionMode,
@@ -701,6 +701,7 @@ struct TuiApp {
     last_code_search_scroll: usize,
     last_code_search_visible_rows: usize,
     last_file_scroll: usize,
+    file_sidebar_manual_scroll: bool,
     last_file_row_map: Vec<Option<usize>>,
     last_file_group_map: Vec<Option<String>>,
     last_diff_area: Option<Rect>,

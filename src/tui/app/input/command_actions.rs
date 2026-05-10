@@ -51,17 +51,6 @@ impl TuiApp {
             CommandPaletteAction::SetReviewUnderReview => {
                 self.set_state(service, ReviewState::UnderReview).await?;
             }
-            CommandPaletteAction::SetReviewDone => {
-                let unresolved_ids = self.unresolved_thread_ids();
-                if !unresolved_ids.is_empty() {
-                    self.status_line = format!(
-                        "done blocked: unresolved threads {}",
-                        format_unresolved_ids(&unresolved_ids)
-                    );
-                    return Ok(());
-                }
-                self.set_state(service, ReviewState::Done).await?;
-            }
             CommandPaletteAction::OpenUserNameEditor => {
                 self.open_user_name_editor();
             }

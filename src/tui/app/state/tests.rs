@@ -20,7 +20,6 @@ pub(crate) fn make_test_app_with_files_and_comments(
         name: "test".to_string(),
         created_at_ms: 0,
         updated_at_ms: 0,
-        done_at_ms: None,
         state: ReviewState::Open,
         comments,
         next_comment_id: 100,

@@ -60,17 +60,17 @@
 
 - `s`: set review state `open`
 - `w`: set review state `under_review`
-- `d`: set review state `done` (guarded)
-- `Shift+D`: force set `done`
 
 ## AI
 
 - `x`: AI refactor selected thread
 - `X`: AI reply selected thread
 - `A`: AI refactor review
+- `i`: cycle AI provider (`codex`, `claude`, `opencode`, `pi`)
 - `K`: cancel active AI run
 - `H`: toggle per-file AI logs popup
 - `L`: toggle global AI activity pane
+- Starting an AI run opens/follows the current file's AI logs so provider startup errors and stream output are visible.
 - AI activity `Enter`: jump to the selected file/session logs
 - AI activity `j/k`, `PgUp/PgDn`, `Home`, `End`: select a session
 

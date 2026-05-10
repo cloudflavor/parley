@@ -104,6 +104,7 @@ impl TuiApp {
             last_code_search_scroll: 0,
             last_code_search_visible_rows: 0,
             last_file_scroll: 0,
+            file_sidebar_manual_scroll: false,
             last_file_row_map: Vec::new(),
             last_file_group_map: Vec::new(),
             last_diff_area: None,

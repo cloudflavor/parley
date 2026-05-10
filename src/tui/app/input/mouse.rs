@@ -201,12 +201,12 @@ impl TuiApp {
                     }
                 }
                 MouseEventKind::ScrollUp => {
-                    self.move_file_selection(-usize_to_isize_saturating(
+                    self.scroll_file_sidebar(-usize_to_isize_saturating(
                         MOUSE_WHEEL_FILE_SCROLL_FILES,
                     ));
                 }
                 MouseEventKind::ScrollDown => {
-                    self.move_file_selection(usize_to_isize_saturating(
+                    self.scroll_file_sidebar(usize_to_isize_saturating(
                         MOUSE_WHEEL_FILE_SCROLL_FILES,
                     ));
                 }

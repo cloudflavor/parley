@@ -4,7 +4,7 @@ use tokio::sync::mpsc;
 use tracing::{debug, error, info, warn};
 
 use crate::domain::ai::{AiProvider, AiSessionMode};
-use crate::domain::review::{Author, CommentStatus, ReviewState};
+use crate::domain::review::{Author, CommentStatus};
 use crate::git::diff::{DiffSource, load_git_diff};
 use crate::services::review_service::{AddReplyInput, ReviewService};
 use crate::utils::time::now_ms;
@@ -128,21 +128,6 @@ async fn run_ai_session_inner(
         items: Vec::new(),
     };
 
-    if matches!(review.state, ReviewState::Done) {
-        warn!(
-            review = %input.review_name,
-            provider = %input.provider.as_str(),
-            "ai session skipped because review is done"
-        );
-        result.items.push(AiSessionItemResult {
-            comment_id: 0,
-            status: "skipped".to_string(),
-            message: "review is done; ai session ignored".to_string(),
-        });
-        result.skipped = 1;
-        return Ok(result);
-    }
-
     let target_ids: Vec<u64> = if input.comment_ids.is_empty() {
         review
             .comments
@@ -174,7 +159,6 @@ async fn run_ai_session_inner(
     }
 
     let task_prompt_override = load_task_prompt_override(&config, input.mode).await?;
-    let explicit_selection = !input.comment_ids.is_empty();
     for (step_index, comment_id) in target_ids.into_iter().enumerate() {
         emit_progress(
             progress_sender.as_ref(),
@@ -218,8 +202,7 @@ async fn run_ai_session_inner(
             continue;
         };
 
-        let allow_selected_reply = explicit_selection && matches!(input.mode, AiSessionMode::Reply);
-        if !comment_is_targetable(comment.status.clone(), input.mode) && !allow_selected_reply {
+        if !comment_is_targetable(comment.status.clone(), input.mode) {
             debug!(
                 review = %input.review_name,
                 provider = %input.provider.as_str(),
@@ -353,7 +336,7 @@ async fn run_ai_session_inner(
             input.provider,
             "system",
             format!(
-                "thread #{comment_id}: done ({}/{})",
+                "thread #{comment_id}: processed ({}/{})",
                 step_index + 1,
                 total_targets
             ),
@@ -376,6 +359,8 @@ fn comment_is_targetable(status: CommentStatus, mode: AiSessionMode) -> bool {
         AiSessionMode::Reply => {
             matches!(status, CommentStatus::Open | CommentStatus::Pending)
         }
-        AiSessionMode::Refactor => matches!(status, CommentStatus::Open),
+        AiSessionMode::Refactor => {
+            matches!(status, CommentStatus::Open | CommentStatus::Pending)
+        }
     }
 }

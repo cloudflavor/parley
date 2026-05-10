@@ -237,7 +237,6 @@ impl TuiApp {
                 let state = match review.state {
                     ReviewState::Open => "open",
                     ReviewState::UnderReview => "under_review",
-                    ReviewState::Done => "done",
                 };
                 review.name.to_ascii_lowercase().contains(&needle) || state.contains(&needle)
             })
@@ -357,8 +356,8 @@ mod tests {
                     addressed_count: 0,
                 },
                 super::ReviewPickerEntry {
-                    name: "done-review".to_string(),
-                    state: ReviewState::Done,
+                    name: "waiting-review".to_string(),
+                    state: ReviewState::UnderReview,
                     open_count: 0,
                     pending_count: 0,
                     addressed_count: 5,
@@ -376,9 +375,9 @@ mod tests {
         app.review_picker
             .as_mut()
             .ok_or_else(|| anyhow!("review picker should be open"))?
-            .query = "done".to_string();
-        let filtered_done = app.review_picker_filtered_indices();
-        assert_eq!(filtered_done.len(), 1);
+            .query = "under_review".to_string();
+        let filtered_under_review = app.review_picker_filtered_indices();
+        assert_eq!(filtered_under_review.len(), 1);
         Ok(())
     }
 

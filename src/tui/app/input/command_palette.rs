@@ -70,11 +70,6 @@ impl TuiApp {
                 keywords: "state workflow",
             },
             CommandPaletteItem {
-                action: CommandPaletteAction::SetReviewDone,
-                label: "Set Review State: Done",
-                keywords: "state workflow complete",
-            },
-            CommandPaletteItem {
                 action: CommandPaletteAction::CycleFileFilter,
                 label: "Cycle File Filter",
                 keywords: "files open pending",

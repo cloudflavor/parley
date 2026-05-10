@@ -3,12 +3,14 @@
 //! Handles AI task lifecycle, progress tracking, and session management.
 
 use std::collections::VecDeque;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 use crossterm::event::{KeyCode, KeyEvent};
 use tokio::sync::mpsc;
 
 use super::*;
+
+const AI_TASK_LOG_HEARTBEAT_INTERVAL: Duration = Duration::from_secs(2);
 
 impl TuiApp {
     pub(crate) fn dismiss_ai_progress_popup(&mut self) {
@@ -361,15 +363,33 @@ impl TuiApp {
     pub(crate) fn drain_ai_progress(&mut self) -> bool {
         let mut changed = false;
         let mut events = Vec::new();
+        let mut heartbeats = Vec::new();
+        let now = Instant::now();
         for task in &mut self.ai_tasks {
             let file_path = task.file_path.clone();
             let session_id = task.log_session_id;
             while let Ok(event) = task.progress_rx.try_recv() {
                 events.push((file_path.clone(), session_id, event));
             }
+            if now.duration_since(task.last_log_heartbeat_at) >= AI_TASK_LOG_HEARTBEAT_INTERVAL {
+                task.last_log_heartbeat_at = now;
+                heartbeats.push((
+                    session_id,
+                    format!(
+                        "waiting for {} {} response ({}s elapsed)",
+                        task.provider.as_str(),
+                        task.mode.as_str(),
+                        task.started_at.elapsed().as_secs()
+                    ),
+                ));
+            }
         }
         for (file_path, session_id, event) in events {
             changed |= self.record_ai_progress_for_file(&file_path, session_id, event);
+        }
+        for (session_id, message) in heartbeats {
+            self.push_ai_event_for_session(session_id, "system", message);
+            changed = true;
         }
         changed
     }
@@ -472,6 +492,8 @@ impl TuiApp {
                         task.log_session_id,
                         AiLogSessionStatus::Failed,
                     );
+                    self.ai_progress_visible = true;
+                    self.ai_progress_scroll_end();
                     self.last_ai_detail = Some(format!("ai run failed: {error}"));
                     self.status_line = format!("run ai session failed: {error}");
                     self.push_ai_event_for_session(
@@ -486,6 +508,8 @@ impl TuiApp {
                         task.log_session_id,
                         AiLogSessionStatus::Failed,
                     );
+                    self.ai_progress_visible = true;
+                    self.ai_progress_scroll_end();
                     self.last_ai_detail = Some(format!("ai task join failed: {error}"));
                     self.status_line = format!("run ai session failed: {error}");
                     self.push_ai_event_for_session(
@@ -509,11 +533,6 @@ impl TuiApp {
         selected_only: bool,
         mode: AiSessionMode,
     ) -> Result<()> {
-        if matches!(self.review.state, ReviewState::Done) {
-            self.status_line = "review is done; reopen it before running ai".into();
-            return Ok(());
-        }
-
         let file_path = self.ai_log_file_path();
         let mut comment_ids = Vec::new();
         if selected_only {
@@ -521,29 +540,26 @@ impl TuiApp {
                 self.status_line = "no thread selected".into();
                 return Ok(());
             };
-            let targetable = match mode {
-                AiSessionMode::Reply => true,
-                AiSessionMode::Refactor => matches!(comment.status, CommentStatus::Open),
-            };
-            if !targetable {
-                let status_label = match comment.status {
-                    CommentStatus::Open => "open",
-                    CommentStatus::Pending => "pending",
-                    CommentStatus::Addressed => "addressed",
-                };
-                self.status_line = format!(
-                    "thread #{} is {}; ai {} mode skips non-open threads",
-                    comment.id,
-                    status_label,
-                    mode.as_str()
-                );
-                return Ok(());
-            }
             comment_ids.push(comment.id);
         }
 
         let provider = self.ai_provider;
         let log_session_id = self.start_ai_log_session(&file_path, provider, mode);
+        self.ai_progress_visible = true;
+        self.ai_progress_scroll_end();
+        self.mark_ai_sessions_for_file_read(&file_path);
+        let provider_config = self.config.ai.provider_config(provider);
+        self.push_ai_event_for_session(
+            log_session_id,
+            "system",
+            format!(
+                "provider={} client={} transport={:?} model={}",
+                provider.as_str(),
+                provider_config.client,
+                provider_config.transport,
+                provider_config.model.as_deref().unwrap_or("-")
+            ),
+        );
         let input = RunAiSessionInput {
             review_name: self.review_name.clone(),
             provider,
@@ -560,6 +576,7 @@ impl TuiApp {
         self.ai_tasks.push(AiRunTask {
             log_session_id,
             started_at: Instant::now(),
+            last_log_heartbeat_at: Instant::now(),
             file_path: file_path.clone(),
             provider,
             mode,

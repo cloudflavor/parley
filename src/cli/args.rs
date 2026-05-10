@@ -31,7 +31,6 @@ impl FromStr for StateArg {
         match input {
             "open" => Ok(Self(ReviewState::Open)),
             "under_review" => Ok(Self(ReviewState::UnderReview)),
-            "done" => Ok(Self(ReviewState::Done)),
             _ => Err(CliArgError::InvalidState {
                 value: input.to_string(),
             }),

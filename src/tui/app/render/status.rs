@@ -27,7 +27,6 @@ pub(super) fn spinner_frame(started_at: Instant) -> &'static str {
 
 pub(super) fn draw_status_panel(frame: &mut ratatui::Frame<'_>, app: &TuiApp, area: Rect) {
     let colors = &app.theme().colors;
-    let review_state = review_state_label(&app.review.state);
     let file_label = app.current_file().map_or("-", |file| file.path.as_str());
     let file_position = if app.diff.files.is_empty() {
         "0/0".to_string()
@@ -61,14 +60,38 @@ pub(super) fn draw_status_panel(frame: &mut ratatui::Frame<'_>, app: &TuiApp, ar
         .iter()
         .filter(|comment| matches!(comment.status, CommentStatus::Pending))
         .count();
+    let addressed_count = app
+        .review
+        .comments
+        .iter()
+        .filter(|comment| matches!(comment.status, CommentStatus::Addressed))
+        .count();
+    let ai_field = if let Some(task) = app.ai_tasks.first() {
+        format!(
+            "{} {}:{} running {}",
+            spinner_frame(task.started_at),
+            task.provider.as_str(),
+            task.mode.as_str(),
+            app.ai_tasks.len()
+        )
+    } else {
+        app.ai_provider.as_str().to_string()
+    };
+    let ai_style = if app.ai_tasks.is_empty() {
+        Style::default().fg(colors.text_primary)
+    } else {
+        Style::default()
+            .fg(colors.accent)
+            .add_modifier(Modifier::BOLD)
+    };
 
     let inner_width = usize::from(area.width.saturating_sub(2)).max(1);
     let line_1 = build_status_field_line(
         &[
             (
                 "review",
-                format!("{}:{review_state}", app.review.name),
-                review_state_style(&app.review.state, colors),
+                app.review.name.clone(),
+                Style::default().fg(colors.text_primary),
             ),
             (
                 "file",
@@ -78,20 +101,19 @@ pub(super) fn draw_status_panel(frame: &mut ratatui::Frame<'_>, app: &TuiApp, ar
             ("thread", selected_thread.0, selected_thread.1),
             (
                 "counts",
-                format!("open {open_threads} pending {pending_human_count}"),
+                format!(
+                    "open {open_threads} pending {pending_human_count} addressed {addressed_count}"
+                ),
                 Style::default().fg(colors.text_primary),
             ),
+            ("ai", ai_field, ai_style),
         ],
         inner_width,
         colors,
     );
     let version = format!("v{}", env!("CARGO_PKG_VERSION"));
     let secondary_left = status_footer_context(app);
-    let line_2_right = format!(
-        "user {} · ai {} · ? help · {version}",
-        app.config.user_name,
-        app.ai_provider.as_str()
-    );
+    let line_2_right = format!("user {} · ? help · {version}", app.config.user_name);
     let line_2 = build_right_tag_line(
         &secondary_left,
         &line_2_right,
@@ -275,21 +297,6 @@ pub(super) fn review_state_label(state: &ReviewState) -> &'static str {
     match state {
         ReviewState::Open => "open",
         ReviewState::UnderReview => "under_review",
-        ReviewState::Done => "done",
-    }
-}
-
-fn review_state_style(state: &ReviewState, colors: &ThemeColors) -> Style {
-    match state {
-        ReviewState::Open => Style::default()
-            .fg(colors.accent)
-            .add_modifier(Modifier::BOLD),
-        ReviewState::UnderReview => Style::default()
-            .fg(colors.hunk_header)
-            .add_modifier(Modifier::BOLD),
-        ReviewState::Done => Style::default()
-            .fg(colors.added_sign)
-            .add_modifier(Modifier::BOLD),
     }
 }
 

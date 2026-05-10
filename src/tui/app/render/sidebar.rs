@@ -175,16 +175,24 @@ pub(super) fn draw_file_sidebar(frame: &mut Frame<'_>, app: &mut TuiApp, area: R
                 .position(|entry| entry.is_some())
         });
     if let Some(selected_row) = selected_row {
-        state.select(Some(selected_row));
+        let viewport_height = usize::from(list_area.height.saturating_sub(2)).max(1);
         app.last_file_scroll = resolve_file_sidebar_scroll(
             selected_row,
             app.last_file_scroll,
-            usize::from(list_area.height.saturating_sub(2)).max(1),
+            viewport_height,
             items.len(),
+            app.file_sidebar_manual_scroll,
         );
+        if !app.file_sidebar_manual_scroll
+            || (selected_row >= app.last_file_scroll
+                && selected_row < app.last_file_scroll.saturating_add(viewport_height))
+        {
+            state.select(Some(selected_row));
+        }
         *state.offset_mut() = app.last_file_scroll;
     } else {
         app.last_file_scroll = 0;
+        app.file_sidebar_manual_scroll = false;
     }
 
     if let Some(search_area) = search_area {
@@ -276,10 +284,14 @@ fn resolve_file_sidebar_scroll(
     current_scroll: usize,
     viewport_height: usize,
     total_rows: usize,
+    manual_scroll: bool,
 ) -> usize {
     let viewport_height = viewport_height.max(1);
     let max_scroll = total_rows.saturating_sub(viewport_height);
     let current_scroll = current_scroll.min(max_scroll);
+    if manual_scroll {
+        return current_scroll;
+    }
     let visible_end = current_scroll.saturating_add(viewport_height);
     if selected_row >= current_scroll && selected_row < visible_end {
         current_scroll
@@ -294,12 +306,18 @@ mod tests {
 
     #[test]
     fn sidebar_scroll_stays_when_selected_row_is_visible() {
-        assert_eq!(resolve_file_sidebar_scroll(24, 20, 10, 50), 20);
+        assert_eq!(resolve_file_sidebar_scroll(24, 20, 10, 50, false), 20);
     }
 
     #[test]
     fn sidebar_scroll_moves_only_when_selected_row_is_not_visible() {
-        assert_eq!(resolve_file_sidebar_scroll(35, 20, 10, 50), 26);
-        assert_eq!(resolve_file_sidebar_scroll(8, 20, 10, 50), 0);
+        assert_eq!(resolve_file_sidebar_scroll(35, 20, 10, 50, false), 26);
+        assert_eq!(resolve_file_sidebar_scroll(8, 20, 10, 50, false), 0);
+    }
+
+    #[test]
+    fn sidebar_manual_scroll_does_not_snap_to_selection() {
+        assert_eq!(resolve_file_sidebar_scroll(8, 20, 10, 50, true), 20);
+        assert_eq!(resolve_file_sidebar_scroll(8, 99, 10, 50, true), 40);
     }
 }

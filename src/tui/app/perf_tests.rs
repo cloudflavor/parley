@@ -242,7 +242,6 @@ fn make_perf_app_with_files(files: Vec<DiffFile>, comments: Vec<LineComment>) ->
         state: ReviewState::Open,
         created_at_ms: 0,
         updated_at_ms: 0,
-        done_at_ms: None,
         comments,
         next_comment_id: 1_000_000,
         next_reply_id: 1,

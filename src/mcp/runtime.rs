@@ -251,7 +251,7 @@ async fn handle_request(service: &ReviewService, request: RpcRequest) -> Option<
                 {"name": "add_reply", "description": "Add a reply to a comment", "inputSchema": {"type": "object", "required": ["comment_id", "body"], "properties": {"review_name": {"type": "string"}, "comment_id": {"type": "integer"}, "body": {"type": "string"}, "author": {"type": "string"}}}},
                 {"name": "mark_comment_addressed", "description": "Mark a comment as addressed", "inputSchema": {"type": "object", "required": ["comment_id"], "properties": {"review_name": {"type": "string"}, "comment_id": {"type": "integer"}, "author": {"type": "string"}}}},
                 {"name": "mark_comment_open", "description": "Mark a comment as open", "inputSchema": {"type": "object", "required": ["comment_id"], "properties": {"review_name": {"type": "string"}, "comment_id": {"type": "integer"}, "author": {"type": "string"}}}},
-                {"name": "run_ai_session", "description": "Run AI against review threads (default mode: reply when comment_ids are provided, refactor otherwise)", "inputSchema": {"type": "object", "required": ["provider"], "properties": {"review_name": {"type": "string"}, "provider": {"type": "string", "enum": ["codex", "claude", "opencode"]}, "mode": {"type": "string", "enum": ["reply", "refactor"]}, "comment_ids": {"type": "array", "items": {"type": "integer"}}}}},
+                {"name": "run_ai_session", "description": "Run AI against review threads (default mode: reply when comment_ids are provided, refactor otherwise)", "inputSchema": {"type": "object", "required": ["provider"], "properties": {"review_name": {"type": "string"}, "provider": {"type": "string", "enum": ["codex", "claude", "opencode", "pi"]}, "mode": {"type": "string", "enum": ["reply", "refactor"]}, "comment_ids": {"type": "array", "items": {"type": "integer"}}}}},
                 {"name": "set_review_state", "description": "Set review state", "inputSchema": {"type": "object", "required": ["state"], "properties": {"review_name": {"type": "string"}, "state": {"type": "string"}}}}
             ]
         })),
@@ -533,7 +533,6 @@ fn parse_state(value: &str) -> Result<ReviewState> {
     match value {
         "open" => Ok(ReviewState::Open),
         "under_review" => Ok(ReviewState::UnderReview),
-        "done" => Ok(ReviewState::Done),
         _ => Err(anyhow!("invalid state value: {value}")),
     }
 }

@@ -129,10 +129,6 @@ pub enum ReviewCommand {
         #[arg(long = "comment-id")]
         comment_ids: Vec<u64>,
     },
-    #[command(name = "done")]
-    Done { name: String },
-    #[command(name = "resolve")]
-    Resolve { name: String },
 }
 
 #[cfg(test)]

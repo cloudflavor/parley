@@ -30,12 +30,12 @@ fn reply_mode_excludes_addressed_threads() {
 }
 
 #[test]
-fn refactor_mode_targets_only_open_threads() {
+fn refactor_mode_skips_only_addressed_threads() {
     assert!(comment_is_targetable(
         CommentStatus::Open,
         AiSessionMode::Refactor
     ));
-    assert!(!comment_is_targetable(
+    assert!(comment_is_targetable(
         CommentStatus::Pending,
         AiSessionMode::Refactor
     ));
@@ -52,7 +52,6 @@ async fn thread_prompt_marks_latest_human_reply_as_current_request() -> anyhow::
         state: ReviewState::Open,
         created_at_ms: 0,
         updated_at_ms: 0,
-        done_at_ms: None,
         comments: vec![LineComment {
             id: 7,
             file_path: "src/lib.rs".into(),
@@ -109,7 +108,6 @@ async fn thread_prompt_uses_custom_task_prompt_when_provided() -> anyhow::Result
         state: ReviewState::Open,
         created_at_ms: 0,
         updated_at_ms: 0,
-        done_at_ms: None,
         comments: vec![LineComment {
             id: 7,
             file_path: "src/lib.rs".into(),
@@ -156,7 +154,6 @@ async fn thread_prompt_includes_selected_line_range_for_ai_context() -> anyhow::
         state: ReviewState::Open,
         created_at_ms: 0,
         updated_at_ms: 0,
-        done_at_ms: None,
         comments: vec![LineComment {
             id: 7,
             file_path: "src/lib.rs".into(),
