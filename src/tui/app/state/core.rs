@@ -77,6 +77,7 @@ impl TuiApp {
             ai_activity_visible: false,
             ai_activity_selected: 0,
             ai_activity_scroll: 0,
+            selected_ai_log_session_id: None,
             next_ai_log_session_id: 1,
             ai_log_sessions_by_file: HashMap::new(),
             ai_progress_scroll: 0,

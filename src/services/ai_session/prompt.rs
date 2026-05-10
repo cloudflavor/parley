@@ -16,6 +16,8 @@ static AI_SESSION_PROMPTS_DIR: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/promp
 const OUTPUT_CONTRACT: &str = r#"
 Output contract:
 - Reply directly and briefly, as a human code author.
+- Always produce a final review-thread reply; Parley stores that reply and moves the thread to pending_human.
+- Do not mark the thread addressed yourself.
 - Maximum 120 words.
 - Use at most 3 short bullets unless a blocker requires one extra sentence.
 - Do not narrate reasoning, investigation, process, or uncertainty.

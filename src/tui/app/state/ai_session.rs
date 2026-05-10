@@ -30,6 +30,7 @@ impl TuiApp {
 
         self.dismiss_blocking_overlays();
         self.ai_progress_visible = true;
+        self.selected_ai_log_session_id = None;
         self.ai_progress_scroll_end();
         self.mark_ai_sessions_for_file_read(&self.ai_log_file_path());
         self.status_line = "ai progress popup visible".into();
@@ -118,10 +119,16 @@ impl TuiApp {
             .iter()
             .position(|file| file.path == entry.file_path)
         else {
-            self.status_line = format!("ai activity file no longer visible: {}", entry.file_path);
+            self.selected_ai_log_session_id = Some(entry.session_id);
+            self.mark_ai_sessions_for_file_read(&entry.file_path);
+            self.ai_activity_visible = false;
+            self.ai_progress_visible = true;
+            self.ai_progress_scroll_end();
+            self.status_line = format!("opened ai logs for unavailable file {}", entry.file_path);
             return;
         };
         self.select_file(file_index);
+        self.selected_ai_log_session_id = Some(entry.session_id);
         self.mark_ai_sessions_for_file_read(&entry.file_path);
         self.ai_activity_visible = false;
         self.ai_progress_visible = true;
@@ -232,7 +239,12 @@ impl TuiApp {
             while session.events.len() > AI_PROGRESS_MAX_LINES {
                 session.events.pop_front();
             }
-            if !(self.ai_progress_visible && session.file_path == current_file_path) {
+            let selected_session_visible =
+                self.ai_progress_visible && self.selected_ai_log_session_id == Some(session.id);
+            let current_file_visible = self.ai_progress_visible
+                && self.selected_ai_log_session_id.is_none()
+                && session.file_path == current_file_path;
+            if !(selected_session_visible || current_file_visible) {
                 session.unread_events = session.unread_events.saturating_add(1);
             }
             if self.ai_progress_follow_tail {
@@ -273,6 +285,35 @@ impl TuiApp {
         file_path: &str,
     ) -> Option<&VecDeque<AiLogSession>> {
         self.ai_log_sessions_by_file.get(file_path)
+    }
+
+    pub(crate) fn ai_log_session_by_id(&self, session_id: u64) -> Option<&AiLogSession> {
+        self.ai_log_sessions_by_file
+            .values()
+            .flat_map(|sessions| sessions.iter())
+            .find(|session| session.id == session_id)
+    }
+
+    pub(crate) fn selected_ai_log_session(&self) -> Option<&AiLogSession> {
+        self.selected_ai_log_session_id
+            .and_then(|session_id| self.ai_log_session_by_id(session_id))
+    }
+
+    pub(crate) fn ai_progress_file_path(&self) -> String {
+        self.selected_ai_log_session()
+            .map(|session| session.file_path.clone())
+            .unwrap_or_else(|| self.ai_log_file_path())
+    }
+
+    pub(crate) fn ai_progress_sessions(&self) -> VecDeque<AiLogSession> {
+        if let Some(session) = self.selected_ai_log_session() {
+            let mut sessions = VecDeque::with_capacity(1);
+            sessions.push_back(session.clone());
+            return sessions;
+        }
+        self.ai_log_sessions_for_file(&self.ai_log_file_path())
+            .cloned()
+            .unwrap_or_default()
     }
 
     pub(crate) fn ai_log_file_path(&self) -> String {
@@ -321,7 +362,7 @@ impl TuiApp {
                 message,
             },
         );
-        if self.ai_progress_visible && self.ai_log_file_path() == file_path {
+        if self.ai_progress_visible && self.ai_progress_file_path() == file_path {
             self.mark_ai_sessions_for_file_read(file_path);
         }
         pushed
@@ -547,6 +588,7 @@ impl TuiApp {
         let transport = self.ai_transport;
         let log_session_id = self.start_ai_log_session(&file_path, provider, mode);
         self.ai_progress_visible = true;
+        self.selected_ai_log_session_id = Some(log_session_id);
         self.ai_progress_scroll_end();
         self.mark_ai_sessions_for_file_read(&file_path);
         let provider_config = self
@@ -785,13 +827,17 @@ mod tests {
     #[test]
     fn ai_activity_jump_opens_selected_file_logs() -> Result<()> {
         let mut app = make_test_app(vec!["src/a.rs", "src/b.rs"], Vec::new())?;
-        app.start_ai_log_session("src/b.rs", AiProvider::Opencode, AiSessionMode::Refactor);
+        let session_id =
+            app.start_ai_log_session("src/b.rs", AiProvider::Opencode, AiSessionMode::Refactor);
         app.ai_activity_visible = true;
         app.ai_activity_selected = 0;
 
         app.ai_activity_jump_selected();
 
         assert_eq!(app.active_file_index(), 1);
+        assert_eq!(app.selected_ai_log_session_id, Some(session_id));
+        assert_eq!(app.ai_progress_file_path(), "src/b.rs");
+        assert_eq!(app.ai_progress_sessions().len(), 1);
         assert!(app.ai_progress_visible);
         assert!(!app.ai_activity_visible);
         assert_eq!(app.ai_activity_unread_count(), 0);

@@ -181,6 +181,7 @@ impl PiRpcClient {
             format!("Pi RPC prompt sent (mode={})", mode.as_str()),
         );
         let mut reply = String::new();
+        let mut pending_agent_log = String::new();
         let mut model = None;
         let started_at = Instant::now();
         loop {
@@ -213,12 +214,29 @@ impl PiRpcClient {
             }
             match event.get("type").and_then(Value::as_str) {
                 Some("message_update") => {
+                    if let Some(thought) = extract_pi_thought_text(&event) {
+                        emit_progress(progress_sender, AiProvider::Pi, "thought", thought);
+                    }
                     if let Some(text) = extract_pi_reply_text(&event) {
-                        emit_progress(progress_sender, AiProvider::Pi, "agent", text.as_str());
                         reply.push_str(&text);
+                        pending_agent_log.push_str(&text);
+                        if should_flush_pi_agent_log(&pending_agent_log) {
+                            flush_pi_agent_log(progress_sender, &mut pending_agent_log);
+                        }
                     }
                 }
-                Some("agent_end") => break,
+                Some("message_start") => {
+                    emit_progress(
+                        progress_sender,
+                        AiProvider::Pi,
+                        "system",
+                        "Pi message started",
+                    );
+                }
+                Some("agent_end") => {
+                    flush_pi_agent_log(progress_sender, &mut pending_agent_log);
+                    break;
+                }
                 Some("tool_call") => {
                     emit_progress(progress_sender, AiProvider::Pi, "tool", event.to_string());
                 }
@@ -292,6 +310,60 @@ fn extract_pi_reply_text(value: &Value) -> Option<String> {
     extract_text_delta(value).or_else(|| extract_assistant_text(value))
 }
 
+fn extract_pi_thought_text(value: &Value) -> Option<String> {
+    match value {
+        Value::Object(map) => {
+            for key in ["thought", "thinking", "reasoning"] {
+                if let Some(text) = map.get(key).and_then(Value::as_str)
+                    && !text.trim().is_empty()
+                {
+                    return Some(text.to_string());
+                }
+            }
+            for (key, nested) in map {
+                if matches!(key.as_str(), "thought" | "thinking" | "reasoning")
+                    && let Some(text) = extract_assistant_text(nested)
+                {
+                    return Some(text);
+                }
+                if let Some(text) = extract_pi_thought_text(nested) {
+                    return Some(text);
+                }
+            }
+            None
+        }
+        Value::Array(items) => {
+            for item in items {
+                if let Some(text) = extract_pi_thought_text(item) {
+                    return Some(text);
+                }
+            }
+            None
+        }
+        _ => None,
+    }
+}
+
+fn flush_pi_agent_log(
+    progress_sender: Option<&mpsc::UnboundedSender<AiProgressEvent>>,
+    pending_agent_log: &mut String,
+) {
+    let text = pending_agent_log.trim();
+    if !text.is_empty() {
+        emit_progress(progress_sender, AiProvider::Pi, "agent", text);
+    }
+    pending_agent_log.clear();
+}
+
+fn should_flush_pi_agent_log(text: &str) -> bool {
+    let trimmed = text.trim_end();
+    text.ends_with('\n')
+        || trimmed.chars().count() >= 120
+        || trimmed.ends_with('.')
+        || trimmed.ends_with('!')
+        || trimmed.ends_with('?')
+}
+
 fn extract_assistant_text(value: &Value) -> Option<String> {
     match value {
         Value::Object(map) => {
@@ -332,7 +404,7 @@ fn extract_assistant_text(value: &Value) -> Option<String> {
 mod tests {
     use serde_json::json;
 
-    use super::extract_pi_reply_text;
+    use super::{extract_pi_reply_text, extract_pi_thought_text, should_flush_pi_agent_log};
 
     #[test]
     fn extracts_text_delta_from_pi_message_update() {
@@ -377,5 +449,30 @@ mod tests {
         });
 
         assert_eq!(extract_pi_reply_text(&event), None);
+    }
+
+    #[test]
+    fn extracts_pi_thought_text_from_nested_event() {
+        let event = json!({
+            "type": "message_update",
+            "assistantMessageEvent": {
+                "thinking": {
+                    "role": "assistant",
+                    "content": "checking imports"
+                }
+            }
+        });
+
+        assert_eq!(
+            extract_pi_thought_text(&event),
+            Some("checking imports".to_string())
+        );
+    }
+
+    #[test]
+    fn flushes_pi_agent_log_on_sentence_boundary_or_size() {
+        assert!(should_flush_pi_agent_log("The imports are already clean."));
+        assert!(should_flush_pi_agent_log(&"x".repeat(120)));
+        assert!(!should_flush_pi_agent_log("The imports are"));
     }
 }

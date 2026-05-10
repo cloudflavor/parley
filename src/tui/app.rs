@@ -674,6 +674,7 @@ struct TuiApp {
     ai_activity_visible: bool,
     ai_activity_selected: usize,
     ai_activity_scroll: usize,
+    selected_ai_log_session_id: Option<u64>,
     next_ai_log_session_id: u64,
     ai_log_sessions_by_file: HashMap<String, VecDeque<AiLogSession>>,
     ai_progress_scroll: usize,

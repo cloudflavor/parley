@@ -12,7 +12,8 @@ Task:
 - Do not run destructive recovery/version-control commands (`git reset`, `git checkout`, `git clean`, `git fsck`, history rewriting).
 - Do not revert unrelated local changes. Work with the current working tree.
 - Stop after implementing the smallest complete fix for this thread.
-- After implementing the fix, mark the comment as "addressed" to signal completion.
+- Finish by returning a concise review-thread reply. Parley stores that reply and moves the thread to pending_human.
+- Do not mark the thread addressed yourself.
 - Reply briefly as a human code author. Maximum 120 words.
 - Use at most 3 short bullets unless a blocker requires one extra sentence.
 - Include only what changed and validation status. Mention files only when useful.
