@@ -174,6 +174,8 @@ Parley prefers persistent agent transports over one-shot CLI prompt execution:
 
 Provider config still supports `transport = "cli"` as an explicit fallback. ACP agents stream `session/update` events into the per-file AI logs, and final thread replies are built from agent message chunks rather than thought chunks.
 
+If an older config points ACP transport at a one-shot CLI command such as `codex exec`, `claude -p`, or `opencode run`, Parley rejects the run before spawning the process and shows the config error in the AI logs. Configure an ACP-capable command such as `codex-acp`, `claude-agent-acp`, or `opencode acp`, or set `transport = "cli"` when one-shot CLI mode is intentional.
+
 Use `i` in the TUI to cycle the active AI provider. The active provider is shown in the status panel.
 
 ## Local state and diff filtering

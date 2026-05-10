@@ -279,7 +279,7 @@ Review state mostly follows thread state:
 - `Ctrl+f`: focus files filter input
 - `?`: open in-app docs/help overlay
 
-By default, agent providers use persistent transports instead of spawning a one-shot CLI prompt for every thread. OpenCode uses ACP with `opencode acp`, Codex and Claude use configured ACP adapters, and Pi uses `pi --mode rpc --no-session`. Set a provider's `transport = "cli"` in `.parley/config.toml` only when you explicitly need the old one-shot behavior.
+By default, agent providers use persistent transports instead of spawning a one-shot CLI prompt for every thread. OpenCode uses ACP with `opencode acp`, Codex uses `codex-acp`, Claude uses `claude-agent-acp`, and Pi uses `pi --mode rpc --no-session`. Set a provider's `transport = "cli"` in `.parley/config.toml` only when you explicitly need the old one-shot behavior. If ACP is configured with a non-ACP command such as `codex exec` or `opencode run`, Parley fails fast and shows the config error in the AI logs.
 
 Parley stores AI output as per-file session logs in memory while the TUI is open. Starting an AI run opens/follows the current file logs. `H` shows transcripts for the current file, and `L` shows a global activity index for running and recent sessions. Review comments are separate durable state; AI output is added to a thread only when the AI review flow persists a reply.
 

@@ -44,6 +44,7 @@ pub(super) async fn invoke_provider(
 
     match provider_cfg.transport {
         AgentTransport::Acp => {
+            validate_acp_provider_command(provider, provider_cfg)?;
             return acp::invoke_acp_provider(
                 provider,
                 provider_cfg,
@@ -271,6 +272,56 @@ pub(super) async fn invoke_provider(
     })
 }
 
+fn validate_acp_provider_command(
+    provider: AiProvider,
+    provider_cfg: &crate::domain::config::AiProviderConfig,
+) -> Result<()> {
+    if let Some(expected_command) = invalid_acp_command_expected_replacement(provider, provider_cfg)
+    {
+        return Err(anyhow!(
+            "provider {} is configured for ACP but '{}' is not an ACP command; use '{}' for ACP or set transport = \"cli\" for one-shot CLI mode",
+            provider.as_str(),
+            provider_command_label(provider_cfg),
+            expected_command
+        ));
+    }
+
+    Ok(())
+}
+
+fn invalid_acp_command_expected_replacement(
+    provider: AiProvider,
+    provider_cfg: &crate::domain::config::AiProviderConfig,
+) -> Option<&'static str> {
+    let client = provider_client_name(provider_cfg);
+    let first_arg = provider_cfg.args.first().map(String::as_str);
+
+    match provider {
+        AiProvider::Codex if client == "codex" => Some("codex-acp"),
+        AiProvider::Claude if client == "claude" || client == "claude-code" => {
+            Some("claude-agent-acp")
+        }
+        AiProvider::Opencode if client == "opencode" && first_arg != Some("acp") => {
+            Some("opencode acp")
+        }
+        _ => None,
+    }
+}
+
+fn provider_client_name(provider_cfg: &crate::domain::config::AiProviderConfig) -> &str {
+    std::path::Path::new(&provider_cfg.client)
+        .file_name()
+        .and_then(|name| name.to_str())
+        .unwrap_or(provider_cfg.client.as_str())
+}
+
+fn provider_command_label(provider_cfg: &crate::domain::config::AiProviderConfig) -> String {
+    let mut parts = Vec::with_capacity(provider_cfg.args.len().saturating_add(1));
+    parts.push(provider_cfg.client.as_str());
+    parts.extend(provider_cfg.args.iter().map(String::as_str));
+    parts.join(" ")
+}
+
 pub(super) fn format_ai_reply_body(model: Option<&str>, reply: &str) -> String {
     let mut out = String::new();
     if let Some(model) = model.map(str::trim).filter(|value| !value.is_empty()) {
@@ -479,5 +530,42 @@ fn effective_timeout_seconds(config: &AppConfig, mode: AiSessionMode) -> u64 {
         AiSessionMode::Reply => configured,
         // Refactor mode can involve tool execution and file edits; keep a higher floor.
         AiSessionMode::Refactor => configured.max(600),
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use crate::domain::config::AiProviderConfig;
+
+    use super::*;
+
+    #[test]
+    fn acp_validation_rejects_known_legacy_cli_commands() {
+        let mut codex = AiProviderConfig::with_client("codex");
+        codex.args = vec!["exec".to_string()];
+
+        let mut claude = AiProviderConfig::with_client("claude");
+        claude.args = vec!["-p".to_string()];
+
+        let mut opencode = AiProviderConfig::with_client("opencode");
+        opencode.args = vec!["run".to_string()];
+
+        assert!(validate_acp_provider_command(AiProvider::Codex, &codex).is_err());
+        assert!(validate_acp_provider_command(AiProvider::Claude, &claude).is_err());
+        assert!(validate_acp_provider_command(AiProvider::Opencode, &opencode).is_err());
+    }
+
+    #[test]
+    fn acp_validation_accepts_documented_acp_commands() {
+        let codex = AiProviderConfig::with_client("codex-acp");
+
+        let claude = AiProviderConfig::with_client("claude-agent-acp");
+
+        let mut opencode = AiProviderConfig::with_client("opencode");
+        opencode.args = vec!["acp".to_string()];
+
+        assert!(validate_acp_provider_command(AiProvider::Codex, &codex).is_ok());
+        assert!(validate_acp_provider_command(AiProvider::Claude, &claude).is_ok());
+        assert!(validate_acp_provider_command(AiProvider::Opencode, &opencode).is_ok());
     }
 }
