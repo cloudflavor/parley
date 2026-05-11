@@ -235,6 +235,16 @@ impl TuiApp {
             let Some(session) = sessions.iter_mut().find(|session| session.id == session_id) else {
                 continue;
             };
+            if is_ai_waiting_event(&event)
+                && let Some(last) = session.events.back_mut()
+                && is_ai_waiting_event(last)
+            {
+                *last = event;
+                if self.ai_progress_follow_tail {
+                    self.ai_progress_scroll = usize::MAX;
+                }
+                return true;
+            }
             session.events.push_back(event);
             while session.events.len() > AI_PROGRESS_MAX_LINES {
                 session.events.pop_front();
@@ -787,6 +797,10 @@ impl TuiApp {
     }
 }
 
+fn is_ai_waiting_event(event: &AiLogEvent) -> bool {
+    event.stream == "system" && event.message.starts_with("waiting for ")
+}
+
 #[cfg(test)]
 mod tests {
     use anyhow::Result;
@@ -821,6 +835,28 @@ mod tests {
         app.mark_ai_sessions_for_file_read("src/a.rs");
 
         assert_eq!(app.ai_activity_unread_count(), 0);
+        Ok(())
+    }
+
+    #[test]
+    fn ai_log_waiting_events_update_latest_waiting_row() -> Result<()> {
+        let mut app = make_test_app(vec!["src/a.rs"], Vec::new())?;
+        let session_id =
+            app.start_ai_log_session("src/a.rs", AiProvider::Pi, AiSessionMode::Refactor);
+
+        app.push_ai_event_for_session(session_id, "system", "waiting for pi response (2s elapsed)");
+        app.push_ai_event_for_session(session_id, "system", "waiting for pi response (4s elapsed)");
+        app.push_ai_event_for_session(session_id, "thought", "checking imports");
+        app.push_ai_event_for_session(session_id, "system", "waiting for pi response (6s elapsed)");
+
+        let events = &app
+            .ai_log_sessions_for_file("src/a.rs")
+            .ok_or_else(|| anyhow::anyhow!("missing ai session"))?[0]
+            .events;
+        assert_eq!(events.len(), 4);
+        assert_eq!(events[1].message, "waiting for pi response (4s elapsed)");
+        assert_eq!(events[2].message, "checking imports");
+        assert_eq!(events[3].message, "waiting for pi response (6s elapsed)");
         Ok(())
     }
 

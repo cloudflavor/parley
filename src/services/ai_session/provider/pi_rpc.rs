@@ -187,6 +187,18 @@ impl PiRpcClient {
         let started_at = Instant::now();
         loop {
             if started_at.elapsed() >= full_timeout {
+                if !reply.trim().is_empty() {
+                    emit_progress(
+                        progress_sender,
+                        AiProvider::Pi,
+                        "system",
+                        "Pi RPC timed out after final message; returning last assistant reply",
+                    );
+                    return Ok(ProviderInvocation {
+                        reply: reply.trim().to_string(),
+                        model,
+                    });
+                }
                 return Err(anyhow!(
                     "Pi RPC prompt timed out after {}s",
                     full_timeout.as_secs()
@@ -198,6 +210,18 @@ impl PiRpcClient {
                 Ok(Some(event)) => event,
                 Ok(None) => return Err(anyhow!("Pi RPC stdout closed")),
                 Err(_) => {
+                    if !reply.trim().is_empty() {
+                        emit_progress(
+                            progress_sender,
+                            AiProvider::Pi,
+                            "system",
+                            format!(
+                                "waiting for Pi RPC end event after final reply ({}s elapsed)",
+                                started_at.elapsed().as_secs()
+                            ),
+                        );
+                        continue;
+                    }
                     emit_progress(
                         progress_sender,
                         AiProvider::Pi,
@@ -246,18 +270,20 @@ impl PiRpcClient {
                     break;
                 }
                 Some("tool_call") => {
-                    emit_progress(progress_sender, AiProvider::Pi, "tool", event.to_string());
+                    emit_pi_log_entries(progress_sender, &event);
                 }
                 Some("error") => {
                     return Err(anyhow!("Pi RPC error: {event}"));
                 }
                 Some(other) if should_log_pi_event(other) => {
-                    emit_progress(
-                        progress_sender,
-                        AiProvider::Pi,
-                        "pi",
-                        format!("event: {other}"),
-                    );
+                    if !emit_pi_log_entries(progress_sender, &event) {
+                        emit_progress(
+                            progress_sender,
+                            AiProvider::Pi,
+                            "pi",
+                            format!("{other}: {}", compact_pi_event_json(&event)),
+                        );
+                    }
                 }
                 Some(_) => {}
                 None => {}
@@ -322,7 +348,7 @@ fn extract_pi_reply_text(value: &Value) -> Option<String> {
 fn extract_pi_thought_text(value: &Value) -> Option<String> {
     match value {
         Value::Object(map) => {
-            for key in ["thought", "thinking", "reasoning"] {
+            for key in ["thought", "thinking", "reasoning", "analysis"] {
                 if let Some(text) = map.get(key).and_then(Value::as_str)
                     && !text.trim().is_empty()
                 {
@@ -330,8 +356,10 @@ fn extract_pi_thought_text(value: &Value) -> Option<String> {
                 }
             }
             for (key, nested) in map {
-                if matches!(key.as_str(), "thought" | "thinking" | "reasoning")
-                    && let Some(text) = extract_assistant_text(nested)
+                if matches!(
+                    key.as_str(),
+                    "thought" | "thinking" | "reasoning" | "analysis"
+                ) && let Some(text) = extract_assistant_text(nested)
                 {
                     return Some(text);
                 }
@@ -384,13 +412,135 @@ fn should_flush_pi_agent_log(text: &str) -> bool {
 fn should_log_pi_event(event_type: &str) -> bool {
     !matches!(
         event_type,
-        "turn_start"
-            | "turn_end"
-            | "message_start"
-            | "message_end"
-            | "tool_execution_start"
-            | "tool_execution_end"
+        "turn_start" | "turn_end" | "message_start" | "message_end"
     )
+}
+
+fn emit_pi_log_entries(
+    progress_sender: Option<&mpsc::UnboundedSender<AiProgressEvent>>,
+    event: &Value,
+) -> bool {
+    let entries = pi_log_entries(event);
+    let emitted = !entries.is_empty();
+    for entry in entries {
+        emit_progress(progress_sender, AiProvider::Pi, entry.stream, entry.message);
+    }
+    emitted
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct PiLogEntry {
+    stream: &'static str,
+    message: String,
+}
+
+fn pi_log_entries(event: &Value) -> Vec<PiLogEntry> {
+    let event_type = event.get("type").and_then(Value::as_str).unwrap_or("event");
+    let mut entries = Vec::new();
+
+    for text in collect_named_text(event, &["thought", "thinking", "reasoning", "analysis"]) {
+        entries.push(PiLogEntry {
+            stream: "thought",
+            message: format!("{event_type}: {text}"),
+        });
+    }
+    for text in collect_named_text(event, &["stdout"]) {
+        entries.push(PiLogEntry {
+            stream: "stdout",
+            message: format!("{event_type}: {text}"),
+        });
+    }
+    for text in collect_named_text(event, &["stderr"]) {
+        entries.push(PiLogEntry {
+            stream: "stderr",
+            message: format!("{event_type}: {text}"),
+        });
+    }
+    if event_type.contains("tool") {
+        let detail = first_named_text(
+            event,
+            &[
+                "title",
+                "name",
+                "tool_name",
+                "command",
+                "input",
+                "output",
+                "result",
+                "message",
+                "content",
+                "text",
+                "error",
+            ],
+        )
+        .unwrap_or_else(|| compact_pi_event_json(event));
+        entries.push(PiLogEntry {
+            stream: "tool",
+            message: format!("{event_type}: {detail}"),
+        });
+    } else if event_type.contains("error") {
+        let detail = first_named_text(event, &["error", "message", "text"])
+            .unwrap_or_else(|| compact_pi_event_json(event));
+        entries.push(PiLogEntry {
+            stream: "stderr",
+            message: format!("{event_type}: {detail}"),
+        });
+    } else if entries.is_empty()
+        && let Some(detail) = first_named_text(event, &["message", "summary", "title"])
+    {
+        entries.push(PiLogEntry {
+            stream: "pi",
+            message: format!("{event_type}: {detail}"),
+        });
+    }
+
+    entries.dedup();
+    entries
+}
+
+fn collect_named_text(value: &Value, keys: &[&str]) -> Vec<String> {
+    let mut out = Vec::new();
+    collect_named_text_into(value, keys, None, &mut out);
+    out
+}
+
+fn first_named_text(value: &Value, keys: &[&str]) -> Option<String> {
+    collect_named_text(value, keys).into_iter().next()
+}
+
+fn collect_named_text_into(
+    value: &Value,
+    keys: &[&str],
+    current_key: Option<&str>,
+    out: &mut Vec<String>,
+) {
+    match value {
+        Value::String(text) => {
+            let Some(current_key) = current_key else {
+                return;
+            };
+            if keys.iter().any(|key| current_key.eq_ignore_ascii_case(key))
+                && !text.trim().is_empty()
+            {
+                out.push(text.trim().to_string());
+            }
+        }
+        Value::Object(map) => {
+            for (key, nested) in map {
+                collect_named_text_into(nested, keys, Some(key), out);
+            }
+        }
+        Value::Array(items) => {
+            for item in items {
+                collect_named_text_into(item, keys, current_key, out);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn compact_pi_event_json(event: &Value) -> String {
+    serde_json::to_string(event).unwrap_or_else(|_| "<invalid pi event>".to_string())
 }
 
 fn extract_assistant_text(value: &Value) -> Option<String> {
@@ -434,8 +584,8 @@ mod tests {
     use serde_json::json;
 
     use super::{
-        extract_pi_reply_text, extract_pi_thought_text, finish_pi_message_reply,
-        should_flush_pi_agent_log, should_log_pi_event,
+        PiLogEntry, extract_pi_reply_text, extract_pi_thought_text, finish_pi_message_reply,
+        pi_log_entries, should_flush_pi_agent_log, should_log_pi_event,
     };
 
     #[test]
@@ -511,8 +661,69 @@ mod tests {
     #[test]
     fn suppresses_noisy_pi_lifecycle_events() {
         assert!(!should_log_pi_event("message_end"));
-        assert!(!should_log_pi_event("tool_execution_start"));
+        assert!(should_log_pi_event("tool_execution_start"));
         assert!(should_log_pi_event("error"));
+    }
+
+    #[test]
+    fn extracts_structured_pi_tool_logs() {
+        let event = json!({
+            "type": "tool_execution_end",
+            "tool": {
+                "name": "edit",
+                "stdout": "patched file",
+                "stderr": "warning text"
+            }
+        });
+
+        assert_eq!(
+            pi_log_entries(&event),
+            vec![
+                PiLogEntry {
+                    stream: "stdout",
+                    message: "tool_execution_end: patched file".to_string()
+                },
+                PiLogEntry {
+                    stream: "stderr",
+                    message: "tool_execution_end: warning text".to_string()
+                },
+                PiLogEntry {
+                    stream: "tool",
+                    message: "tool_execution_end: edit".to_string()
+                }
+            ]
+        );
+    }
+
+    #[test]
+    fn extracts_structured_pi_thought_logs() {
+        let event = json!({
+            "type": "message_update",
+            "delta": {
+                "thinking": "checking target thread"
+            }
+        });
+
+        assert_eq!(
+            pi_log_entries(&event),
+            vec![PiLogEntry {
+                stream: "thought",
+                message: "message_update: checking target thread".to_string()
+            }]
+        );
+    }
+
+    #[test]
+    fn unknown_significant_pi_event_keeps_payload() {
+        let event = json!({
+            "type": "custom_event",
+            "payload": {
+                "id": 7
+            }
+        });
+
+        assert!(should_log_pi_event("custom_event"));
+        assert!(pi_log_entries(&event).is_empty());
     }
 
     #[test]
