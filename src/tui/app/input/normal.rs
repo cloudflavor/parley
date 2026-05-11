@@ -258,7 +258,7 @@ impl TuiApp {
                 }
             }
             KeyCode::Char('K') => {
-                self.cancel_ai_task();
+                self.cancel_ai_task().await;
             }
             KeyCode::Char('H') => self.toggle_ai_progress_popup(),
             KeyCode::Char('L') => {

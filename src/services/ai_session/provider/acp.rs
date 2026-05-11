@@ -1,11 +1,13 @@
 use std::collections::HashMap;
-use std::path::PathBuf;
+use std::io::ErrorKind;
+use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result, anyhow};
 use serde_json::{Value, json};
+use tokio::fs;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, ChildStdin, Command};
 use tokio::sync::{Mutex, OnceCell, mpsc};
@@ -209,8 +211,7 @@ impl AcpClient {
                 "fs": {
                     "readTextFile": true,
                     "writeTextFile": true
-                },
-                "terminal": true
+                }
             },
             "clientInfo": {
                 "name": "parley",
@@ -309,6 +310,12 @@ impl AcpClient {
                 "acp",
                 format!("<- {}", compact_json_for_log(&message)),
             );
+            if self
+                .handle_client_request(&message, progress_sender)
+                .await?
+            {
+                continue;
+            }
             if message.get("id").and_then(Value::as_u64) == Some(id) {
                 if let Some(error) = message.get("error") {
                     return Err(anyhow!("ACP prompt failed: {error}"));
@@ -376,6 +383,12 @@ impl AcpClient {
                 "acp",
                 format!("<- {}", compact_json_for_log(&message)),
             );
+            if self
+                .handle_client_request(&message, progress_sender)
+                .await?
+            {
+                continue;
+            }
             if message.get("id").and_then(Value::as_u64) == Some(id) {
                 if let Some(error) = message.get("error") {
                     return Err(anyhow!("ACP request {method} failed: {error}"));
@@ -438,6 +451,193 @@ impl AcpClient {
         }
     }
 
+    async fn handle_client_request(
+        &mut self,
+        message: &Value,
+        progress_sender: Option<&mpsc::UnboundedSender<AiProgressEvent>>,
+    ) -> Result<bool> {
+        if !message.get("method").is_some_and(Value::is_string) || message.get("id").is_none() {
+            return Ok(false);
+        }
+
+        let method = message
+            .get("method")
+            .and_then(Value::as_str)
+            .unwrap_or_default();
+        match method {
+            "fs/read_text_file" => {
+                self.respond_to_read_text_file(message, progress_sender)
+                    .await?;
+                Ok(true)
+            }
+            "fs/write_text_file" => {
+                self.respond_to_write_text_file(message, progress_sender)
+                    .await?;
+                Ok(true)
+            }
+            _ => {
+                self.respond_method_not_found(message, method, progress_sender)
+                    .await?;
+                Ok(true)
+            }
+        }
+    }
+
+    async fn respond_method_not_found(
+        &mut self,
+        message: &Value,
+        method: &str,
+        progress_sender: Option<&mpsc::UnboundedSender<AiProgressEvent>>,
+    ) -> Result<()> {
+        let id = message.get("id").cloned().unwrap_or(Value::Null);
+        let response = acp_error_response(id, -32601, format!("method not found: {method}"));
+        emit_progress(
+            progress_sender,
+            self.provider,
+            "acp",
+            format!("-> {}", compact_json_for_log(&response)),
+        );
+        self.write_json(response).await
+    }
+
+    async fn respond_to_read_text_file(
+        &mut self,
+        message: &Value,
+        progress_sender: Option<&mpsc::UnboundedSender<AiProgressEvent>>,
+    ) -> Result<()> {
+        let id = message.get("id").cloned().unwrap_or(Value::Null);
+        let result = match self.read_text_file_result(message).await {
+            Ok(content) => json!({
+                "jsonrpc": "2.0",
+                "id": id,
+                "result": { "content": content }
+            }),
+            Err(error) => acp_error_response(id, -32000, error.to_string()),
+        };
+        emit_progress(
+            progress_sender,
+            self.provider,
+            "acp",
+            format!("-> {}", compact_json_for_log(&result)),
+        );
+        self.write_json(result).await
+    }
+
+    async fn respond_to_write_text_file(
+        &mut self,
+        message: &Value,
+        progress_sender: Option<&mpsc::UnboundedSender<AiProgressEvent>>,
+    ) -> Result<()> {
+        let id = message.get("id").cloned().unwrap_or(Value::Null);
+        let result = match self.write_text_file_result(message).await {
+            Ok(()) => json!({
+                "jsonrpc": "2.0",
+                "id": id,
+                "result": {}
+            }),
+            Err(error) => acp_error_response(id, -32000, error.to_string()),
+        };
+        emit_progress(
+            progress_sender,
+            self.provider,
+            "acp",
+            format!("-> {}", compact_json_for_log(&result)),
+        );
+        self.write_json(result).await
+    }
+
+    async fn read_text_file_result(&self, message: &Value) -> Result<String> {
+        let params = message
+            .get("params")
+            .ok_or_else(|| anyhow!("missing params"))?;
+        let path = self.resolve_existing_client_path(params).await?;
+        let content = fs::read_to_string(&path)
+            .await
+            .with_context(|| format!("failed to read {}", path.display()))?;
+        Ok(slice_text_lines(
+            &content,
+            params.get("line").and_then(Value::as_u64),
+            params.get("limit").and_then(Value::as_u64),
+        ))
+    }
+
+    async fn write_text_file_result(&self, message: &Value) -> Result<()> {
+        let params = message
+            .get("params")
+            .ok_or_else(|| anyhow!("missing params"))?;
+        let path = self.resolve_writable_client_path(params).await?;
+        let content = params
+            .get("content")
+            .and_then(Value::as_str)
+            .ok_or_else(|| anyhow!("missing string content"))?;
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent)
+                .await
+                .with_context(|| format!("failed to create {}", parent.display()))?;
+        }
+        fs::write(&path, content)
+            .await
+            .with_context(|| format!("failed to write {}", path.display()))
+    }
+
+    async fn resolve_existing_client_path(&self, params: &Value) -> Result<PathBuf> {
+        let path = client_path_param(params)?;
+        let path = absolute_client_path(&self.cwd, path);
+        let canonical_cwd = fs::canonicalize(&self.cwd)
+            .await
+            .with_context(|| format!("failed to canonicalize {}", self.cwd.display()))?;
+        let canonical_path = fs::canonicalize(&path)
+            .await
+            .with_context(|| format!("failed to canonicalize {}", path.display()))?;
+        if !canonical_path.starts_with(&canonical_cwd) {
+            return Err(anyhow!(
+                "path {} is outside ACP cwd {}",
+                canonical_path.display(),
+                canonical_cwd.display()
+            ));
+        }
+        Ok(canonical_path)
+    }
+
+    async fn resolve_writable_client_path(&self, params: &Value) -> Result<PathBuf> {
+        let path = client_path_param(params)?;
+        let path = absolute_client_path(&self.cwd, path);
+        let canonical_cwd = fs::canonicalize(&self.cwd)
+            .await
+            .with_context(|| format!("failed to canonicalize {}", self.cwd.display()))?;
+        match fs::canonicalize(&path).await {
+            Ok(canonical_path) => {
+                if !canonical_path.starts_with(&canonical_cwd) {
+                    return Err(anyhow!(
+                        "path {} is outside ACP cwd {}",
+                        canonical_path.display(),
+                        canonical_cwd.display()
+                    ));
+                }
+                return Ok(canonical_path);
+            }
+            Err(error) if error.kind() == ErrorKind::NotFound => {}
+            Err(error) => {
+                return Err(error)
+                    .with_context(|| format!("failed to canonicalize {}", path.display()));
+            }
+        }
+        let parent = path
+            .parent()
+            .ok_or_else(|| anyhow!("path {} has no parent", path.display()))?;
+        let canonical_parent = fs::canonicalize(parent)
+            .await
+            .with_context(|| format!("failed to canonicalize {}", parent.display()))?;
+        if !canonical_parent.starts_with(&canonical_cwd) {
+            return Err(anyhow!(
+                "path {} is outside ACP cwd {}",
+                path.display(),
+                canonical_cwd.display()
+            ));
+        }
+        Ok(path)
+    }
+
     async fn write_json(&mut self, value: Value) -> Result<()> {
         let mut line = serde_json::to_vec(&value).context("failed to encode ACP request")?;
         line.push(b'\n');
@@ -494,6 +694,7 @@ fn extract_text(value: &Value) -> Option<String> {
 fn compact_json_for_log(value: &Value) -> String {
     let mut redacted = value.clone();
     redact_prompt_text(&mut redacted);
+    redact_file_content(&mut redacted);
     serde_json::to_string(&redacted).unwrap_or_else(|_| "<invalid json>".to_string())
 }
 
@@ -522,6 +723,69 @@ fn redact_prompt_text(value: &mut Value) {
     }
 }
 
+fn redact_file_content(value: &mut Value) {
+    match value {
+        Value::Object(map) => {
+            if let Some(Value::String(content)) = map.get_mut("content") {
+                let chars = content.chars().count();
+                *content = format!("<redacted file content: {chars} chars>");
+            }
+            for nested in map.values_mut() {
+                redact_file_content(nested);
+            }
+        }
+        Value::Array(items) => {
+            for item in items {
+                redact_file_content(item);
+            }
+        }
+        _ => {}
+    }
+}
+
+fn acp_error_response(id: Value, code: i64, message: String) -> Value {
+    json!({
+        "jsonrpc": "2.0",
+        "id": id,
+        "error": {
+            "code": code,
+            "message": message
+        }
+    })
+}
+
+fn client_path_param(params: &Value) -> Result<&Path> {
+    params
+        .get("path")
+        .and_then(Value::as_str)
+        .filter(|path| !path.trim().is_empty())
+        .map(Path::new)
+        .ok_or_else(|| anyhow!("missing string path"))
+}
+
+fn absolute_client_path(cwd: &Path, path: &Path) -> PathBuf {
+    if path.is_absolute() {
+        path.to_path_buf()
+    } else {
+        cwd.join(path)
+    }
+}
+
+fn slice_text_lines(content: &str, line: Option<u64>, limit: Option<u64>) -> String {
+    let Some(line) = line else {
+        return content.to_string();
+    };
+    let start = usize::try_from(line.saturating_sub(1)).unwrap_or(usize::MAX);
+    let limit = limit
+        .and_then(|value| usize::try_from(value).ok())
+        .filter(|value| *value > 0);
+    let lines = content.lines().skip(start);
+    match limit {
+        Some(limit) => lines.take(limit).collect::<Vec<_>>().join("\n"),
+        None => lines.collect::<Vec<_>>().join("\n"),
+    }
+}
+
 #[allow(dead_code)]
 fn session_name(provider: AiProvider) -> Result<String> {
     Ok(format!("parley-{}-{}", provider.as_str(), now_ms()?))
@@ -531,7 +795,7 @@ fn session_name(provider: AiProvider) -> Result<String> {
 mod tests {
     use serde_json::json;
 
-    use super::extract_text;
+    use super::{absolute_client_path, compact_json_for_log, extract_text, slice_text_lines};
 
     #[test]
     fn extracts_text_from_acp_content_chunk() {
@@ -547,5 +811,38 @@ mod tests {
             update.get("content").and_then(extract_text),
             Some("checking imports".to_string())
         );
+    }
+
+    #[test]
+    fn slices_text_lines_with_one_based_line_and_limit() {
+        assert_eq!(
+            slice_text_lines("one\ntwo\nthree\nfour\n", Some(2), Some(2)),
+            "two\nthree"
+        );
+    }
+
+    #[test]
+    fn absolute_client_path_joins_relative_paths_to_cwd() {
+        assert_eq!(
+            absolute_client_path(
+                std::path::Path::new("/tmp/project"),
+                std::path::Path::new("src/lib.rs")
+            ),
+            std::path::PathBuf::from("/tmp/project/src/lib.rs")
+        );
+    }
+
+    #[test]
+    fn compact_json_for_log_redacts_file_content() {
+        let logged = compact_json_for_log(&json!({
+            "jsonrpc": "2.0",
+            "id": 4,
+            "result": {
+                "content": "secret file text"
+            }
+        }));
+
+        assert!(logged.contains("<redacted file content: 16 chars>"));
+        assert!(!logged.contains("secret file text"));
     }
 }

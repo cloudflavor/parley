@@ -94,7 +94,7 @@ impl TuiApp {
                     .await?;
             }
             CommandPaletteAction::CancelAiRun => {
-                self.cancel_ai_task();
+                self.cancel_ai_task().await;
             }
             CommandPaletteAction::ShowAiActivity => {
                 self.toggle_ai_activity_overlay();

@@ -3,13 +3,13 @@
 //! Handles AI task lifecycle, progress tracking, and session management.
 
 use std::collections::VecDeque;
-use std::fs::{self, OpenOptions};
-use std::io::Write;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
 use crossterm::event::{KeyCode, KeyEvent};
+use tokio::fs;
+use tokio::io::AsyncWriteExt;
 use tokio::sync::mpsc;
 
 use super::helpers::format_timestamp_utc;
@@ -185,7 +185,7 @@ impl TuiApp {
             .count()
     }
 
-    pub(crate) fn start_ai_log_session(
+    pub(crate) async fn start_ai_log_session(
         &mut self,
         file_path: &str,
         provider: AiProvider,
@@ -205,23 +205,26 @@ impl TuiApp {
             unread_events: 0,
             events: VecDeque::with_capacity(AI_PROGRESS_MAX_LINES),
         };
-        let sessions = self
-            .ai_log_sessions_by_file
-            .entry(file_path.to_string())
-            .or_insert_with(|| VecDeque::with_capacity(AI_LOG_MAX_SESSIONS_PER_FILE));
-        sessions.push_back(session);
-        while sessions.len() > AI_LOG_MAX_SESSIONS_PER_FILE {
-            sessions.pop_front();
+        {
+            let sessions = self
+                .ai_log_sessions_by_file
+                .entry(file_path.to_string())
+                .or_insert_with(|| VecDeque::with_capacity(AI_LOG_MAX_SESSIONS_PER_FILE));
+            sessions.push_back(session);
+            while sessions.len() > AI_LOG_MAX_SESSIONS_PER_FILE {
+                sessions.pop_front();
+            }
         }
         self.push_ai_event_for_session(
             id,
             "system",
             format!("started session ({})", mode.as_str()),
-        );
+        )
+        .await;
         id
     }
 
-    pub(crate) fn push_ai_event_for_session(
+    pub(crate) async fn push_ai_event_for_session(
         &mut self,
         session_id: u64,
         stream: &str,
@@ -232,22 +235,19 @@ impl TuiApp {
             stream: stream.to_string(),
             message: message.into(),
         };
-        self.push_ai_log_event(session_id, event);
+        self.push_ai_log_event(session_id, event).await;
     }
 
-    pub(crate) fn push_ai_log_event(&mut self, session_id: u64, event: AiLogEvent) -> bool {
+    pub(crate) async fn push_ai_log_event(&mut self, session_id: u64, event: AiLogEvent) -> bool {
         let current_file_path = self.ai_log_file_path();
         let ai_log_path = self.ai_log_path();
-        let mut write_error = None;
+        let mut log_line = None;
+        let mut pushed = false;
         for sessions in self.ai_log_sessions_by_file.values_mut() {
             let Some(session) = sessions.iter_mut().find(|session| session.id == session_id) else {
                 continue;
             };
-            if let Some(path) = ai_log_path.as_deref()
-                && let Err(error) = append_ai_log_event(path, session, &event)
-            {
-                write_error = Some(error.to_string());
-            }
+            log_line = Some(format_ai_log_event_line(session, &event));
             if is_ai_waiting_event(&event)
                 && let Some(last) = session.events.back_mut()
                 && is_ai_waiting_event(last)
@@ -256,32 +256,37 @@ impl TuiApp {
                 if self.ai_progress_follow_tail {
                     self.ai_progress_scroll = usize::MAX;
                 }
-                if let Some(error) = write_error {
-                    self.status_line = format!("failed to write ai log: {error}");
+                pushed = true;
+                break;
+            } else {
+                session.events.push_back(event);
+                while session.events.len() > AI_PROGRESS_MAX_LINES {
+                    session.events.pop_front();
                 }
-                return true;
+                let selected_session_visible =
+                    self.ai_progress_visible && self.selected_ai_log_session_id == Some(session.id);
+                let current_file_visible = self.ai_progress_visible
+                    && self.selected_ai_log_session_id.is_none()
+                    && session.file_path == current_file_path;
+                if !(selected_session_visible || current_file_visible) {
+                    session.unread_events = session.unread_events.saturating_add(1);
+                }
+                if self.ai_progress_follow_tail {
+                    self.ai_progress_scroll = usize::MAX;
+                }
+                pushed = true;
+                break;
             }
-            session.events.push_back(event);
-            while session.events.len() > AI_PROGRESS_MAX_LINES {
-                session.events.pop_front();
-            }
-            let selected_session_visible =
-                self.ai_progress_visible && self.selected_ai_log_session_id == Some(session.id);
-            let current_file_visible = self.ai_progress_visible
-                && self.selected_ai_log_session_id.is_none()
-                && session.file_path == current_file_path;
-            if !(selected_session_visible || current_file_visible) {
-                session.unread_events = session.unread_events.saturating_add(1);
-            }
-            if self.ai_progress_follow_tail {
-                self.ai_progress_scroll = usize::MAX;
-            }
-            if let Some(error) = write_error {
-                self.status_line = format!("failed to write ai log: {error}");
-            }
-            return true;
         }
-        false
+        if !pushed {
+            return false;
+        }
+        if let (Some(path), Some(line)) = (ai_log_path.as_deref(), log_line.as_deref())
+            && let Err(error) = append_ai_log_line(path, line).await
+        {
+            self.status_line = format!("failed to write ai log: {error}");
+        }
+        true
     }
 
     pub(crate) fn mark_ai_sessions_for_file_read(&mut self, file_path: &str) {
@@ -379,7 +384,7 @@ impl TuiApp {
             .find(|task| task.file_path == file_path)
     }
 
-    pub(crate) fn record_ai_progress_for_file(
+    pub(crate) async fn record_ai_progress_for_file(
         &mut self,
         file_path: &str,
         session_id: u64,
@@ -398,14 +403,16 @@ impl TuiApp {
         } else {
             message
         };
-        let pushed = self.push_ai_log_event(
-            session_id,
-            AiLogEvent {
-                timestamp_ms: event.timestamp_ms,
-                stream: stream.to_string(),
-                message,
-            },
-        );
+        let pushed = self
+            .push_ai_log_event(
+                session_id,
+                AiLogEvent {
+                    timestamp_ms: event.timestamp_ms,
+                    stream: stream.to_string(),
+                    message,
+                },
+            )
+            .await;
         if self.ai_progress_visible && self.ai_progress_file_path() == file_path {
             self.mark_ai_sessions_for_file_read(file_path);
         }
@@ -448,7 +455,7 @@ impl TuiApp {
         Ok(true)
     }
 
-    pub(crate) fn drain_ai_progress(&mut self) -> bool {
+    pub(crate) async fn drain_ai_progress(&mut self) -> bool {
         let mut changed = false;
         let mut events = Vec::new();
         let mut heartbeats = Vec::new();
@@ -473,16 +480,19 @@ impl TuiApp {
             }
         }
         for (file_path, session_id, event) in events {
-            changed |= self.record_ai_progress_for_file(&file_path, session_id, event);
+            changed |= self
+                .record_ai_progress_for_file(&file_path, session_id, event)
+                .await;
         }
         for (session_id, message) in heartbeats {
-            self.push_ai_event_for_session(session_id, "system", message);
+            self.push_ai_event_for_session(session_id, "system", message)
+                .await;
             changed = true;
         }
         changed
     }
 
-    pub(crate) fn cancel_ai_task(&mut self) {
+    pub(crate) async fn cancel_ai_task(&mut self) {
         let file_path = self.ai_log_file_path();
         let mut remaining = Vec::with_capacity(self.ai_tasks.len());
         let mut cancelled = Vec::new();
@@ -503,7 +513,8 @@ impl TuiApp {
         let cancelled_count = cancelled.len();
         for mut task in cancelled {
             while let Ok(event) = task.progress_rx.try_recv() {
-                self.record_ai_progress_for_file(&file_path, task.log_session_id, event);
+                self.record_ai_progress_for_file(&file_path, task.log_session_id, event)
+                    .await;
             }
             let provider = task.provider;
             let elapsed_ms = task.started_at.elapsed().as_millis();
@@ -513,13 +524,14 @@ impl TuiApp {
                 task.log_session_id,
                 "system",
                 format!("{} cancelled after {}ms", provider.as_str(), elapsed_ms),
-            );
+            )
+            .await;
         }
         self.status_line = format!("cancelled {cancelled_count} ai session(s) for current file");
     }
 
     pub(crate) async fn poll_ai_task(&mut self, service: &ReviewService) -> Result<bool> {
-        let mut changed = self.drain_ai_progress();
+        let mut changed = self.drain_ai_progress().await;
         let mut finished_indices = self
             .ai_tasks
             .iter()
@@ -536,7 +548,8 @@ impl TuiApp {
             let mut task = self.ai_tasks.remove(index);
             let file_path = task.file_path.clone();
             while let Ok(event) = task.progress_rx.try_recv() {
-                self.record_ai_progress_for_file(&file_path, task.log_session_id, event);
+                self.record_ai_progress_for_file(&file_path, task.log_session_id, event)
+                    .await;
             }
             match task.handle.await {
                 Ok(Ok(result)) => {
@@ -572,7 +585,8 @@ impl TuiApp {
                             "{} finished (processed={} skipped={} failed={})",
                             result.provider, result.processed, result.skipped, result.failed
                         ),
-                    );
+                    )
+                    .await;
                     changed = true;
                 }
                 Ok(Err(error)) => {
@@ -588,7 +602,8 @@ impl TuiApp {
                         task.log_session_id,
                         "system",
                         format!("run failed: {error}"),
-                    );
+                    )
+                    .await;
                     changed = true;
                 }
                 Err(error) => {
@@ -604,7 +619,8 @@ impl TuiApp {
                         task.log_session_id,
                         "system",
                         format!("task join failed: {error}"),
-                    );
+                    )
+                    .await;
                     changed = true;
                 }
             }
@@ -633,7 +649,7 @@ impl TuiApp {
 
         let provider = self.ai_provider;
         let transport = self.ai_transport;
-        let log_session_id = self.start_ai_log_session(&file_path, provider, mode);
+        let log_session_id = self.start_ai_log_session(&file_path, provider, mode).await;
         self.ai_progress_visible = true;
         self.selected_ai_log_session_id = Some(log_session_id);
         self.ai_progress_scroll_end();
@@ -652,7 +668,8 @@ impl TuiApp {
                 provider_config.transport.as_str(),
                 provider_config.model.as_deref().unwrap_or("-")
             ),
-        );
+        )
+        .await;
         let input = RunAiSessionInput {
             review_name: self.review_name.clone(),
             provider,
@@ -838,18 +855,8 @@ fn is_ai_waiting_event(event: &AiLogEvent) -> bool {
     event.stream == "system" && event.message.starts_with("waiting for ")
 }
 
-fn append_ai_log_event(path: &Path, session: &AiLogSession, event: &AiLogEvent) -> Result<()> {
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)
-            .with_context(|| format!("failed to create ai log directory {}", parent.display()))?;
-    }
-    let mut file = OpenOptions::new()
-        .create(true)
-        .append(true)
-        .open(path)
-        .with_context(|| format!("failed to open ai log {}", path.display()))?;
-    writeln!(
-        file,
+fn format_ai_log_event_line(session: &AiLogSession, event: &AiLogEvent) -> String {
+    format!(
         "{} | session #{} | file={} | {}:{} | status={} | {}: {}",
         format_timestamp_utc(event.timestamp_ms),
         session.id,
@@ -860,7 +867,29 @@ fn append_ai_log_event(path: &Path, session: &AiLogSession, event: &AiLogEvent) 
         event.stream,
         sanitize_ai_log_text(event.message.trim())
     )
-    .with_context(|| format!("failed to write ai log {}", path.display()))?;
+}
+
+async fn append_ai_log_line(path: &Path, line: &str) -> Result<()> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)
+            .await
+            .with_context(|| format!("failed to create ai log directory {}", parent.display()))?;
+    }
+    let mut file = fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)
+        .await
+        .with_context(|| format!("failed to open ai log {}", path.display()))?;
+    file.write_all(line.as_bytes())
+        .await
+        .with_context(|| format!("failed to write ai log {}", path.display()))?;
+    file.write_all(b"\n")
+        .await
+        .with_context(|| format!("failed to write ai log {}", path.display()))?;
+    file.flush()
+        .await
+        .with_context(|| format!("failed to flush ai log {}", path.display()))?;
     Ok(())
 }
 
@@ -873,20 +902,19 @@ fn sanitize_ai_log_text(value: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use std::fs;
-
     use anyhow::Result;
     use tempfile::tempdir;
 
     use super::*;
     use crate::tui::app::state::tests::make_test_app;
 
-    #[test]
-    fn ai_log_sessions_keep_events_scoped_to_file_and_session() -> Result<()> {
+    #[tokio::test]
+    async fn ai_log_sessions_keep_events_scoped_to_file_and_session() -> Result<()> {
         let mut app = make_test_app(vec!["src/a.rs", "src/b.rs"], Vec::new())?;
 
-        let session_id =
-            app.start_ai_log_session("src/a.rs", AiProvider::Codex, AiSessionMode::Reply);
+        let session_id = app
+            .start_ai_log_session("src/a.rs", AiProvider::Codex, AiSessionMode::Reply)
+            .await;
         app.push_ai_log_event(
             session_id,
             AiLogEvent {
@@ -894,7 +922,8 @@ mod tests {
                 stream: "agent".to_string(),
                 message: "answer".to_string(),
             },
-        );
+        )
+        .await;
 
         let sessions = app
             .ai_log_sessions_for_file("src/a.rs")
@@ -911,16 +940,21 @@ mod tests {
         Ok(())
     }
 
-    #[test]
-    fn ai_log_waiting_events_update_latest_waiting_row() -> Result<()> {
+    #[tokio::test]
+    async fn ai_log_waiting_events_update_latest_waiting_row() -> Result<()> {
         let mut app = make_test_app(vec!["src/a.rs"], Vec::new())?;
-        let session_id =
-            app.start_ai_log_session("src/a.rs", AiProvider::Pi, AiSessionMode::Refactor);
+        let session_id = app
+            .start_ai_log_session("src/a.rs", AiProvider::Pi, AiSessionMode::Refactor)
+            .await;
 
-        app.push_ai_event_for_session(session_id, "system", "waiting for pi response (2s elapsed)");
-        app.push_ai_event_for_session(session_id, "system", "waiting for pi response (4s elapsed)");
-        app.push_ai_event_for_session(session_id, "thought", "checking imports");
-        app.push_ai_event_for_session(session_id, "system", "waiting for pi response (6s elapsed)");
+        app.push_ai_event_for_session(session_id, "system", "waiting for pi response (2s elapsed)")
+            .await;
+        app.push_ai_event_for_session(session_id, "system", "waiting for pi response (4s elapsed)")
+            .await;
+        app.push_ai_event_for_session(session_id, "thought", "checking imports")
+            .await;
+        app.push_ai_event_for_session(session_id, "system", "waiting for pi response (6s elapsed)")
+            .await;
 
         let events = &app
             .ai_log_sessions_for_file("src/a.rs")
@@ -933,11 +967,12 @@ mod tests {
         Ok(())
     }
 
-    #[test]
-    fn ai_activity_jump_opens_selected_file_logs() -> Result<()> {
+    #[tokio::test]
+    async fn ai_activity_jump_opens_selected_file_logs() -> Result<()> {
         let mut app = make_test_app(vec!["src/a.rs", "src/b.rs"], Vec::new())?;
-        let session_id =
-            app.start_ai_log_session("src/b.rs", AiProvider::Opencode, AiSessionMode::Refactor);
+        let session_id = app
+            .start_ai_log_session("src/b.rs", AiProvider::Opencode, AiSessionMode::Refactor)
+            .await;
         app.ai_activity_visible = true;
         app.ai_activity_selected = 0;
 
@@ -968,17 +1003,19 @@ mod tests {
         Ok(())
     }
 
-    #[test]
-    fn ai_log_events_are_persisted_to_review_ai_log() -> Result<()> {
+    #[tokio::test]
+    async fn ai_log_events_are_persisted_to_review_ai_log() -> Result<()> {
         let tempdir = tempdir()?;
         let mut app = make_test_app(vec!["src/a.rs"], Vec::new())?;
         app.log_path = tempdir.path().join("reviews/main/logs/tui.log");
-        let session_id =
-            app.start_ai_log_session("src/a.rs", AiProvider::Codex, AiSessionMode::Reply);
+        let session_id = app
+            .start_ai_log_session("src/a.rs", AiProvider::Codex, AiSessionMode::Reply)
+            .await;
 
-        app.push_ai_event_for_session(session_id, "stderr", "ACP auth failed\ninvalid_grant");
+        app.push_ai_event_for_session(session_id, "stderr", "ACP auth failed\ninvalid_grant")
+            .await;
 
-        let log = fs::read_to_string(tempdir.path().join("reviews/main/logs/ai.log"))?;
+        let log = fs::read_to_string(tempdir.path().join("reviews/main/logs/ai.log")).await?;
         assert!(log.contains("session #1"));
         assert!(log.contains("codex:reply"));
         assert!(log.contains("stderr: ACP auth failed\\ninvalid_grant"));
