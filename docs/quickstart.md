@@ -115,7 +115,7 @@ Use root mode when you want to review the repository as files, not as a git diff
 
 Root mode includes tracked files and untracked files that are not ignored by gitignore rules. It skips `.git/`, `.parley/`, and `worktrees/`. Each file is displayed as context lines, so comments attach to the file's current line numbers.
 
-Startup in root mode lazy-loads file content. The file tree appears first, load progress is shown while data hydrates, and individual files load when selected or opened from search. JSON files are pretty-printed for display, and Markdown files are rendered into readable text rows.
+Startup in root mode lazy-loads file content. The file tree appears first, load progress is shown while data hydrates, and individual files load when selected or opened from search. Root mode opens raw source by default. Press `D` or use command palette `Toggle Root JSON/Markdown Rendering` to switch `.json` files into pretty-printed JSON and Markdown files into readable rendered text rows.
 
 ## The core workflow
 

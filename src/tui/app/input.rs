@@ -314,6 +314,25 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn command_palette_can_toggle_root_document_rendering() -> Result<()> {
+        let mut app = make_test_app(vec!["README.md"])?;
+        let service = make_test_service()?;
+        app.diff_source = DiffSource::RootDirectory;
+        let item =
+            TuiApp::command_palette_filtered_items("markdown", &TuiApp::command_palette_items())
+                .into_iter()
+                .find(|item| item.action == CommandPaletteAction::ToggleRootDocumentRendering)
+                .ok_or_else(|| anyhow!("rendering command should be in command palette"))?;
+
+        app.apply_command_palette_action(item.action, &service)
+            .await?;
+
+        assert!(app.root_document_rendering);
+        assert_eq!(app.status_line, "root JSON/Markdown rendering enabled");
+        Ok(())
+    }
+
+    #[tokio::test]
     async fn ai_transport_toggle_switches_between_acp_and_cli() -> Result<()> {
         use crate::domain::config::AgentTransport;
 

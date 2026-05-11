@@ -344,6 +344,24 @@ mod tests {
     }
 
     #[test]
+    fn toggle_root_document_rendering_only_applies_to_root_mode() -> Result<()> {
+        let mut app = make_test_app(vec!["README.md"], vec![])?;
+
+        app.toggle_root_document_rendering();
+        assert!(!app.root_document_rendering);
+        assert_eq!(
+            app.status_line,
+            "document rendering is only available in root mode"
+        );
+
+        app.diff_source = DiffSource::RootDirectory;
+        app.toggle_root_document_rendering();
+        assert!(app.root_document_rendering);
+        assert_eq!(app.status_line, "root JSON/Markdown rendering enabled");
+        Ok(())
+    }
+
+    #[test]
     fn review_picker_filter_matches_name_and_state() -> Result<()> {
         let mut app = make_test_app(vec!["src/a.rs"], vec![])?;
         app.review_picker = Some(super::ReviewPickerState {

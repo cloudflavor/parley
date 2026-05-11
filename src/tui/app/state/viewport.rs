@@ -308,7 +308,9 @@ impl TuiApp {
                 code: header.clone(),
             });
         }
-        if let Some(mut rendered_rows) = rendered_root_file_rows(file, &self.diff_source) {
+        if self.root_document_rendering
+            && let Some(mut rendered_rows) = rendered_root_file_rows(file, &self.diff_source)
+        {
             rows.append(&mut rendered_rows);
             let highlights = vec![None; rows.len()];
             self.row_cache
@@ -630,7 +632,32 @@ mod root_render_tests {
     }
 
     #[test]
-    fn json_root_file_rows_are_pretty_printed() {
+    fn root_file_rows_are_raw_by_default() {
+        let mut app = crate::tui::app::state::tests::make_test_app_with_files_and_comments(
+            vec![root_file(
+                "config.json",
+                &[r#"{"name":"parley","items":[1,2]}"#],
+            )],
+            vec![],
+        )
+        .expect("app should build");
+        app.diff_source = DiffSource::RootDirectory;
+
+        app.rebuild_row_cache_for_file(0);
+
+        let rows = app
+            .row_cache
+            .get(&0)
+            .expect("rows should be cached")
+            .rows
+            .iter()
+            .map(|row| row.code.as_str())
+            .collect::<Vec<_>>();
+        assert!(rows.contains(&r#"{"name":"parley","items":[1,2]}"#));
+    }
+
+    #[test]
+    fn json_root_file_rows_are_pretty_printed_when_rendering_enabled() {
         let file = root_file("config.json", &[r#"{"name":"parley","items":[1,2]}"#]);
         let rows =
             rendered_root_file_rows(&file, &DiffSource::RootDirectory).expect("json should render");
@@ -644,7 +671,7 @@ mod root_render_tests {
     }
 
     #[test]
-    fn markdown_root_file_rows_are_rendered_as_readable_text() {
+    fn markdown_root_file_rows_are_rendered_as_readable_text_when_rendering_enabled() {
         let file = root_file("README.md", &["# Title", "", "- one", "- two"]);
         let rows = rendered_root_file_rows(&file, &DiffSource::RootDirectory)
             .expect("markdown should render");

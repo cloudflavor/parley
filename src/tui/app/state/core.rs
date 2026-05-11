@@ -89,6 +89,7 @@ impl TuiApp {
             root_file_load_task: None,
             root_hydrated_files: std::collections::HashSet::new(),
             root_diff_load_started_at: None,
+            root_document_rendering: false,
             shortcuts_modal_visible: false,
             shortcuts_modal_scroll: 0,
             shortcuts_modal_doc_index: 0,

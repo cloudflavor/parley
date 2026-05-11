@@ -131,6 +131,9 @@ impl TuiApp {
             KeyCode::Char('M') => {
                 self.start_file_heatmap();
             }
+            KeyCode::Char('D') => {
+                self.toggle_root_document_rendering();
+            }
             KeyCode::Char('F') if key.modifiers.contains(KeyModifiers::SHIFT) => {
                 self.cycle_file_filter_mode();
             }
