@@ -1,3 +1,5 @@
+use std::path::Path;
+
 use serde::{Deserialize, Serialize};
 
 use crate::domain::ai::{AiProvider, AiSessionMode};
@@ -215,7 +217,10 @@ impl AiConfig {
     ) -> AiProviderConfig {
         let configured = self.provider_config(provider);
         match transport {
-            Some(AgentTransport::Acp) if configured.transport != AgentTransport::Acp => {
+            Some(AgentTransport::Acp)
+                if configured.transport != AgentTransport::Acp
+                    || is_legacy_non_acp_command(provider, configured) =>
+            {
                 default_acp_provider_config(provider)
             }
             Some(AgentTransport::Cli) if configured.transport != AgentTransport::Cli => {
@@ -238,6 +243,24 @@ impl AiConfig {
             .or(self.prompt_path.as_deref())
             .map(str::trim)
             .filter(|path| !path.is_empty())
+    }
+}
+
+fn is_legacy_non_acp_command(provider: AiProvider, config: &AiProviderConfig) -> bool {
+    if config.transport != AgentTransport::Acp {
+        return false;
+    }
+    let client = Path::new(&config.client)
+        .file_name()
+        .and_then(|value| value.to_str())
+        .unwrap_or(config.client.as_str());
+    match provider {
+        AiProvider::Codex => client == "codex",
+        AiProvider::Claude => client == "claude" || client == "claude-code",
+        AiProvider::Opencode => {
+            client == "opencode" && config.args.first().map(String::as_str) != Some("acp")
+        }
+        AiProvider::Pi => false,
     }
 }
 
@@ -369,6 +392,23 @@ mod tests {
         assert_eq!(opencode.transport, AgentTransport::Cli);
         assert_eq!(opencode.client, "opencode");
         assert_eq!(opencode.args, vec!["run"]);
+    }
+
+    #[test]
+    fn provider_config_for_transport_repairs_legacy_opencode_acp_command() {
+        let mut config = AiConfig::default();
+        config.opencode.transport = AgentTransport::Acp;
+        config.opencode.client = "opencode".to_string();
+        config.opencode.args = vec!["run".to_string()];
+
+        let opencode = config.provider_config_for_transport(
+            crate::domain::ai::AiProvider::Opencode,
+            Some(AgentTransport::Acp),
+        );
+
+        assert_eq!(opencode.transport, AgentTransport::Acp);
+        assert_eq!(opencode.client, "opencode");
+        assert_eq!(opencode.args, vec!["acp"]);
     }
 
     #[test]

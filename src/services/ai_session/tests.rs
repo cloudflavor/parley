@@ -148,6 +148,64 @@ async fn thread_prompt_uses_custom_task_prompt_when_provided() -> anyhow::Result
 }
 
 #[tokio::test]
+async fn thread_prompt_requires_exact_thread_id_targeting() -> anyhow::Result<()> {
+    let review = ReviewSession {
+        name: "review".into(),
+        state: ReviewState::Open,
+        created_at_ms: 0,
+        updated_at_ms: 0,
+        comments: vec![
+            LineComment {
+                id: 1,
+                file_path: "src/lib.rs".into(),
+                old_line: None,
+                new_line: Some(10),
+                line_range: None,
+                side: DiffSide::Right,
+                line_anchor: None,
+                detached: false,
+                body: "first thread".into(),
+                author: Author::User,
+                status: CommentStatus::Open,
+                replies: Vec::new(),
+                created_at_ms: 0,
+                updated_at_ms: 0,
+                addressed_at_ms: None,
+            },
+            LineComment {
+                id: 7,
+                file_path: "src/lib.rs".into(),
+                old_line: None,
+                new_line: Some(42),
+                line_range: None,
+                side: DiffSide::Right,
+                line_anchor: None,
+                detached: false,
+                body: "target thread".into(),
+                author: Author::User,
+                status: CommentStatus::Open,
+                replies: Vec::new(),
+                created_at_ms: 0,
+                updated_at_ms: 0,
+                addressed_at_ms: None,
+            },
+        ],
+        next_comment_id: 8,
+        next_reply_id: 1,
+    };
+
+    let prompt =
+        build_thread_prompt("review", 7, &review, None, AiSessionMode::Refactor, None).await?;
+
+    assert!(prompt.contains("Thread comment id: 7"));
+    assert!(prompt.contains("The only target is the exact `Thread comment id`"));
+    assert!(prompt.contains("Do not infer target thread from file order"));
+    assert!(!prompt.contains("Original comment:\nfirst thread"));
+    assert!(prompt.contains("Original comment:\ntarget thread"));
+    Ok(())
+}
+
+#[tokio::test]
 async fn thread_prompt_includes_selected_line_range_for_ai_context() -> anyhow::Result<()> {
     let review = ReviewSession {
         name: "review".into(),

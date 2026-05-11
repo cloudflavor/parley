@@ -11,6 +11,9 @@ use tracing::{debug, info};
 use crate::domain::config::AppConfig;
 use crate::domain::diff::{DiffDocument, DiffFile, DiffHunk, DiffLine, DiffLineKind};
 
+const MAX_ROOT_FILE_PREVIEW_BYTES: u64 = 2 * 1024 * 1024;
+const MAX_ROOT_FILE_PREVIEW_LINES: usize = 20_000;
+
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub enum DiffSource {
     #[default]
@@ -293,6 +296,14 @@ async fn root_directory_file(workdir: &Path, relative_path: &Path) -> Result<Opt
     if !metadata.is_file() {
         return Ok(None);
     }
+    let display_path = normalize_relative_path(relative_path);
+    if metadata.len() > MAX_ROOT_FILE_PREVIEW_BYTES {
+        return Ok(Some(root_directory_large_file_preview(
+            &display_path,
+            metadata.len(),
+            "file is too large to preview",
+        )));
+    }
 
     let bytes = fs::read(&path)
         .await
@@ -304,7 +315,18 @@ async fn root_directory_file(workdir: &Path, relative_path: &Path) -> Result<Opt
         Ok(content) => content,
         Err(_) => return Ok(None),
     };
-    let display_path = normalize_relative_path(relative_path);
+    if content
+        .lines()
+        .take(MAX_ROOT_FILE_PREVIEW_LINES + 1)
+        .count()
+        > MAX_ROOT_FILE_PREVIEW_LINES
+    {
+        return Ok(Some(root_directory_large_file_preview(
+            &display_path,
+            metadata.len(),
+            "file has too many lines to preview",
+        )));
+    }
     Ok(Some(diff_file_from_content(&display_path, &content)))
 }
 
@@ -382,6 +404,16 @@ fn root_directory_file_sync(workdir: &Path, relative_path: &Path) -> Result<Opti
     if !path.is_file() {
         return Ok(None);
     }
+    let display_path = normalize_relative_path(relative_path);
+    let metadata =
+        std_fs::metadata(&path).with_context(|| format!("failed to inspect {}", path.display()))?;
+    if metadata.len() > MAX_ROOT_FILE_PREVIEW_BYTES {
+        return Ok(Some(root_directory_large_file_preview(
+            &display_path,
+            metadata.len(),
+            "file is too large to preview",
+        )));
+    }
 
     let bytes =
         std_fs::read(&path).with_context(|| format!("failed to read {}", path.display()))?;
@@ -392,7 +424,18 @@ fn root_directory_file_sync(workdir: &Path, relative_path: &Path) -> Result<Opti
         Ok(content) => content,
         Err(_) => return Ok(None),
     };
-    let display_path = normalize_relative_path(relative_path);
+    if content
+        .lines()
+        .take(MAX_ROOT_FILE_PREVIEW_LINES + 1)
+        .count()
+        > MAX_ROOT_FILE_PREVIEW_LINES
+    {
+        return Ok(Some(root_directory_large_file_preview(
+            &display_path,
+            metadata.len(),
+            "file has too many lines to preview",
+        )));
+    }
     Ok(Some(diff_file_from_content(&display_path, &content)))
 }
 
@@ -453,6 +496,26 @@ fn diff_file_from_content(path: &str, content: &str) -> DiffFile {
         path: path.to_string(),
         header_lines: vec![format!("file {path}")],
         hunks: vec![hunk],
+    }
+}
+
+fn root_directory_large_file_preview(path: &str, byte_len: u64, reason: &str) -> DiffFile {
+    let size = format_root_file_size(byte_len);
+    diff_file_from_content(
+        path,
+        &format!("{reason}; {size}. Use search or open the file directly."),
+    )
+}
+
+fn format_root_file_size(byte_len: u64) -> String {
+    const KIB: u64 = 1024;
+    const MIB: u64 = 1024 * 1024;
+    if byte_len >= MIB {
+        format!("{:.1} MiB", byte_len as f64 / MIB as f64)
+    } else if byte_len >= KIB {
+        format!("{:.1} KiB", byte_len as f64 / KIB as f64)
+    } else {
+        format!("{byte_len} B")
     }
 }
 
@@ -778,8 +841,9 @@ mod tests {
     use crate::domain::diff::DiffLineKind;
 
     use super::{
-        DiffSource, filter_ignored_files, load_git_diff_for_repo, parse_unified_diff,
-        root_directory_placeholder_file, safe_root_relative_path,
+        DiffSource, MAX_ROOT_FILE_PREVIEW_BYTES, filter_ignored_files, load_git_diff_for_repo,
+        parse_unified_diff, root_directory_file_sync, root_directory_placeholder_file,
+        safe_root_relative_path,
     };
 
     #[test]
@@ -1018,6 +1082,30 @@ mod tests {
         assert_eq!(file.path, "src/lib.rs");
         assert_eq!(file.header_lines, vec!["file src/lib.rs"]);
         assert!(file.hunks.is_empty());
+    }
+
+    #[test]
+    fn large_root_directory_file_renders_preview_without_content() -> Result<()> {
+        let temp = tempdir()?;
+        let relative_path = std::path::Path::new("large.json");
+        let path = temp.path().join(relative_path);
+        fs::write(
+            &path,
+            "x".repeat((MAX_ROOT_FILE_PREVIEW_BYTES + 1) as usize),
+        )?;
+
+        let file = root_directory_file_sync(temp.path(), relative_path)?
+            .ok_or_else(|| anyhow!("large file preview should be present"))?;
+
+        assert_eq!(file.path, "large.json");
+        assert_eq!(file.hunks.len(), 1);
+        assert!(
+            file.hunks[0]
+                .lines
+                .iter()
+                .any(|line| line.code.contains("file is too large to preview"))
+        );
+        Ok(())
     }
 
     #[test]

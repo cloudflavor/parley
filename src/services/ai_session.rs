@@ -344,7 +344,7 @@ async fn run_ai_session_inner(
             input.provider,
             "system",
             format!(
-                "thread #{comment_id}: processed ({}/{})",
+                "thread #{comment_id}: reply persisted; status pending_human ({}/{})",
                 step_index + 1,
                 total_targets
             ),

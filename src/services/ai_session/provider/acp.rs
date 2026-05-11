@@ -419,7 +419,12 @@ impl AcpClient {
                 }
             }
             Some("thought_chunk") => {
-                emit_progress(progress_sender, self.provider, "thought", "thought update");
+                let text = update
+                    .get("content")
+                    .and_then(extract_text)
+                    .or_else(|| extract_text(update))
+                    .unwrap_or_else(|| compact_json_for_log(update));
+                emit_progress(progress_sender, self.provider, "thought", text);
             }
             Some("tool_call") => {
                 emit_progress(progress_sender, self.provider, "tool", update.to_string());
@@ -526,4 +531,27 @@ fn redact_prompt_text(value: &mut Value) {
 #[allow(dead_code)]
 fn session_name(provider: AiProvider) -> Result<String> {
     Ok(format!("parley-{}-{}", provider.as_str(), now_ms()?))
+}
+
+#[cfg(test)]
+mod tests {
+    use serde_json::json;
+
+    use super::extract_text;
+
+    #[test]
+    fn extracts_text_from_acp_content_chunk() {
+        let update = json!({
+            "sessionUpdate": "thought_chunk",
+            "content": {
+                "type": "text",
+                "text": "checking imports"
+            }
+        });
+
+        assert_eq!(
+            update.get("content").and_then(extract_text),
+            Some("checking imports".to_string())
+        );
+    }
 }

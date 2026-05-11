@@ -257,7 +257,7 @@ pub(super) fn draw_ai_progress_popup(frame: &mut Frame<'_>, app: &mut TuiApp) {
     };
     app.last_ai_progress_area = Some(area);
 
-    let file_path = app.ai_log_file_path();
+    let file_path = app.ai_progress_file_path();
     let running_count = app.running_ai_tasks_for_file(&file_path);
     let title = if let Some(task) = app.first_running_ai_task_for_file(&file_path) {
         format!(
@@ -277,10 +277,7 @@ pub(super) fn draw_ai_progress_popup(frame: &mut Frame<'_>, app: &mut TuiApp) {
     }
     let log_rows = inner_height.saturating_sub(1).max(1);
 
-    let sessions = app
-        .ai_log_sessions_for_file(&file_path)
-        .cloned()
-        .unwrap_or_default();
+    let sessions = app.ai_progress_sessions();
     let total = sessions
         .iter()
         .map(|session| session.events.len())
