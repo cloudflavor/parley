@@ -1,4 +1,7 @@
-use std::path::{Path, PathBuf};
+use std::{
+    io::{Error, ErrorKind},
+    path::{Path, PathBuf},
+};
 
 use crate::domain::{config::AppConfig, review::ReviewSession};
 use tokio::fs;
@@ -10,7 +13,7 @@ pub enum StoreError {
     #[error("review not found: {0}")]
     ReviewNotFound(String),
     #[error("io error: {0}")]
-    Io(#[from] std::io::Error),
+    Io(#[from] Error),
     #[error("json error: {0}")]
     Json(#[from] serde_json::Error),
     #[error("toml deserialize error: {0}")]
@@ -74,10 +77,10 @@ impl Store {
         validate_review_name(name)?;
         match fs::read(self.review_path(name)?).await {
             Ok(bytes) => Ok(serde_json::from_slice(&bytes)?),
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            Err(error) if error.kind() == ErrorKind::NotFound => {
                 match fs::read(self.legacy_review_path(name)?).await {
                     Ok(bytes) => Ok(serde_json::from_slice(&bytes)?),
-                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+                    Err(error) if error.kind() == ErrorKind::NotFound => {
                         Err(StoreError::ReviewNotFound(name.to_string()))
                     }
                     Err(error) => Err(StoreError::Io(error)),
@@ -106,7 +109,7 @@ impl Store {
                         let review: ReviewSession = serde_json::from_slice(&bytes)?;
                         result.push(review.name);
                     }
-                    Err(error) if error.kind() == std::io::ErrorKind::NotFound => {}
+                    Err(error) if error.kind() == ErrorKind::NotFound => {}
                     Err(error) => return Err(StoreError::Io(error)),
                 }
             } else if path.extension().and_then(|value| value.to_str()) == Some("json")
@@ -163,14 +166,14 @@ impl Store {
         match fs::read(&path).await {
             Ok(bytes) => {
                 let text = String::from_utf8(bytes).map_err(|error| {
-                    StoreError::Io(std::io::Error::new(
-                        std::io::ErrorKind::InvalidData,
+                    StoreError::Io(Error::new(
+                        ErrorKind::InvalidData,
                         format!("invalid utf-8 in config.toml: {error}"),
                     ))
                 })?;
                 Ok(toml::from_str(&text)?)
             }
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => {
+            Err(error) if error.kind() == ErrorKind::NotFound => {
                 self.load_legacy_json_config().await
             }
             Err(error) => Err(StoreError::Io(error)),
@@ -199,7 +202,7 @@ impl Store {
     async fn load_legacy_json_config(&self) -> StoreResult<AppConfig> {
         match fs::read(self.legacy_config_path()).await {
             Ok(bytes) => Ok(serde_json::from_slice(&bytes)?),
-            Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(AppConfig::default()),
+            Err(error) if error.kind() == ErrorKind::NotFound => Ok(AppConfig::default()),
             Err(error) => Err(StoreError::Io(error)),
         }
     }
