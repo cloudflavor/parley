@@ -397,9 +397,17 @@ fn parse_ai_thread_reply_json(
     raw_reply: &str,
     expected_thread_id: u64,
 ) -> Result<ParsedAiThreadReply> {
-    let json = strip_json_code_fence(raw_reply);
-    let parsed: AiThreadReplyJson =
-        serde_json::from_str(json).map_err(|error| invalid_ai_reply_json_error(error, json))?;
+    let json = strip_json_code_fence(raw_reply).trim();
+    let parsed: AiThreadReplyJson = match serde_json::from_str(json) {
+        Ok(parsed) => parsed,
+        Err(error) => {
+            let Some(candidate) = embedded_ai_reply_json_candidate(json) else {
+                return Err(invalid_ai_reply_json_error(error, json));
+            };
+            serde_json::from_str(candidate)
+                .map_err(|error| invalid_ai_reply_json_error(error, candidate))?
+        }
+    };
 
     if parsed.thread_id != expected_thread_id {
         return Err(anyhow!(
@@ -476,6 +484,65 @@ fn strip_json_code_fence(raw_reply: &str) -> &str {
     } else {
         without_start
     }
+}
+
+fn embedded_ai_reply_json_candidate(value: &str) -> Option<&str> {
+    let mut search_start = 0;
+    while search_start < value.len() {
+        let start = value.get(search_start..)?.find('{')? + search_start;
+        let end = balanced_json_object_end(value, start)?;
+        let candidate = &value[start..end];
+        if has_ai_reply_schema_keys(candidate) {
+            return Some(candidate);
+        }
+        search_start = end;
+    }
+    None
+}
+
+fn has_ai_reply_schema_keys(candidate: &str) -> bool {
+    let Ok(value) = serde_json::from_str::<serde_json::Value>(candidate) else {
+        return false;
+    };
+    let Some(object) = value.as_object() else {
+        return false;
+    };
+    object.contains_key("thread_id")
+        && object.contains_key("reply")
+        && object.contains_key("status")
+}
+
+fn balanced_json_object_end(value: &str, start: usize) -> Option<usize> {
+    let mut depth = 0usize;
+    let mut in_string = false;
+    let mut escaped = false;
+
+    for (offset, ch) in value.get(start..)?.char_indices() {
+        if in_string {
+            if escaped {
+                escaped = false;
+            } else if ch == '\\' {
+                escaped = true;
+            } else if ch == '"' {
+                in_string = false;
+            }
+            continue;
+        }
+
+        match ch {
+            '"' => in_string = true,
+            '{' => depth = depth.saturating_add(1),
+            '}' => {
+                depth = depth.checked_sub(1)?;
+                if depth == 0 {
+                    return Some(start + offset + ch.len_utf8());
+                }
+            }
+            _ => {}
+        }
+    }
+
+    None
 }
 
 fn comment_is_targetable(status: CommentStatus, mode: AiSessionMode) -> bool {

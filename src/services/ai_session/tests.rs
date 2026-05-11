@@ -266,6 +266,30 @@ fn ai_thread_reply_json_accepts_fenced_json() -> Result<()> {
 }
 
 #[test]
+fn ai_thread_reply_json_accepts_prose_wrapped_json() -> Result<()> {
+    let parsed = parse_ai_thread_reply_json(
+        "I changed it.\n{\"thread_id\":7,\"reply\":\"Updated the parser.\",\"status\":\"pending_human\"}",
+        7,
+    )?;
+
+    assert_eq!(parsed.thread_id, 7);
+    assert_eq!(parsed.reply, "Updated the parser.");
+    Ok(())
+}
+
+#[test]
+fn ai_thread_reply_json_skips_unrelated_prose_json() -> Result<()> {
+    let parsed = parse_ai_thread_reply_json(
+        "Notes: {\"ignored\":true}\n{\"thread_id\":7,\"reply\":\"Used the requested output shape.\",\"status\":\"pending_human\"}",
+        7,
+    )?;
+
+    assert_eq!(parsed.thread_id, 7);
+    assert_eq!(parsed.reply, "Used the requested output shape.");
+    Ok(())
+}
+
+#[test]
 fn ai_thread_reply_json_rejects_wrong_status() {
     let error = parse_ai_thread_reply_json(
         r#"{"thread_id":7,"reply":"Changed it.","status":"addressed"}"#,

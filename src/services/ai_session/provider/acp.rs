@@ -159,12 +159,6 @@ impl AcpClient {
                 }
                 match serde_json::from_str::<Value>(&line) {
                     Ok(value) => {
-                        emit_progress(
-                            parse_progress_sender.as_ref(),
-                            provider,
-                            "acp",
-                            format!("<- {}", compact_json_for_log(&value)),
-                        );
                         let _ = tx.send(value);
                     }
                     Err(error) => {
