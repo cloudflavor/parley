@@ -773,7 +773,8 @@ mod tests {
     use git2::{Oid, Repository, Signature};
     use tempfile::tempdir;
 
-    use crate::domain::{config::AppConfig, diff::DiffLineKind};
+    use crate::domain::config::AppConfig;
+    use crate::domain::diff::DiffLineKind;
 
     use super::{
         DiffSource, filter_ignored_files, load_git_diff_for_repo, parse_unified_diff,
