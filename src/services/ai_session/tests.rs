@@ -243,6 +243,14 @@ fn ai_thread_reply_json_rejects_plain_text() {
         parse_ai_thread_reply_json("Changed it.", 7).expect_err("plain text reply should fail");
 
     assert!(error.to_string().contains("expected JSON object"));
+    assert!(error.to_string().contains("response preview: Changed it."));
+}
+
+#[test]
+fn ai_thread_reply_json_rejects_empty_reply_with_clear_error() {
+    let error = parse_ai_thread_reply_json("   ", 7).expect_err("empty reply should fail");
+
+    assert!(error.to_string().contains("response was empty"));
 }
 
 #[test]

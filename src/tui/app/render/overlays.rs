@@ -454,7 +454,10 @@ pub(super) fn draw_ai_activity_overlay(frame: &mut Frame<'_>, app: &mut TuiApp) 
         Style::default().fg(colors.status_help),
     )));
     lines.push(Line::from(Span::styled(
-        format!("runtime log: {}", app.log_path.display()),
+        app.ai_log_path().map_or_else(
+            || "ai log: unavailable".to_string(),
+            |path| format!("ai log: {}", path.display()),
+        ),
         Style::default().fg(colors.text_muted),
     )));
 

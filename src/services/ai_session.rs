@@ -398,8 +398,8 @@ fn parse_ai_thread_reply_json(
     expected_thread_id: u64,
 ) -> Result<ParsedAiThreadReply> {
     let json = strip_json_code_fence(raw_reply);
-    let parsed: AiThreadReplyJson = serde_json::from_str(json)
-        .map_err(|error| anyhow!("expected JSON object with thread_id, reply, status: {error}"))?;
+    let parsed: AiThreadReplyJson =
+        serde_json::from_str(json).map_err(|error| invalid_ai_reply_json_error(error, json))?;
 
     if parsed.thread_id != expected_thread_id {
         return Err(anyhow!(
@@ -425,6 +425,35 @@ fn parse_ai_thread_reply_json(
         thread_id: parsed.thread_id,
         reply,
     })
+}
+
+fn invalid_ai_reply_json_error(error: serde_json::Error, json: &str) -> anyhow::Error {
+    let trimmed = json.trim();
+    if trimmed.is_empty() {
+        return anyhow!(
+            "expected JSON object with thread_id, reply, status: {error}; response was empty"
+        );
+    }
+
+    anyhow!(
+        "expected JSON object with thread_id, reply, status: {error}; response preview: {}",
+        ai_reply_preview(trimmed)
+    )
+}
+
+fn ai_reply_preview(value: &str) -> String {
+    const MAX_PREVIEW_CHARS: usize = 500;
+    let mut preview = value
+        .chars()
+        .take(MAX_PREVIEW_CHARS)
+        .collect::<String>()
+        .replace('\r', "\\r")
+        .replace('\n', "\\n")
+        .replace('\t', "\\t");
+    if value.chars().count() > MAX_PREVIEW_CHARS {
+        preview.push_str("...");
+    }
+    preview
 }
 
 fn strip_json_code_fence(raw_reply: &str) -> &str {

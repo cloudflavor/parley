@@ -3,15 +3,20 @@
 //! Handles AI task lifecycle, progress tracking, and session management.
 
 use std::collections::VecDeque;
+use std::fs::{self, OpenOptions};
+use std::io::Write;
+use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
-use anyhow::Result;
+use anyhow::{Context, Result};
 use crossterm::event::{KeyCode, KeyEvent};
 use tokio::sync::mpsc;
 
+use super::helpers::format_timestamp_utc;
 use super::*;
 
 const AI_TASK_LOG_HEARTBEAT_INTERVAL: Duration = Duration::from_secs(2);
+const AI_LOG_FILE_NAME: &str = "ai.log";
 
 impl TuiApp {
     pub(crate) fn dismiss_ai_progress_popup(&mut self) {
@@ -232,10 +237,17 @@ impl TuiApp {
 
     pub(crate) fn push_ai_log_event(&mut self, session_id: u64, event: AiLogEvent) -> bool {
         let current_file_path = self.ai_log_file_path();
+        let ai_log_path = self.ai_log_path();
+        let mut write_error = None;
         for sessions in self.ai_log_sessions_by_file.values_mut() {
             let Some(session) = sessions.iter_mut().find(|session| session.id == session_id) else {
                 continue;
             };
+            if let Some(path) = ai_log_path.as_deref()
+                && let Err(error) = append_ai_log_event(path, session, &event)
+            {
+                write_error = Some(error.to_string());
+            }
             if is_ai_waiting_event(&event)
                 && let Some(last) = session.events.back_mut()
                 && is_ai_waiting_event(last)
@@ -243,6 +255,9 @@ impl TuiApp {
                 *last = event;
                 if self.ai_progress_follow_tail {
                     self.ai_progress_scroll = usize::MAX;
+                }
+                if let Some(error) = write_error {
+                    self.status_line = format!("failed to write ai log: {error}");
                 }
                 return true;
             }
@@ -260,6 +275,9 @@ impl TuiApp {
             }
             if self.ai_progress_follow_tail {
                 self.ai_progress_scroll = usize::MAX;
+            }
+            if let Some(error) = write_error {
+                self.status_line = format!("failed to write ai log: {error}");
             }
             return true;
         }
@@ -327,9 +345,19 @@ impl TuiApp {
             .unwrap_or_default()
     }
 
-    pub(crate) fn queue_runtime_log_pager(&mut self) {
-        self.pending_action = Some(PendingUiAction::OpenFileInPager(self.log_path.clone()));
-        self.status_line = format!("opening runtime log in pager: {}", self.log_path.display());
+    pub(crate) fn queue_ai_log_pager(&mut self) {
+        let Some(path) = self.ai_log_path() else {
+            self.status_line = "ai log path unavailable".into();
+            return;
+        };
+        self.pending_action = Some(PendingUiAction::OpenFileInPager(path.clone()));
+        self.status_line = format!("opening ai log in pager: {}", path.display());
+    }
+
+    pub(crate) fn ai_log_path(&self) -> Option<PathBuf> {
+        self.log_path
+            .parent()
+            .map(|parent| parent.join(AI_LOG_FILE_NAME))
     }
 
     pub(crate) fn ai_log_file_path(&self) -> String {
@@ -413,7 +441,7 @@ impl TuiApp {
                 self.ai_activity_jump_selected();
             }
             KeyCode::Char('O' | 'o') => {
-                self.queue_runtime_log_pager();
+                self.queue_ai_log_pager();
             }
             _ => return Ok(false),
         }
@@ -810,9 +838,45 @@ fn is_ai_waiting_event(event: &AiLogEvent) -> bool {
     event.stream == "system" && event.message.starts_with("waiting for ")
 }
 
+fn append_ai_log_event(path: &Path, session: &AiLogSession, event: &AiLogEvent) -> Result<()> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)
+            .with_context(|| format!("failed to create ai log directory {}", parent.display()))?;
+    }
+    let mut file = OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(path)
+        .with_context(|| format!("failed to open ai log {}", path.display()))?;
+    writeln!(
+        file,
+        "{} | session #{} | file={} | {}:{} | status={} | {}: {}",
+        format_timestamp_utc(event.timestamp_ms),
+        session.id,
+        sanitize_ai_log_text(&session.file_path),
+        session.provider.as_str(),
+        session.mode.as_str(),
+        session.status.as_str(),
+        event.stream,
+        sanitize_ai_log_text(event.message.trim())
+    )
+    .with_context(|| format!("failed to write ai log {}", path.display()))?;
+    Ok(())
+}
+
+fn sanitize_ai_log_text(value: &str) -> String {
+    value
+        .replace('\r', "\\r")
+        .replace('\n', "\\n")
+        .replace('\t', "\\t")
+}
+
 #[cfg(test)]
 mod tests {
+    use std::fs;
+
     use anyhow::Result;
+    use tempfile::tempdir;
 
     use super::*;
     use crate::tui::app::state::tests::make_test_app;
@@ -890,15 +954,34 @@ mod tests {
     }
 
     #[test]
-    fn runtime_log_pager_opens_existing_review_log() -> Result<()> {
+    fn ai_log_pager_opens_existing_review_ai_log() -> Result<()> {
+        let tempdir = tempdir()?;
         let mut app = make_test_app(vec!["src/a.rs"], Vec::new())?;
+        app.log_path = tempdir.path().join("reviews/main/logs/tui.log");
 
-        app.queue_runtime_log_pager();
+        app.queue_ai_log_pager();
 
         let Some(PendingUiAction::OpenFileInPager(path)) = app.pending_action.as_ref() else {
             return Err(anyhow::anyhow!("missing pager action"));
         };
-        assert_eq!(path, &app.log_path);
+        assert_eq!(path, &tempdir.path().join("reviews/main/logs/ai.log"));
+        Ok(())
+    }
+
+    #[test]
+    fn ai_log_events_are_persisted_to_review_ai_log() -> Result<()> {
+        let tempdir = tempdir()?;
+        let mut app = make_test_app(vec!["src/a.rs"], Vec::new())?;
+        app.log_path = tempdir.path().join("reviews/main/logs/tui.log");
+        let session_id =
+            app.start_ai_log_session("src/a.rs", AiProvider::Codex, AiSessionMode::Reply);
+
+        app.push_ai_event_for_session(session_id, "stderr", "ACP auth failed\ninvalid_grant");
+
+        let log = fs::read_to_string(tempdir.path().join("reviews/main/logs/ai.log"))?;
+        assert!(log.contains("session #1"));
+        assert!(log.contains("codex:reply"));
+        assert!(log.contains("stderr: ACP auth failed\\ninvalid_grant"));
         Ok(())
     }
 }

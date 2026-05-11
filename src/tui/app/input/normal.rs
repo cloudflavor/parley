@@ -368,7 +368,7 @@ impl TuiApp {
                 Ok(true)
             }
             KeyCode::Char('O' | 'o') => {
-                self.queue_runtime_log_pager();
+                self.queue_ai_log_pager();
                 Ok(true)
             }
             _ => Ok(false),
