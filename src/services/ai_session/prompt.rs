@@ -15,11 +15,17 @@ use crate::domain::review::{Author, LineComment, ReviewSession};
 static AI_SESSION_PROMPTS_DIR: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/prompts/ai_session");
 const OUTPUT_CONTRACT: &str = r#"
 Output contract:
+- Your entire final output is stored verbatim as the review-thread reply.
+- The final output must contain only the reply body that should appear in the thread.
 - Reply directly and briefly, as a human code author.
 - Always produce a final review-thread reply; Parley stores that reply and moves the thread to pending_human.
 - Do not mark the thread addressed yourself.
-- Reply only to the thread comment id shown above. Do not answer any other thread.
-- Final reply must not include investigation notes, tool calls, JSON edit logs, or intermediate thinking.
+- Do not say that you marked or will mark the thread addressed.
+- The only target is the exact `Thread comment id` shown above.
+- Reply only to that thread id. Do not infer target thread from file order, cursor position, latest visible thread, or latest reply.
+- Do not answer, edit, summarize, or mention any other thread id.
+- Do not include implementation transcripts, tool output, command logs, validation logs, JSON edit logs, investigation notes, or intermediate thinking.
+- Do not mention skills, agents, worktrees, commits, staging, or cleanup.
 - Maximum 120 words.
 - Use at most 3 short bullets unless a blocker requires one extra sentence.
 - Do not narrate reasoning, investigation, process, or uncertainty.
