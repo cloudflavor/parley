@@ -4,12 +4,10 @@
 
 use super::*;
 
-use pulldown_cmark::{
-    Event as MdEvent, Options as MdOptions, Parser as MdParser, Tag as MdTag, TagEnd as MdTagEnd,
-};
-
 use crate::domain::diff::{DiffFile, DiffLineKind};
 use crate::tui::theme::ThemeColors;
+use ansi_to_tui::IntoText;
+use ratatui::text::Line;
 
 impl TuiApp {
     pub(crate) fn active_line_index(&self) -> usize {
@@ -227,9 +225,16 @@ impl TuiApp {
         };
 
         let parsed = match row.kind {
-            DiffLineKind::Added | DiffLineKind::Removed | DiffLineKind::Context => {
-                painter.highlight(&row.code, theme_colors)
-            }
+            DiffLineKind::Added | DiffLineKind::Removed | DiffLineKind::Context => row
+                .rendered
+                .as_ref()
+                .map(|line| {
+                    line.spans
+                        .iter()
+                        .map(|span| (span.style, span.content.to_string()))
+                        .collect()
+                })
+                .unwrap_or_else(|| painter.highlight(&row.code, theme_colors)),
             _ => Vec::new(),
         };
         if let Some(parts) = cached
@@ -305,6 +310,7 @@ impl TuiApp {
                 new_line: None,
                 raw: header.clone(),
                 code: header.clone(),
+                rendered: None,
             });
         }
         if self.root_document_rendering
@@ -325,6 +331,7 @@ impl TuiApp {
                     new_line: line.new_line,
                     raw: line.raw.clone(),
                     code: line.code.clone(),
+                    rendered: None,
                 });
             }
         }
@@ -382,8 +389,14 @@ fn rendered_root_file_rows(file: &DiffFile, diff_source: &DiffSource) -> Option<
     let content = root_file_content(file)?;
     let rendered = if file_has_extension(&file.path, &["json"]) {
         pretty_json_lines(&content)?
+            .into_iter()
+            .map(|code| RenderedRootLine {
+                code,
+                rendered: None,
+            })
+            .collect::<Vec<_>>()
     } else if file_has_extension(&file.path, &["md", "markdown", "mdown", "mkd"]) {
-        render_markdown_plain_lines(&content)
+        render_markdown_lines(&content)
     } else {
         return None;
     };
@@ -395,15 +408,21 @@ fn rendered_root_file_rows(file: &DiffFile, diff_source: &DiffSource) -> Option<
         rendered
             .into_iter()
             .enumerate()
-            .map(|(index, code)| DisplayRow {
+            .map(|(index, line)| DisplayRow {
                 kind: DiffLineKind::Context,
                 old_line: None,
                 new_line: Some((index + 1) as u32),
-                raw: format!(" {code}"),
-                code,
+                raw: format!(" {}", line.code),
+                code: line.code,
+                rendered: line.rendered,
             })
             .collect(),
     )
+}
+
+struct RenderedRootLine {
+    code: String,
+    rendered: Option<Line<'static>>,
 }
 
 fn root_file_content(file: &DiffFile) -> Option<String> {
@@ -438,148 +457,63 @@ fn pretty_json_lines(content: &str) -> Option<Vec<String>> {
     Some(pretty.lines().map(ToString::to_string).collect())
 }
 
-fn render_markdown_plain_lines(content: &str) -> Vec<String> {
-    let mut options = MdOptions::empty();
-    options.insert(MdOptions::ENABLE_TABLES);
-    options.insert(MdOptions::ENABLE_TASKLISTS);
-    options.insert(MdOptions::ENABLE_STRIKETHROUGH);
+fn render_markdown_lines(content: &str) -> Vec<RenderedRootLine> {
+    let options = markdown_to_ansi::Options {
+        syntax_highlight: true,
+        width: None,
+        code_bg: false,
+    };
+    let rendered_ansi = markdown_to_ansi::render(content, &options);
+    let rendered_ansi = strip_osc_sequences(&rendered_ansi);
+    let Ok(rendered_markdown) = rendered_ansi.into_text() else {
+        return content
+            .lines()
+            .map(|code| RenderedRootLine {
+                code: code.to_string(),
+                rendered: None,
+            })
+            .collect();
+    };
 
-    let mut lines = Vec::new();
-    let mut current = String::new();
-    let mut list_stack: Vec<u64> = Vec::new();
-    let mut in_code_block = false;
+    rendered_markdown
+        .lines
+        .into_iter()
+        .map(|line| {
+            let code = line
+                .spans
+                .iter()
+                .map(|span| span.content.as_ref())
+                .collect::<String>();
+            RenderedRootLine {
+                code,
+                rendered: Some(line),
+            }
+        })
+        .collect()
+}
 
-    for event in MdParser::new_ext(content, options) {
-        match event {
-            MdEvent::Start(tag) => match tag {
-                MdTag::Paragraph => {}
-                MdTag::Heading { .. } => {
-                    flush_markdown_plain_line(&mut lines, &mut current);
+fn strip_osc_sequences(input: &str) -> String {
+    let mut output = String::with_capacity(input.len());
+    let mut chars = input.chars().peekable();
+
+    while let Some(character) = chars.next() {
+        if character == '\x1b' && chars.peek().is_some_and(|next| *next == ']') {
+            chars.next();
+            while let Some(osc_character) = chars.next() {
+                if osc_character == '\x07' {
+                    break;
                 }
-                MdTag::List(start) => {
-                    list_stack.push(start.unwrap_or(0));
-                }
-                MdTag::Item => {
-                    flush_markdown_plain_line(&mut lines, &mut current);
-                    let indent = "  ".repeat(list_stack.len().saturating_sub(1));
-                    current.push_str(&indent);
-                    if let Some(next) = list_stack.last_mut().filter(|value| **value > 0) {
-                        current.push_str(&format!("{next}. "));
-                        *next = next.saturating_add(1);
-                    } else {
-                        current.push_str("- ");
-                    }
-                }
-                MdTag::CodeBlock(_) => {
-                    flush_markdown_plain_line(&mut lines, &mut current);
-                    in_code_block = true;
-                }
-                MdTag::BlockQuote(_) => {
-                    flush_markdown_plain_line(&mut lines, &mut current);
-                    current.push_str("> ");
-                }
-                MdTag::Table(_) | MdTag::TableHead | MdTag::TableRow => {
-                    flush_markdown_plain_line(&mut lines, &mut current);
-                }
-                MdTag::TableCell => {
-                    if !current.is_empty() {
-                        current.push_str(" | ");
-                    }
-                }
-                MdTag::Emphasis
-                | MdTag::Strong
-                | MdTag::Strikethrough
-                | MdTag::Link { .. }
-                | MdTag::Image { .. }
-                | MdTag::HtmlBlock => {}
-                _ => {}
-            },
-            MdEvent::End(tag) => match tag {
-                MdTagEnd::Paragraph
-                | MdTagEnd::Heading(_)
-                | MdTagEnd::Item
-                | MdTagEnd::BlockQuote(_)
-                | MdTagEnd::TableHead
-                | MdTagEnd::TableRow => flush_markdown_plain_line(&mut lines, &mut current),
-                MdTagEnd::List(_) => {
-                    list_stack.pop();
-                    flush_markdown_plain_line(&mut lines, &mut current);
-                }
-                MdTagEnd::CodeBlock => {
-                    in_code_block = false;
-                    flush_markdown_plain_line(&mut lines, &mut current);
-                }
-                MdTagEnd::Table | MdTagEnd::TableCell => {
-                    flush_markdown_plain_line(&mut lines, &mut current);
-                }
-                MdTagEnd::Emphasis
-                | MdTagEnd::Strong
-                | MdTagEnd::Strikethrough
-                | MdTagEnd::Link
-                | MdTagEnd::Image
-                | MdTagEnd::HtmlBlock
-                | MdTagEnd::FootnoteDefinition
-                | MdTagEnd::DefinitionList
-                | MdTagEnd::DefinitionListTitle
-                | MdTagEnd::DefinitionListDefinition
-                | MdTagEnd::MetadataBlock(_) => {}
-            },
-            MdEvent::Text(text) | MdEvent::InlineMath(text) | MdEvent::DisplayMath(text) => {
-                append_markdown_plain_text(&mut current, text.trim_matches('\n'), in_code_block);
-            }
-            MdEvent::Code(text) => {
-                current.push_str(text.trim_matches('\n'));
-            }
-            MdEvent::SoftBreak => {
-                if in_code_block {
-                    flush_markdown_plain_line(&mut lines, &mut current);
-                } else if !current.ends_with(' ') {
-                    current.push(' ');
+                if osc_character == '\x1b' && chars.peek().is_some_and(|next| *next == '\\') {
+                    chars.next();
+                    break;
                 }
             }
-            MdEvent::HardBreak => {
-                flush_markdown_plain_line(&mut lines, &mut current);
-            }
-            MdEvent::Rule => {
-                flush_markdown_plain_line(&mut lines, &mut current);
-                lines.push("----".to_string());
-            }
-            MdEvent::Html(html) | MdEvent::InlineHtml(html) => {
-                current.push_str(html.trim());
-            }
-            MdEvent::TaskListMarker(checked) => {
-                current.push_str(if checked { "[x] " } else { "[ ] " });
-            }
-            MdEvent::FootnoteReference(reference) => {
-                current.push_str(&format!("[^{reference}]"));
-            }
+        } else {
+            output.push(character);
         }
     }
-    flush_markdown_plain_line(&mut lines, &mut current);
-    if lines.is_empty() {
-        content.lines().map(ToString::to_string).collect()
-    } else {
-        lines
-    }
-}
 
-fn flush_markdown_plain_line(lines: &mut Vec<String>, current: &mut String) {
-    let trimmed = current.trim_end();
-    if !trimmed.is_empty() {
-        lines.push(trimmed.to_string());
-    }
-    current.clear();
-}
-
-fn append_markdown_plain_text(current: &mut String, text: &str, in_code_block: bool) {
-    if !in_code_block
-        && !current.is_empty()
-        && !current.ends_with([' ', '\n'])
-        && !text.starts_with(|character: char| character.is_ascii_punctuation())
-    {
-        current.push(' ');
-    }
-    current.push_str(text);
+    output
 }
 
 fn inline_comment_editor_reserved_rows(area: Rect) -> usize {
@@ -600,6 +534,7 @@ fn inline_comment_editor_reserved_rows(area: Rect) -> usize {
 mod root_render_tests {
     use super::*;
     use crate::domain::diff::{DiffHunk, DiffLine};
+    use ratatui::style::Modifier;
 
     fn root_file(path: &str, lines: &[&str]) -> DiffFile {
         DiffFile {
@@ -669,17 +604,76 @@ mod root_render_tests {
     fn markdown_root_file_rows_are_rendered_as_readable_text_when_rendering_enabled() {
         let file = root_file(
             "README.md",
-            &["# Title", "", "- one", "- two", "", "Use `parley tui`."],
+            &[
+                "# Title",
+                "",
+                "- one",
+                "- two",
+                "",
+                "Use `parley tui` with **bold**, *italic*, and [docs](https://example.com).",
+                "",
+                "```code ",
+                "my_fn",
+                "```",
+                "",
+                "| Name | Value |",
+                "| --- | --- |",
+                "| tables | work |",
+            ],
         );
         let rows = rendered_root_file_rows(&file, &DiffSource::RootDirectory)
             .expect("markdown should render");
-        let rendered = rows.iter().map(|row| row.code.as_str()).collect::<Vec<_>>();
-        assert!(rendered.contains(&"Title"));
-        assert!(!rendered.contains(&"# Title"));
-        assert!(rendered.contains(&"- one"));
-        assert!(rendered.contains(&"- two"));
-        assert!(rendered.contains(&"Use parley tui."));
-        assert!(!rendered.contains(&"Use `parley tui`."));
+        let rendered_text = rows
+            .iter()
+            .map(rendered_row_text)
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        assert!(rendered_text.contains("Title"));
+        assert!(rendered_text.contains("one"));
+        assert!(rendered_text.contains("two"));
+        assert!(rendered_text.contains("parley tui"));
+        assert!(rendered_text.contains("my_fn"));
+        assert!(rendered_text.contains("docs"));
+        assert!(rendered_text.contains("tables"));
+        assert!(rendered_text.contains("work"));
+        assert!(rendered_text.contains('│'));
+        assert!(!rendered_text.contains("`parley tui`"));
+        assert!(!rendered_text.contains("```code"));
+        assert!(!rendered_text.contains("[docs](https://example.com)"));
+
+        assert!(rows.iter().any(|row| row.rendered.is_some()));
+        assert!(rows.iter().any(|row| row_has_modifier(row, Modifier::BOLD)));
+        assert!(
+            rows.iter()
+                .any(|row| row_has_modifier(row, Modifier::ITALIC))
+        );
+        assert!(
+            rows.iter()
+                .any(|row| row_has_modifier(row, Modifier::UNDERLINED))
+        );
+    }
+
+    fn rendered_row_text(row: &DisplayRow) -> String {
+        row.rendered.as_ref().map_or_else(
+            || row.code.clone(),
+            |line| {
+                line.spans
+                    .iter()
+                    .map(|span| span.content.as_ref())
+                    .collect()
+            },
+        )
+    }
+
+    fn row_has_modifier(row: &DisplayRow, modifier: Modifier) -> bool {
+        row.rendered.as_ref().is_some_and(|line| {
+            line.style.add_modifier.contains(modifier)
+                || line
+                    .spans
+                    .iter()
+                    .any(|span| span.style.add_modifier.contains(modifier))
+        })
     }
 }
 

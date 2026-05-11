@@ -77,18 +77,14 @@ impl TuiApp {
                 KeyCode::Char('e') if key.modifiers.contains(KeyModifiers::CONTROL) => {
                     search.cursor_col = search.query.chars().count();
                 }
-                KeyCode::Backspace => {
-                    if search.cursor_col > 0 {
-                        remove_char_at(&mut search.query, search.cursor_col - 1);
-                        search.cursor_col -= 1;
-                        should_refresh = true;
-                    }
+                KeyCode::Backspace if search.cursor_col > 0 => {
+                    remove_char_at(&mut search.query, search.cursor_col - 1);
+                    search.cursor_col -= 1;
+                    should_refresh = true;
                 }
-                KeyCode::Delete => {
-                    if search.cursor_col < search.query.chars().count() {
-                        remove_char_at(&mut search.query, search.cursor_col);
-                        should_refresh = true;
-                    }
+                KeyCode::Delete if search.cursor_col < search.query.chars().count() => {
+                    remove_char_at(&mut search.query, search.cursor_col);
+                    should_refresh = true;
                 }
                 KeyCode::Char(ch)
                     if key.modifiers.is_empty() || key.modifiers == KeyModifiers::SHIFT =>

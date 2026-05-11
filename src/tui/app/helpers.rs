@@ -293,6 +293,7 @@ mod tests {
             new_line,
             raw: String::new(),
             code: String::new(),
+            rendered: None,
         }
     }
 

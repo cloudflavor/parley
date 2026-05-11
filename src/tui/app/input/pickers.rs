@@ -28,16 +28,12 @@ impl TuiApp {
             }
             KeyCode::Home => editor.cursor_col = 0,
             KeyCode::End => editor.cursor_col = editor.value.chars().count(),
-            KeyCode::Backspace => {
-                if editor.cursor_col > 0 {
-                    remove_char_at(&mut editor.value, editor.cursor_col - 1);
-                    editor.cursor_col -= 1;
-                }
+            KeyCode::Backspace if editor.cursor_col > 0 => {
+                remove_char_at(&mut editor.value, editor.cursor_col - 1);
+                editor.cursor_col -= 1;
             }
-            KeyCode::Delete => {
-                if editor.cursor_col < editor.value.chars().count() {
-                    remove_char_at(&mut editor.value, editor.cursor_col);
-                }
+            KeyCode::Delete if editor.cursor_col < editor.value.chars().count() => {
+                remove_char_at(&mut editor.value, editor.cursor_col);
             }
             KeyCode::Char(ch)
                 if key.modifiers.is_empty() || key.modifiers == KeyModifiers::SHIFT =>
@@ -174,20 +170,16 @@ impl TuiApp {
             KeyCode::Char('e') if key.modifiers.contains(KeyModifiers::CONTROL) => {
                 picker.cursor_col = picker.query.chars().count();
             }
-            KeyCode::Backspace => {
-                if picker.cursor_col > 0 {
-                    remove_char_at(&mut picker.query, picker.cursor_col - 1);
-                    picker.cursor_col -= 1;
-                    picker.selected_index = 0;
-                    picker.scroll = 0;
-                }
+            KeyCode::Backspace if picker.cursor_col > 0 => {
+                remove_char_at(&mut picker.query, picker.cursor_col - 1);
+                picker.cursor_col -= 1;
+                picker.selected_index = 0;
+                picker.scroll = 0;
             }
-            KeyCode::Delete => {
-                if picker.cursor_col < picker.query.chars().count() {
-                    remove_char_at(&mut picker.query, picker.cursor_col);
-                    picker.selected_index = 0;
-                    picker.scroll = 0;
-                }
+            KeyCode::Delete if picker.cursor_col < picker.query.chars().count() => {
+                remove_char_at(&mut picker.query, picker.cursor_col);
+                picker.selected_index = 0;
+                picker.scroll = 0;
             }
             KeyCode::Char(ch)
                 if key.modifiers.is_empty() || key.modifiers == KeyModifiers::SHIFT =>
@@ -297,20 +289,16 @@ impl TuiApp {
             KeyCode::Char('e') if key.modifiers.contains(KeyModifiers::CONTROL) => {
                 picker.cursor_col = picker.query.chars().count();
             }
-            KeyCode::Backspace => {
-                if picker.cursor_col > 0 {
-                    remove_char_at(&mut picker.query, picker.cursor_col - 1);
-                    picker.cursor_col -= 1;
-                    picker.selected_index = 0;
-                    picker.scroll = 0;
-                }
+            KeyCode::Backspace if picker.cursor_col > 0 => {
+                remove_char_at(&mut picker.query, picker.cursor_col - 1);
+                picker.cursor_col -= 1;
+                picker.selected_index = 0;
+                picker.scroll = 0;
             }
-            KeyCode::Delete => {
-                if picker.cursor_col < picker.query.chars().count() {
-                    remove_char_at(&mut picker.query, picker.cursor_col);
-                    picker.selected_index = 0;
-                    picker.scroll = 0;
-                }
+            KeyCode::Delete if picker.cursor_col < picker.query.chars().count() => {
+                remove_char_at(&mut picker.query, picker.cursor_col);
+                picker.selected_index = 0;
+                picker.scroll = 0;
             }
             KeyCode::Char(ch)
                 if key.modifiers.is_empty() || key.modifiers == KeyModifiers::SHIFT =>

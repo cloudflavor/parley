@@ -751,10 +751,10 @@ impl TuiApp {
         let mut fragments = Vec::new();
 
         match value {
-            serde_json::Value::String(s) => {
-                if Self::is_text_field(parent_key) && !s.trim().is_empty() {
-                    fragments.push(s.clone());
-                }
+            serde_json::Value::String(s)
+                if Self::is_text_field(parent_key) && !s.trim().is_empty() =>
+            {
+                fragments.push(s.clone());
             }
             serde_json::Value::Object(map) => {
                 for (key, val) in map {

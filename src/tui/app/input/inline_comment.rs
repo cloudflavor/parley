@@ -91,10 +91,10 @@ impl TuiApp {
                     self.constrain_selection();
                     return Ok(());
                 }
-                KeyCode::Enter | KeyCode::Tab => {
-                    if self.accept_inline_file_reference_line_selection() {
-                        return Ok(());
-                    }
+                KeyCode::Enter | KeyCode::Tab
+                    if self.accept_inline_file_reference_line_selection() =>
+                {
+                    return Ok(());
                 }
                 _ => {}
             }

@@ -275,15 +275,16 @@ impl PiRpcClient {
                 Some("error") => {
                     return Err(anyhow!("Pi RPC error: {event}"));
                 }
-                Some(other) if should_log_pi_event(other) => {
-                    if !emit_pi_log_entries(progress_sender, &event) {
-                        emit_progress(
-                            progress_sender,
-                            AiProvider::Pi,
-                            "pi",
-                            format!("{other}: {}", compact_pi_event_json(&event)),
-                        );
-                    }
+                Some(other)
+                    if should_log_pi_event(other)
+                        && !emit_pi_log_entries(progress_sender, &event) =>
+                {
+                    emit_progress(
+                        progress_sender,
+                        AiProvider::Pi,
+                        "pi",
+                        format!("{other}: {}", compact_pi_event_json(&event)),
+                    );
                 }
                 Some(_) => {}
                 None => {}

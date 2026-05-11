@@ -60,20 +60,16 @@ impl TuiApp {
             KeyCode::Char('e') if key.modifiers.contains(KeyModifiers::CONTROL) => {
                 selector.cursor_col = selector.query.chars().count();
             }
-            KeyCode::Backspace => {
-                if selector.cursor_col > 0 {
-                    remove_char_at(&mut selector.query, selector.cursor_col - 1);
-                    selector.cursor_col -= 1;
-                    selector.selected_index = 0;
-                    selector.scroll = 0;
-                }
+            KeyCode::Backspace if selector.cursor_col > 0 => {
+                remove_char_at(&mut selector.query, selector.cursor_col - 1);
+                selector.cursor_col -= 1;
+                selector.selected_index = 0;
+                selector.scroll = 0;
             }
-            KeyCode::Delete => {
-                if selector.cursor_col < selector.query.chars().count() {
-                    remove_char_at(&mut selector.query, selector.cursor_col);
-                    selector.selected_index = 0;
-                    selector.scroll = 0;
-                }
+            KeyCode::Delete if selector.cursor_col < selector.query.chars().count() => {
+                remove_char_at(&mut selector.query, selector.cursor_col);
+                selector.selected_index = 0;
+                selector.scroll = 0;
             }
             KeyCode::Char(ch)
                 if key.modifiers.is_empty() || key.modifiers == KeyModifiers::SHIFT =>

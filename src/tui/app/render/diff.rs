@@ -585,7 +585,7 @@ pub(super) fn build_unified_row_lines(
             },
             Style::default().fg(colors.text_muted),
         ));
-        spans.extend(content_line.spans.into_iter());
+        spans.extend(content_line.spans);
 
         let line_style = if is_active && matches!(selection, RowSelectionKind::Current) {
             Some(Style::default().bg(colors.selected_line_bg))

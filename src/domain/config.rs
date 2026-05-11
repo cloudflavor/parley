@@ -20,7 +20,9 @@ pub struct AppConfig {
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
+#[derive(Default)]
 pub enum DiffViewMode {
+    #[default]
     SideBySide,
     Unified,
 }
@@ -32,37 +34,23 @@ impl DiffViewMode {
     }
 }
 
-impl Default for DiffViewMode {
-    fn default() -> Self {
-        Self::SideBySide
-    }
-}
-
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
+#[derive(Default)]
 pub enum PromptTransport {
+    #[default]
     Stdin,
     Argv,
 }
 
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
+#[derive(Default)]
 pub enum AgentTransport {
+    #[default]
     Acp,
     Cli,
     PiRpc,
-}
-
-impl Default for PromptTransport {
-    fn default() -> Self {
-        Self::Stdin
-    }
-}
-
-impl Default for AgentTransport {
-    fn default() -> Self {
-        Self::Acp
-    }
 }
 
 impl AgentTransport {

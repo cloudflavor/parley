@@ -45,6 +45,7 @@ pub(crate) struct DisplayRow {
     pub(crate) new_line: Option<u32>,
     pub(crate) raw: String,
     pub(crate) code: String,
+    pub(crate) rendered: Option<Line<'static>>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -287,6 +288,7 @@ mod tests {
             new_line: Some(5),
             raw: content.to_string(),
             code: content.to_string(),
+            rendered: None,
         };
         let highlighted_segments = vec![(
             Style::default().fg(colors.text_primary),
@@ -333,6 +335,7 @@ mod tests {
             new_line: Some(7),
             raw: format!(" {content}"),
             code: content.to_string(),
+            rendered: None,
         };
         let highlighted_segments = vec![(
             Style::default().fg(colors.text_primary),
@@ -366,6 +369,7 @@ mod tests {
             new_line: Some(8),
             raw: "+changed".to_string(),
             code: "changed".to_string(),
+            rendered: None,
         };
         let removed = DisplayRow {
             kind: DiffLineKind::Removed,
@@ -373,6 +377,7 @@ mod tests {
             new_line: None,
             raw: "-changed".to_string(),
             code: "changed".to_string(),
+            rendered: None,
         };
         let context = DisplayRow {
             kind: DiffLineKind::Context,
@@ -380,6 +385,7 @@ mod tests {
             new_line: Some(8),
             raw: " changed".to_string(),
             code: "changed".to_string(),
+            rendered: None,
         };
 
         let added_lines = build_unified_row_lines(
@@ -423,6 +429,7 @@ mod tests {
             new_line: Some(8),
             raw: "+changed".to_string(),
             code: "changed".to_string(),
+            rendered: None,
         };
         let highlighted_segments =
             vec![(Style::default().fg(colors.text_primary), "changed".into())];
@@ -449,6 +456,7 @@ mod tests {
             new_line: Some(8),
             raw: " unchanged".to_string(),
             code: "unchanged".to_string(),
+            rendered: None,
         };
         let highlighted_segments =
             vec![(Style::default().fg(colors.text_primary), "unchanged".into())];
@@ -478,6 +486,7 @@ mod tests {
             new_line: Some(8),
             raw: "+changed".to_string(),
             code: "changed".to_string(),
+            rendered: None,
         };
 
         let rendered = build_side_by_side_row_lines(
@@ -527,6 +536,7 @@ mod tests {
             new_line: Some(7),
             raw: format!("+{content}"),
             code: content.to_string(),
+            rendered: None,
         };
 
         let rendered = build_side_by_side_row_lines(

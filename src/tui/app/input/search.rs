@@ -25,16 +25,14 @@ impl TuiApp {
             }
             KeyCode::Home => self.file_search.cursor_col = 0,
             KeyCode::End => self.file_search.cursor_col = self.file_search.query.chars().count(),
-            KeyCode::Backspace => {
-                if self.file_search.cursor_col > 0 {
-                    remove_char_at(&mut self.file_search.query, self.file_search.cursor_col - 1);
-                    self.file_search.cursor_col -= 1;
-                }
+            KeyCode::Backspace if self.file_search.cursor_col > 0 => {
+                remove_char_at(&mut self.file_search.query, self.file_search.cursor_col - 1);
+                self.file_search.cursor_col -= 1;
             }
-            KeyCode::Delete => {
-                if self.file_search.cursor_col < self.file_search.query.chars().count() {
-                    remove_char_at(&mut self.file_search.query, self.file_search.cursor_col);
-                }
+            KeyCode::Delete
+                if self.file_search.cursor_col < self.file_search.query.chars().count() =>
+            {
+                remove_char_at(&mut self.file_search.query, self.file_search.cursor_col);
             }
             KeyCode::Char(ch)
                 if key.modifiers.is_empty() || key.modifiers == KeyModifiers::SHIFT =>
@@ -82,16 +80,12 @@ impl TuiApp {
             }
             KeyCode::Home => prompt.cursor_col = 0,
             KeyCode::End => prompt.cursor_col = prompt.value.chars().count(),
-            KeyCode::Backspace => {
-                if prompt.cursor_col > 0 {
-                    remove_char_at(&mut prompt.value, prompt.cursor_col - 1);
-                    prompt.cursor_col -= 1;
-                }
+            KeyCode::Backspace if prompt.cursor_col > 0 => {
+                remove_char_at(&mut prompt.value, prompt.cursor_col - 1);
+                prompt.cursor_col -= 1;
             }
-            KeyCode::Delete => {
-                if prompt.cursor_col < prompt.value.chars().count() {
-                    remove_char_at(&mut prompt.value, prompt.cursor_col);
-                }
+            KeyCode::Delete if prompt.cursor_col < prompt.value.chars().count() => {
+                remove_char_at(&mut prompt.value, prompt.cursor_col);
             }
             KeyCode::Char(ch)
                 if key.modifiers.is_empty() || key.modifiers == KeyModifiers::SHIFT =>

@@ -11,13 +11,12 @@ impl TuiApp {
                 MouseEventKind::ScrollDown => {
                     self.scroll_file_heatmap(3);
                 }
-                MouseEventKind::Down(MouseButton::Left) => {
+                MouseEventKind::Down(MouseButton::Left)
                     if self
                         .last_file_heatmap_area
-                        .is_some_and(|area| !point_in_rect(mouse.column, mouse.row, area))
-                    {
-                        self.close_file_heatmap();
-                    }
+                        .is_some_and(|area| !point_in_rect(mouse.column, mouse.row, area)) =>
+                {
+                    self.close_file_heatmap();
                 }
                 _ => {}
             }

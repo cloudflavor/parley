@@ -94,23 +94,21 @@ impl TuiApp {
                     "unified diff enabled".into()
                 };
             }
-            KeyCode::Tab => {
-                if self.split_diff_view {
-                    let next = if matches!(self.active_diff_pane, DiffPane::Primary) {
-                        DiffPane::Secondary
+            KeyCode::Tab if self.split_diff_view => {
+                let next = if matches!(self.active_diff_pane, DiffPane::Primary) {
+                    DiffPane::Secondary
+                } else {
+                    DiffPane::Primary
+                };
+                self.activate_pane(next);
+                self.status_line = format!(
+                    "active pane: {}",
+                    if matches!(next, DiffPane::Primary) {
+                        "primary"
                     } else {
-                        DiffPane::Primary
-                    };
-                    self.activate_pane(next);
-                    self.status_line = format!(
-                        "active pane: {}",
-                        if matches!(next, DiffPane::Primary) {
-                            "primary"
-                        } else {
-                            "secondary"
-                        }
-                    );
-                }
+                        "secondary"
+                    }
+                );
             }
             KeyCode::Char('<') => {
                 self.resize_file_pane(-3);

@@ -270,20 +270,16 @@ impl TuiApp {
             KeyCode::Char('e') if key.modifiers.contains(KeyModifiers::CONTROL) => {
                 palette.cursor_col = palette.query.chars().count();
             }
-            KeyCode::Backspace => {
-                if palette.cursor_col > 0 {
-                    remove_char_at(&mut palette.query, palette.cursor_col - 1);
-                    palette.cursor_col -= 1;
-                    palette.selected_index = 0;
-                    palette.scroll = 0;
-                }
+            KeyCode::Backspace if palette.cursor_col > 0 => {
+                remove_char_at(&mut palette.query, palette.cursor_col - 1);
+                palette.cursor_col -= 1;
+                palette.selected_index = 0;
+                palette.scroll = 0;
             }
-            KeyCode::Delete => {
-                if palette.cursor_col < palette.query.chars().count() {
-                    remove_char_at(&mut palette.query, palette.cursor_col);
-                    palette.selected_index = 0;
-                    palette.scroll = 0;
-                }
+            KeyCode::Delete if palette.cursor_col < palette.query.chars().count() => {
+                remove_char_at(&mut palette.query, palette.cursor_col);
+                palette.selected_index = 0;
+                palette.scroll = 0;
             }
             KeyCode::Char(ch)
                 if key.modifiers.is_empty() || key.modifiers == KeyModifiers::SHIFT =>
