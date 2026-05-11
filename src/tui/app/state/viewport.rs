@@ -5,8 +5,7 @@
 use super::*;
 
 use pulldown_cmark::{
-    Event as MdEvent, HeadingLevel, Options as MdOptions, Parser as MdParser, Tag as MdTag,
-    TagEnd as MdTagEnd,
+    Event as MdEvent, Options as MdOptions, Parser as MdParser, Tag as MdTag, TagEnd as MdTagEnd,
 };
 
 use crate::domain::diff::{DiffFile, DiffLineKind};
@@ -411,10 +410,11 @@ fn root_file_content(file: &DiffFile) -> Option<String> {
     let mut lines = Vec::new();
     for hunk in &file.hunks {
         for line in &hunk.lines {
-            if !matches!(line.kind, DiffLineKind::Context) {
-                return None;
+            match line.kind {
+                DiffLineKind::Context => lines.push(line.code.as_str()),
+                DiffLineKind::HunkHeader => {}
+                DiffLineKind::Added | DiffLineKind::Removed | DiffLineKind::Meta => return None,
             }
-            lines.push(line.code.as_str());
         }
     }
     (!lines.is_empty()).then(|| lines.join("\n"))
@@ -453,10 +453,8 @@ fn render_markdown_plain_lines(content: &str) -> Vec<String> {
         match event {
             MdEvent::Start(tag) => match tag {
                 MdTag::Paragraph => {}
-                MdTag::Heading { level, .. } => {
+                MdTag::Heading { .. } => {
                     flush_markdown_plain_line(&mut lines, &mut current);
-                    current.push_str(&"#".repeat(heading_level_to_usize(level)));
-                    current.push(' ');
                 }
                 MdTag::List(start) => {
                     list_stack.push(start.unwrap_or(0));
@@ -526,13 +524,10 @@ fn render_markdown_plain_lines(content: &str) -> Vec<String> {
                 | MdTagEnd::DefinitionListDefinition
                 | MdTagEnd::MetadataBlock(_) => {}
             },
-            MdEvent::Text(text)
-            | MdEvent::Code(text)
-            | MdEvent::InlineMath(text)
-            | MdEvent::DisplayMath(text) => {
-                if !in_code_block && !current.is_empty() && !current.ends_with([' ', '\n']) {
-                    current.push(' ');
-                }
+            MdEvent::Text(text) | MdEvent::InlineMath(text) | MdEvent::DisplayMath(text) => {
+                append_markdown_plain_text(&mut current, text.trim_matches('\n'), in_code_block);
+            }
+            MdEvent::Code(text) => {
                 current.push_str(text.trim_matches('\n'));
             }
             MdEvent::SoftBreak => {
@@ -576,15 +571,15 @@ fn flush_markdown_plain_line(lines: &mut Vec<String>, current: &mut String) {
     current.clear();
 }
 
-fn heading_level_to_usize(level: HeadingLevel) -> usize {
-    match level {
-        HeadingLevel::H1 => 1,
-        HeadingLevel::H2 => 2,
-        HeadingLevel::H3 => 3,
-        HeadingLevel::H4 => 4,
-        HeadingLevel::H5 => 5,
-        HeadingLevel::H6 => 6,
+fn append_markdown_plain_text(current: &mut String, text: &str, in_code_block: bool) {
+    if !in_code_block
+        && !current.is_empty()
+        && !current.ends_with([' ', '\n'])
+        && !text.starts_with(|character: char| character.is_ascii_punctuation())
+    {
+        current.push(' ');
     }
+    current.push_str(text);
 }
 
 fn inline_comment_editor_reserved_rows(area: Rect) -> usize {
@@ -672,13 +667,19 @@ mod root_render_tests {
 
     #[test]
     fn markdown_root_file_rows_are_rendered_as_readable_text_when_rendering_enabled() {
-        let file = root_file("README.md", &["# Title", "", "- one", "- two"]);
+        let file = root_file(
+            "README.md",
+            &["# Title", "", "- one", "- two", "", "Use `parley tui`."],
+        );
         let rows = rendered_root_file_rows(&file, &DiffSource::RootDirectory)
             .expect("markdown should render");
         let rendered = rows.iter().map(|row| row.code.as_str()).collect::<Vec<_>>();
-        assert!(rendered.contains(&"# Title"));
+        assert!(rendered.contains(&"Title"));
+        assert!(!rendered.contains(&"# Title"));
         assert!(rendered.contains(&"- one"));
         assert!(rendered.contains(&"- two"));
+        assert!(rendered.contains(&"Use parley tui."));
+        assert!(!rendered.contains(&"Use `parley tui`."));
     }
 }
 
