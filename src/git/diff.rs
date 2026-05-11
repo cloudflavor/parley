@@ -5,6 +5,7 @@ use std::path::{Component, Path, PathBuf};
 use anyhow::{Context, Result, anyhow};
 use git2::{Commit, DiffFormat, DiffOptions, Repository};
 use tokio::fs;
+use tokio::task::spawn_blocking;
 use tracing::{debug, info};
 
 use crate::domain::config::AppConfig;
@@ -42,7 +43,7 @@ pub async fn load_git_diff(config: &AppConfig, source: &DiffSource) -> Result<Di
         _ => {
             let source_for_worker = source.clone();
             let config = config.clone();
-            tokio::task::spawn_blocking(move || load_git_diff_sync(&config, &source_for_worker))
+            spawn_blocking(move || load_git_diff_sync(&config, &source_for_worker))
                 .await
                 .context("failed to join git diff worker task")??
         }
@@ -82,7 +83,7 @@ pub async fn load_root_directory_file(
     let Some(relative_path) = safe_root_relative_path(&relative_path) else {
         return Ok(None);
     };
-    let workdir = tokio::task::spawn_blocking(|| {
+    let workdir = spawn_blocking(|| {
         let repo = Repository::discover(".").context("failed to discover git repository")?;
         let workdir = repo
             .workdir()
@@ -92,7 +93,7 @@ pub async fn load_root_directory_file(
     .await
     .context("failed to resolve root workdir")??;
 
-    let filtered = tokio::task::spawn_blocking({
+    let filtered = spawn_blocking({
         let config = config.clone();
         let relative_path = relative_path.clone();
         move || filter_paths_for_root_directory(&config, vec![relative_path])
@@ -182,7 +183,7 @@ async fn load_root_directory_document(config: &AppConfig) -> Result<DiffDocument
 async fn collect_root_directory_source_paths(
     config: &AppConfig,
 ) -> Result<(PathBuf, BTreeSet<PathBuf>)> {
-    let (workdir, mut paths) = tokio::task::spawn_blocking({
+    let (workdir, mut paths) = spawn_blocking({
         let config = config.clone();
         move || {
             let repo = Repository::discover(".").context("failed to discover git repository")?;
@@ -204,7 +205,7 @@ async fn collect_root_directory_source_paths(
         candidate_paths.extend(paths);
         candidate_paths
     };
-    let source_paths = tokio::task::spawn_blocking({
+    let source_paths = spawn_blocking({
         let config = config.clone();
         move || filter_paths_for_root_directory(&config, candidate_paths)
     })
