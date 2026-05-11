@@ -1,11 +1,13 @@
 use std::{io, process::Command, sync::OnceLock};
 
 use anyhow::{Context, Result};
-use crossterm::{
-    event::{DisableMouseCapture, EnableMouseCapture},
-    execute,
-    terminal::{EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode},
-};
+use crossterm::event::DisableMouseCapture;
+use crossterm::event::EnableMouseCapture;
+use crossterm::execute;
+use crossterm::terminal::EnterAlternateScreen;
+use crossterm::terminal::LeaveAlternateScreen;
+use crossterm::terminal::disable_raw_mode;
+use crossterm::terminal::enable_raw_mode;
 use ratatui::{Terminal, backend::CrosstermBackend, layout::Rect};
 use time::{OffsetDateTime, UtcOffset};
 

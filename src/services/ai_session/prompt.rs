@@ -233,7 +233,13 @@ async fn append_referenced_files_context(prompt: &mut String, comment: &LineComm
     }
 
     prompt.push_str("\n\nReferenced files from thread mentions:\n");
+    let target_file_path_std = comment.file_path.to_string();
     for (path, line) in ordered.into_iter().take(8) {
+        // Only fetch context from the target file. Other referenced files may contain
+        // their own threads which would distract the AI from its assigned target thread.
+        if path != target_file_path_std {
+            continue;
+        }
         let marker = if let Some(value) = line {
             format!("{path}:{value}")
         } else {

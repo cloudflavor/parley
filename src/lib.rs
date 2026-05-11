@@ -9,14 +9,12 @@ pub mod services;
 pub mod tui;
 pub mod utils;
 
-use std::{ffi::OsString, io::IsTerminal};
-
-use anyhow::{Context, Result, anyhow};
-use clap::Parser;
-
 use crate::cli::{Cli, Command, ReviewCommand};
 use crate::git::diff::DiffSource;
 use crate::services::review_service::ReviewService;
+use anyhow::{Context, Result, anyhow};
+use clap::Parser;
+use std::{ffi::OsString, io::IsTerminal};
 
 /// # Errors
 ///

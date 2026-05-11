@@ -2,16 +2,14 @@ use anyhow::{Context, Result};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
 use std::time::{Duration, Instant};
 
-use crate::{
-    domain::{
-        ai::AiSessionMode,
-        config::DiffViewMode,
-        diff::DiffLineKind,
-        review::{Author, DiffSide, LineComment, ReviewState},
-    },
-    services::review_service::{
-        AddCommentInput, AddReplyInput, ReanchorCommentInput, ReviewService,
-    },
+use crate::domain::{
+    ai::AiSessionMode,
+    config::DiffViewMode,
+    diff::DiffLineKind,
+    review::{Author, DiffSide, LineComment, ReviewState},
+};
+use crate::services::review_service::{
+    AddCommentInput, AddReplyInput, ReanchorCommentInput, ReviewService,
 };
 
 use super::{

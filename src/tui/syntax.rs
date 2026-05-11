@@ -1,28 +1,26 @@
 use std::{path::Path, sync::LazyLock};
 
 use ratatui::style::{Color, Modifier, Style};
-use syntect::{
-    easy::HighlightLines,
-    highlighting::{FontStyle, Theme, ThemeSet},
-    parsing::{SyntaxReference, SyntaxSet},
-};
+use syntect::easy::HighlightLines;
+use syntect::highlighting::{FontStyle, Theme, ThemeSet};
+use syntect::parsing::{SyntaxReference, SyntaxSet};
 
 use super::theme::ThemeColors;
 
 static SYNTAX_SET: LazyLock<SyntaxSet> = LazyLock::new(SyntaxSet::load_defaults_newlines);
 static THEME_DARK: LazyLock<Theme> = LazyLock::new(|| {
-    let set = ThemeSet::load_defaults();
-    set.themes
+    ThemeSet::load_defaults()
+        .themes
         .get("base16-ocean.dark")
         .cloned()
         .unwrap_or_default()
 });
 static THEME_LIGHT: LazyLock<Theme> = LazyLock::new(|| {
-    let set = ThemeSet::load_defaults();
-    set.themes
+    let themes = &ThemeSet::load_defaults().themes;
+    themes
         .get("InspiredGitHub")
-        .or_else(|| set.themes.get("base16-ocean.light"))
-        .or_else(|| set.themes.get("Solarized (light)"))
+        .or_else(|| themes.get("base16-ocean.light"))
+        .or_else(|| themes.get("Solarized (light)"))
         .cloned()
         .unwrap_or_default()
 });
@@ -74,42 +72,38 @@ fn theme_is_dark(theme: &ThemeColors) -> bool {
 
 fn syntax_for_path(path: &str) -> &'static SyntaxReference {
     let path_obj = Path::new(path);
-    let lower_extension = path_obj
-        .extension()
-        .and_then(|ext| ext.to_str())
-        .map(|ext| ext.to_ascii_lowercase());
-    let lower_filename = path_obj
-        .file_name()
-        .and_then(|name| name.to_str())
-        .map(|name| name.to_ascii_lowercase());
-    SYNTAX_SET
-        .find_syntax_for_file(path)
-        .ok()
-        .flatten()
-        .or_else(|| {
-            path_obj
-                .extension()
-                .and_then(|ext| ext.to_str())
-                .and_then(|ext| SYNTAX_SET.find_syntax_by_extension(ext))
-        })
-        .or_else(|| {
-            lower_extension
-                .as_deref()
-                .and_then(|ext| SYNTAX_SET.find_syntax_by_extension(ext))
-        })
-        .or_else(|| {
-            path_obj
-                .file_name()
-                .and_then(|name| name.to_str())
-                .and_then(|name| SYNTAX_SET.find_syntax_by_token(name))
-        })
-        .or_else(|| {
-            lower_filename
-                .as_deref()
-                .and_then(|name| SYNTAX_SET.find_syntax_by_token(name))
-        })
-        .or_else(|| fallback_known_syntax(lower_extension.as_deref(), lower_filename.as_deref()))
-        .unwrap_or_else(|| SYNTAX_SET.find_syntax_plain_text())
+
+    if let Some(syntax) = SYNTAX_SET.find_syntax_for_file(path).ok().flatten() {
+        return syntax;
+    }
+
+    let ext = path_obj.extension().and_then(|ext| ext.to_str());
+    if let Some(ext) = ext {
+        if let Some(syntax) = SYNTAX_SET.find_syntax_by_extension(ext) {
+            return syntax;
+        }
+        let lower_ext = ext.to_ascii_lowercase();
+        if let Some(syntax) = SYNTAX_SET.find_syntax_by_extension(&lower_ext) {
+            return syntax;
+        }
+    }
+
+    let filename = path_obj.file_name().and_then(|name| name.to_str());
+    if let Some(name) = filename {
+        if let Some(syntax) = SYNTAX_SET.find_syntax_by_token(name) {
+            return syntax;
+        }
+        let lower_name = name.to_ascii_lowercase();
+        if let Some(syntax) = SYNTAX_SET.find_syntax_by_token(&lower_name) {
+            return syntax;
+        }
+    }
+
+    if let Some(syntax) = fallback_known_syntax(ext, filename) {
+        return syntax;
+    }
+
+    SYNTAX_SET.find_syntax_plain_text()
 }
 
 fn fallback_known_syntax(
@@ -149,17 +143,17 @@ fn fallback_known_syntax(
         return syntax;
     }
 
-    if matches!(extension, Some("toml")) || matches!(filename, Some("cargo.toml")) {
-        return SYNTAX_SET
-            .find_syntax_by_name("TOML")
-            .or_else(|| SYNTAX_SET.find_syntax_by_token("Cargo.toml"))
-            .or_else(|| SYNTAX_SET.find_syntax_by_extension("toml"))
-            .or_else(|| SYNTAX_SET.find_syntax_by_extension("yaml"))
-            .or_else(|| SYNTAX_SET.find_syntax_by_extension("ini"))
-            .or_else(|| SYNTAX_SET.find_syntax_by_extension("rs"));
+    if !matches!(extension, Some("toml")) && !matches!(filename, Some("cargo.toml")) {
+        return None;
     }
 
-    None
+    SYNTAX_SET
+        .find_syntax_by_name("TOML")
+        .or_else(|| SYNTAX_SET.find_syntax_by_token("Cargo.toml"))
+        .or_else(|| SYNTAX_SET.find_syntax_by_extension("toml"))
+        .or_else(|| SYNTAX_SET.find_syntax_by_extension("yaml"))
+        .or_else(|| SYNTAX_SET.find_syntax_by_extension("ini"))
+        .or_else(|| SYNTAX_SET.find_syntax_by_extension("rs"))
 }
 
 fn syntax_by_name_or_extension(
