@@ -13,10 +13,6 @@ use tokio::io::{
     stdin, stdout,
 };
 
-const DEFAULT_PROTOCOL_VERSION: &str = "2025-11-25";
-const SUPPORTED_PROTOCOL_VERSIONS: &[&str] =
-    &["2025-11-25", "2025-06-18", "2025-03-26", "2024-11-05"];
-
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum FramingMode {
     ContentLength,
@@ -29,12 +25,6 @@ struct RpcRequest {
     id: Option<Value>,
     method: String,
     params: Option<Value>,
-}
-
-#[derive(Debug, Deserialize)]
-#[serde(rename_all = "camelCase")]
-struct InitializeParams {
-    protocol_version: Option<String>,
 }
 
 /// # Errors
@@ -237,7 +227,7 @@ async fn write_response<W: AsyncWrite + Unpin>(
 async fn handle_request(service: &ReviewService, request: RpcRequest) -> Option<Value> {
     let id = request.id;
     let result = match request.method.as_str() {
-        "initialize" => Ok(initialize_result(request.params.as_ref())),
+        "initialize" => initialize_result(request.params.as_ref()),
         "notifications/initialized" | "initialized" | "notifications/cancelled" => return None,
         "ping" => Ok(json!({})),
         "resources/list" => Ok(list_documentation_resources()),
@@ -278,9 +268,9 @@ async fn handle_request(service: &ReviewService, request: RpcRequest) -> Option<
     }
 }
 
-fn initialize_result(params: Option<&Value>) -> Value {
-    let protocol_version = negotiate_protocol_version(params);
-    json!({
+fn initialize_result(params: Option<&Value>) -> Result<Value> {
+    let protocol_version = initialize_protocol_version(params)?;
+    Ok(json!({
         "protocolVersion": protocol_version,
         "serverInfo": {"name": "parley", "version": env!("CARGO_PKG_VERSION")},
         "capabilities": {
@@ -291,31 +281,17 @@ fn initialize_result(params: Option<&Value>) -> Value {
                 "listChanged": false
             }
         }
-    })
+    }))
 }
 
-fn negotiate_protocol_version(params: Option<&Value>) -> String {
-    let Some(raw_params) = params else {
-        return DEFAULT_PROTOCOL_VERSION.to_string();
-    };
-
-    let Some(requested) = serde_json::from_value::<InitializeParams>(raw_params.clone())
-        .ok()
-        .and_then(|parsed| parsed.protocol_version)
+fn initialize_protocol_version(params: Option<&Value>) -> Result<String> {
+    params
+        .ok_or_else(|| anyhow!("missing initialize params"))?
+        .get("protocolVersion")
+        .and_then(Value::as_str)
         .map(|value| value.trim().to_string())
         .filter(|value| !value.is_empty())
-    else {
-        return DEFAULT_PROTOCOL_VERSION.to_string();
-    };
-
-    if SUPPORTED_PROTOCOL_VERSIONS
-        .iter()
-        .any(|supported| *supported == requested)
-    {
-        requested
-    } else {
-        DEFAULT_PROTOCOL_VERSION.to_string()
-    }
+        .ok_or_else(|| anyhow!("missing initialize params.protocolVersion"))
 }
 
 fn list_documentation_resources() -> Value {
@@ -547,11 +523,11 @@ mod tests {
     use tokio::io::BufReader;
 
     #[test]
-    fn initialize_uses_requested_supported_protocol_version() {
-        let params = json!({"protocolVersion": "2025-03-26"});
-        let response = initialize_result(Some(&params));
+    fn initialize_uses_requested_protocol_version() -> Result<()> {
+        let params = json!({"protocolVersion": "1.0.0"});
+        let response = initialize_result(Some(&params))?;
 
-        assert_eq!(response["protocolVersion"], json!("2025-03-26"));
+        assert_eq!(response["protocolVersion"], json!("1.0.0"));
         assert_eq!(
             response["capabilities"]["tools"]["listChanged"],
             json!(false)
@@ -560,16 +536,17 @@ mod tests {
             response["capabilities"]["resources"]["listChanged"],
             json!(false)
         );
+        Ok(())
     }
 
     #[test]
-    fn initialize_falls_back_to_default_protocol_version() {
-        let unsupported = json!({"protocolVersion": "1.0.0"});
-        let response = initialize_result(Some(&unsupported));
-        assert_eq!(response["protocolVersion"], json!(DEFAULT_PROTOCOL_VERSION));
-
+    fn initialize_requires_protocol_version() {
         let missing = initialize_result(None);
-        assert_eq!(missing["protocolVersion"], json!(DEFAULT_PROTOCOL_VERSION));
+
+        assert_eq!(
+            missing.unwrap_err().to_string(),
+            "missing initialize params"
+        );
     }
 
     #[tokio::test]
