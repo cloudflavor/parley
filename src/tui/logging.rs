@@ -1,13 +1,17 @@
-use std::{
-    fs::{File, OpenOptions, create_dir_all},
-    io::{self, Write},
-    path::Path,
-    sync::{Arc, Mutex},
-};
+use std::fs::File;
+use std::fs::OpenOptions;
+use std::fs::create_dir_all;
+use std::io;
+use std::io::Write;
+use std::path::Path;
+use std::sync::Arc;
+use std::sync::Mutex;
 
 use anyhow::{Context, Result};
+use tracing_subscriber::Layer;
 use tracing_subscriber::filter::LevelFilter;
-use tracing_subscriber::{Layer, layer::SubscriberExt, util::SubscriberInitExt};
+use tracing_subscriber::layer::SubscriberExt;
+use tracing_subscriber::util::SubscriberInitExt;
 
 #[derive(Clone)]
 struct FileMakeWriter {
