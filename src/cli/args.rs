@@ -2,10 +2,8 @@ use std::str::FromStr;
 
 use thiserror::Error;
 
-use crate::domain::{
-    ai::{AiProvider, AiSessionMode},
-    review::{Author, DiffSide, ReviewState},
-};
+use crate::domain::ai::{AiProvider, AiSessionMode};
+use crate::domain::review::{Author, DiffSide, ReviewState};
 
 #[derive(Debug, Clone, Error)]
 pub enum CliArgError {
