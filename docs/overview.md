@@ -118,7 +118,7 @@ parley tui --review my-review --root
 
 Root mode loads tracked files plus untracked files that are not ignored by git. It skips `.git/`, `.parley/`, and `worktrees/`. Files are shown as context lines, so comments attach to the current file line numbers instead of added or removed diff lines.
 
-Root mode is lazy-loaded for startup performance. The TUI builds the file tree first, shows load progress while file data hydrates, and loads file content when the file is selected or opened from search. JSON files are pretty-printed for display, and Markdown files are rendered into readable text rows.
+Root mode is lazy-loaded for startup performance. The TUI builds the file tree first, shows load progress while file data hydrates, and loads file content when the file is selected or opened from search. Root mode opens raw source by default. Press `D` / `Shift+d` or use command palette `Toggle Root JSON/Markdown Rendering` to switch JSON files into pretty-printed display and Markdown files into readable rendered text rows.
 
 ## Finding code and hotspots
 

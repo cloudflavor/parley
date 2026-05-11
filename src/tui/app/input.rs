@@ -331,6 +331,23 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn shifted_lowercase_d_toggles_root_document_rendering() -> Result<()> {
+        let mut app = make_test_app(vec!["README.md"])?;
+        let service = make_test_service()?;
+        app.diff_source = DiffSource::RootDirectory;
+
+        app.handle_key(
+            KeyEvent::new(KeyCode::Char('d'), KeyModifiers::SHIFT),
+            &service,
+        )
+        .await?;
+
+        assert!(app.root_document_rendering);
+        assert_eq!(app.status_line, "root JSON/Markdown rendering enabled");
+        Ok(())
+    }
+
+    #[tokio::test]
     async fn ai_transport_toggle_switches_between_acp_and_cli() -> Result<()> {
         use crate::domain::config::AgentTransport;
 

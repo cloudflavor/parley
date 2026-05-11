@@ -131,6 +131,14 @@ impl TuiApp {
         self.root_document_rendering = !self.root_document_rendering;
         self.row_cache.clear();
         self.clear_diff_render_cache();
+        self.ensure_row_cache_for_file(self.selected_file);
+        self.start_root_file_hydration_if_needed(self.selected_file);
+        if self.split_diff_view {
+            self.ensure_row_cache_for_file(self.secondary_selected_file);
+            self.start_root_file_hydration_if_needed(self.secondary_selected_file);
+        }
+        self.constrain_selection();
+        self.invalidate_redraw();
         self.status_line = if self.root_document_rendering {
             "root JSON/Markdown rendering enabled".into()
         } else {

@@ -112,12 +112,12 @@
 
 ## Root file rendering
 
-- `D`: toggle rendered document view in `--root` mode.
+- `D` / `Shift+d`: toggle rendered document view in `--root` mode.
 - Rendered document view is off by default; root mode opens files as raw source rows.
 - With rendered document view enabled, `.json` files are shown as pretty-printed JSON.
 - With rendered document view enabled, `.md`, `.markdown`, `.mdown`, and `.mkd` files are rendered as readable Markdown text rows.
 - `R`: refresh the root source if file content changed while Parley is open.
-- Command palette `Toggle Root JSON/Markdown Rendering`: same as `D`.
+- Command palette `Toggle Root JSON/Markdown Rendering`: same as `D` / `Shift+d`.
 - Command palette search terms `json`, `markdown`, `pretty`, or `render` surface the toggle.
 
 ## Help pane

@@ -355,9 +355,12 @@ mod tests {
         );
 
         app.diff_source = DiffSource::RootDirectory;
+        app.ensure_row_cache();
+        assert!(app.row_cache.contains_key(&0));
         app.toggle_root_document_rendering();
         assert!(app.root_document_rendering);
         assert_eq!(app.status_line, "root JSON/Markdown rendering enabled");
+        assert!(app.row_cache.contains_key(&0));
         Ok(())
     }
 
