@@ -1,6 +1,6 @@
 use serde::{Deserialize, Serialize};
 
-use crate::domain::ai::AiProvider;
+use crate::domain::ai::{AiProvider, AiSessionMode};
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(default)]
@@ -229,10 +229,10 @@ impl AiConfig {
     }
 
     #[must_use]
-    pub fn prompt_path_for_mode(&self, mode: crate::domain::ai::AiSessionMode) -> Option<&str> {
+    pub fn prompt_path_for_mode(&self, mode: AiSessionMode) -> Option<&str> {
         let mode_path = match mode {
-            crate::domain::ai::AiSessionMode::Reply => self.reply_prompt_path.as_deref(),
-            crate::domain::ai::AiSessionMode::Refactor => self.refactor_prompt_path.as_deref(),
+            AiSessionMode::Reply => self.reply_prompt_path.as_deref(),
+            AiSessionMode::Refactor => self.refactor_prompt_path.as_deref(),
         };
         mode_path
             .or(self.prompt_path.as_deref())
