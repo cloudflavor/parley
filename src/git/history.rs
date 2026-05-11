@@ -1,5 +1,5 @@
 use std::collections::{HashMap, HashSet};
-use std::path::Path;
+use std::path::{Component, Path};
 
 use anyhow::{Context, Result};
 use git2::{Commit, DiffOptions, Repository, Sort};
@@ -186,7 +186,7 @@ fn delta_path(delta: &git2::DiffDelta<'_>) -> Option<String> {
 fn normalize_git_path(path: &Path) -> String {
     path.components()
         .filter_map(|component| match component {
-            std::path::Component::Normal(value) => Some(value.to_string_lossy().into_owned()),
+            Component::Normal(value) => Some(value.to_string_lossy().into_owned()),
             _ => None,
         })
         .collect::<Vec<_>>()
