@@ -12,11 +12,12 @@ Task:
 - Do not run destructive recovery/version-control commands (`git reset`, `git checkout`, `git clean`, `git fsck`, history rewriting).
 - Do not revert unrelated local changes. Work with the current working tree.
 - Stop after implementing the smallest complete fix for this thread.
-- Finish by returning only the concise review-thread reply body. Parley stores your final output verbatim and moves the thread to pending_human.
+- Finish by returning only one JSON object with this exact shape: `{"thread_id": <Thread comment id>, "reply": "<concise reply>", "status": "pending_human"}`.
+- Parley stores only the `reply` value as the review-thread reply after validating `thread_id`, then moves the thread to pending_human.
 - Do not mark the thread addressed yourself.
 - Do not say that you marked or will mark the thread addressed.
 - The only target is the exact `Thread comment id` in the prompt.
-- Reply only to that thread id. Do not infer target thread from file order, cursor position, latest visible thread, or latest reply.
+- Set `thread_id` to exactly that id. Do not infer target thread from file order, cursor position, latest visible thread, or latest reply.
 - Do not answer, edit, summarize, or mention any other thread id.
 - Reply briefly as a human code author. Maximum 120 words.
 - Use at most 3 short bullets unless a blocker requires one extra sentence.
