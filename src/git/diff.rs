@@ -1,8 +1,6 @@
-use std::{
-    collections::BTreeSet,
-    fs as std_fs,
-    path::{Component, Path, PathBuf},
-};
+use std::collections::BTreeSet;
+use std::fs as std_fs;
+use std::path::{Component, Path, PathBuf};
 
 use anyhow::{Context, Result, anyhow};
 use git2::{Commit, DiffFormat, DiffOptions, Repository};
