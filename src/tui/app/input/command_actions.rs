@@ -128,6 +128,9 @@ impl TuiApp {
             CommandPaletteAction::ToggleSelectedThreadExpansion => {
                 self.toggle_selected_thread_expansion();
             }
+            CommandPaletteAction::ToggleRootDocumentRendering => {
+                self.toggle_root_document_rendering();
+            }
             CommandPaletteAction::OpenShortcuts => {
                 self.open_help_docs();
             }

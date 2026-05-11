@@ -123,6 +123,21 @@ impl TuiApp {
         }));
     }
 
+    pub(crate) fn toggle_root_document_rendering(&mut self) {
+        if !matches!(self.diff_source, DiffSource::RootDirectory) {
+            self.status_line = "document rendering is only available in root mode".into();
+            return;
+        }
+        self.root_document_rendering = !self.root_document_rendering;
+        self.row_cache.clear();
+        self.clear_diff_render_cache();
+        self.status_line = if self.root_document_rendering {
+            "root JSON/Markdown rendering enabled".into()
+        } else {
+            "root JSON/Markdown rendering disabled".into()
+        };
+    }
+
     pub(crate) fn review_state_code(&self) -> u8 {
         match self.review.state {
             ReviewState::Open => 0,

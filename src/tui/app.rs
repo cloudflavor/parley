@@ -488,6 +488,7 @@ enum CommandPaletteAction {
     ShowFileHeatmap,
     CycleThreadDensityMode,
     ToggleSelectedThreadExpansion,
+    ToggleRootDocumentRendering,
     OpenShortcuts,
 }
 
@@ -686,6 +687,7 @@ struct TuiApp {
     root_file_load_task: Option<JoinHandle<RootFileLoadResult>>,
     root_hydrated_files: HashSet<usize>,
     root_diff_load_started_at: Option<Instant>,
+    root_document_rendering: bool,
     shortcuts_modal_visible: bool,
     shortcuts_modal_scroll: usize,
     shortcuts_modal_doc_index: usize,

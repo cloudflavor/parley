@@ -2,12 +2,14 @@
 
 ## Navigation
 
+- `q`: quit
 - `h/l`: previous/next file
 - `j/k`: down/up line
 - `PgUp/PgDn`: page scroll
 - `Ctrl+u/Ctrl+d`: half-page scroll
 - `g/G`: top/bottom
 - `zz`: center active line
+- `R`: refresh review and diff/root source
 
 ## Search and jump
 
@@ -93,7 +95,11 @@
 - Heatmap `S`: reverse sort direction
 - Heatmap color follows the active sort metric
 - `Ctrl+f`: file filter input
+- `F`: cycle file filter mode
+- `O`: cycle file sort mode
 - `Shift+U`: edit user name
+- `t`: open theme picker
+- `T`: toggle light/dark theme variant
 - `Ctrl+v`: toggle split view
 - Command palette `Toggle Split View`: toggle split view without using the visual-selection key
 - `S`: toggle side-by-side diff
@@ -103,6 +109,16 @@
 - `Shift+C`: collapse all visible file groups
 - Mouse: click a file group header to collapse or expand it
 - `b`: toggle thread navigator
+
+## Root file rendering
+
+- `D`: toggle rendered document view in `--root` mode.
+- Rendered document view is off by default; root mode opens files as raw source rows.
+- With rendered document view enabled, `.json` files are shown as pretty-printed JSON.
+- With rendered document view enabled, `.md`, `.markdown`, `.mdown`, and `.mkd` files are rendered as readable Markdown text rows.
+- `R`: refresh the root source if file content changed while Parley is open.
+- Command palette `Toggle Root JSON/Markdown Rendering`: same as `D`.
+- Command palette search terms `json`, `markdown`, `pretty`, or `render` surface the toggle.
 
 ## Help pane
 

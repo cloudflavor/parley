@@ -95,6 +95,11 @@ impl TuiApp {
                 keywords: "git history hotspots churn touched files heatmap",
             },
             CommandPaletteItem {
+                action: CommandPaletteAction::ToggleRootDocumentRendering,
+                label: "Toggle Root JSON/Markdown Rendering",
+                keywords: "root json markdown pretty prettify render rendering view raw source",
+            },
+            CommandPaletteItem {
                 action: CommandPaletteAction::OpenUserNameEditor,
                 label: "Edit User Name",
                 keywords: "settings profile",
@@ -172,7 +177,7 @@ impl TuiApp {
             CommandPaletteItem {
                 action: CommandPaletteAction::OpenShortcuts,
                 label: "Open Help Docs",
-                keywords: "help docs keys",
+                keywords: "help docs keys shortcuts keybindings",
             },
         ]
     }
