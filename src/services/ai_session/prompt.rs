@@ -15,22 +15,23 @@ use crate::domain::review::{Author, LineComment, ReviewSession};
 static AI_SESSION_PROMPTS_DIR: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/prompts/ai_session");
 const OUTPUT_CONTRACT: &str = r#"
 Output contract:
-- Your entire final output is stored verbatim as the review-thread reply.
-- The final output must contain only the reply body that should appear in the thread.
+- Return only one JSON object. Do not wrap it in markdown fences.
+- Required schema: {"thread_id": <id>, "reply": "<concise reply>", "status": "pending_human"}.
+- `thread_id` must exactly equal the `Thread comment id` shown above.
+- `reply` is the only text Parley stores as the review-thread reply.
+- `status` must be exactly "pending_human". Parley applies the state change after validating the JSON.
 - Reply directly and briefly, as a human code author.
-- Always produce a final review-thread reply; Parley stores that reply and moves the thread to pending_human.
 - Do not mark the thread addressed yourself.
 - Do not say that you marked or will mark the thread addressed.
-- The only target is the exact `Thread comment id` shown above.
-- Reply only to that thread id. Do not infer target thread from file order, cursor position, latest visible thread, or latest reply.
+- Do not infer target thread from file order, cursor position, latest visible thread, or latest reply.
 - Do not answer, edit, summarize, or mention any other thread id.
-- Do not include implementation transcripts, tool output, command logs, validation logs, JSON edit logs, investigation notes, or intermediate thinking.
-- Do not mention skills, agents, worktrees, commits, staging, or cleanup.
-- Maximum 120 words.
-- Use at most 3 short bullets unless a blocker requires one extra sentence.
-- Do not narrate reasoning, investigation, process, or uncertainty.
-- Do not include phrases like "I see", "I found", "Looking at this", "It looks like", "You're right", or "The issue is".
-- Do not include chain-of-thought, step-by-step analysis, hidden reasoning, or tool/process commentary.
+- `reply` must not include implementation transcripts, tool output, command logs, validation logs, JSON edit logs, investigation notes, or intermediate thinking.
+- `reply` must not mention skills, agents, worktrees, commits, staging, or cleanup.
+- `reply` must be maximum 120 words.
+- Use at most 3 short bullets inside `reply` unless a blocker requires one extra sentence.
+- Do not narrate reasoning, investigation, process, or uncertainty inside `reply`.
+- Do not include phrases like "I see", "I found", "Looking at this", "It looks like", "You're right", or "The issue is" inside `reply`.
+- Do not include chain-of-thought, step-by-step analysis, hidden reasoning, or tool/process commentary inside `reply`.
 "#;
 
 pub(super) async fn build_thread_prompt(

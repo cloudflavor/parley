@@ -1,10 +1,10 @@
-use super::comment_is_targetable;
 use super::prompt::{
     build_thread_prompt, choose_best_hunk, format_hunk_excerpt, hunk_distance_to_anchor,
 };
 use super::provider::{
     detect_model_from_json_stream, detect_model_from_text, format_ai_reply_body,
 };
+use super::{comment_is_targetable, parse_ai_thread_reply_json};
 use crate::domain::ai::AiSessionMode;
 use crate::domain::diff::{DiffFile, DiffHunk, DiffLine, DiffLineKind};
 use crate::domain::review::{
@@ -143,7 +143,8 @@ async fn thread_prompt_uses_custom_task_prompt_when_provided() -> anyhow::Result
     assert!(prompt.contains("Custom task: answer with risk analysis."));
     assert!(!prompt.contains("Provide a concise markdown reply only"));
     assert!(prompt.contains("Output contract:"));
-    assert!(prompt.contains("Maximum 120 words."));
+    assert!(prompt.contains("Required schema:"));
+    assert!(prompt.contains("\"status\": \"pending_human\""));
     Ok(())
 }
 
@@ -199,10 +200,76 @@ async fn thread_prompt_requires_exact_thread_id_targeting() -> anyhow::Result<()
 
     assert!(prompt.contains("Thread comment id: 7"));
     assert!(prompt.contains("The only target is the exact `Thread comment id`"));
+    assert!(prompt.contains("`thread_id` must exactly equal the `Thread comment id`"));
     assert!(prompt.contains("Do not infer target thread from file order"));
     assert!(!prompt.contains("Original comment:\nfirst thread"));
     assert!(prompt.contains("Original comment:\ntarget thread"));
     Ok(())
+}
+
+#[test]
+fn ai_thread_reply_json_accepts_expected_thread() -> Result<()> {
+    let parsed = parse_ai_thread_reply_json(
+        r#"{"thread_id":7,"reply":"Changed the import shape and ran cargo check.","status":"pending_human"}"#,
+        7,
+    )?;
+
+    assert_eq!(parsed.thread_id, 7);
+    assert_eq!(
+        parsed.reply,
+        "Changed the import shape and ran cargo check."
+    );
+    Ok(())
+}
+
+#[test]
+fn ai_thread_reply_json_rejects_wrong_thread() {
+    let error = parse_ai_thread_reply_json(
+        r#"{"thread_id":1,"reply":"Changed it.","status":"pending_human"}"#,
+        7,
+    )
+    .expect_err("wrong thread id should fail");
+
+    assert!(
+        error
+            .to_string()
+            .contains("did not match requested thread 7")
+    );
+}
+
+#[test]
+fn ai_thread_reply_json_rejects_plain_text() {
+    let error =
+        parse_ai_thread_reply_json("Changed it.", 7).expect_err("plain text reply should fail");
+
+    assert!(error.to_string().contains("expected JSON object"));
+}
+
+#[test]
+fn ai_thread_reply_json_accepts_fenced_json() -> Result<()> {
+    let parsed = parse_ai_thread_reply_json(
+        "```json\n{\"thread_id\":7,\"reply\":\"Changed it.\",\"status\":\"pending_human\"}\n```",
+        7,
+    )?;
+
+    assert_eq!(parsed.thread_id, 7);
+    assert_eq!(parsed.reply, "Changed it.");
+    Ok(())
+}
+
+#[test]
+fn ai_thread_reply_json_rejects_wrong_status() {
+    let error = parse_ai_thread_reply_json(
+        r#"{"thread_id":7,"reply":"Changed it.","status":"addressed"}"#,
+        7,
+    )
+    .expect_err("wrong status should fail");
+
+    assert!(
+        error
+            .to_string()
+            .contains("did not match required pending_human")
+    );
 }
 
 #[tokio::test]

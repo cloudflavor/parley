@@ -1,5 +1,5 @@
-use anyhow::Result;
-use serde::Serialize;
+use anyhow::{Result, anyhow};
+use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc;
 use tracing::{debug, error, info, warn};
 
@@ -282,14 +282,31 @@ async fn run_ai_session_inner(
                 continue;
             }
         };
-        let reply_body =
-            format_ai_reply_body(provider_reply.model.as_deref(), &provider_reply.reply);
+        let parsed_reply = match parse_ai_thread_reply_json(&provider_reply.reply, comment_id) {
+            Ok(parsed_reply) => parsed_reply,
+            Err(error) => {
+                result.failed += 1;
+                result.items.push(AiSessionItemResult {
+                    comment_id,
+                    status: "failed".to_string(),
+                    message: format!("invalid AI reply JSON: {error}"),
+                });
+                emit_progress(
+                    progress_sender.as_ref(),
+                    input.provider,
+                    "system",
+                    format!("thread #{comment_id}: failed (invalid AI reply JSON: {error})"),
+                );
+                continue;
+            }
+        };
+        let reply_body = format_ai_reply_body(provider_reply.model.as_deref(), &parsed_reply.reply);
 
         let updated = match service
             .add_reply(
                 &input.review_name,
                 AddReplyInput {
-                    comment_id,
+                    comment_id: parsed_reply.thread_id,
                     author: Author::Ai,
                     body: reply_body,
                 },
@@ -360,6 +377,76 @@ async fn run_ai_session_inner(
         "ai session completed"
     );
     Ok(result)
+}
+
+#[derive(Debug)]
+struct ParsedAiThreadReply {
+    thread_id: u64,
+    reply: String,
+}
+
+#[derive(Debug, Deserialize)]
+#[serde(deny_unknown_fields)]
+struct AiThreadReplyJson {
+    thread_id: u64,
+    reply: String,
+    status: String,
+}
+
+fn parse_ai_thread_reply_json(
+    raw_reply: &str,
+    expected_thread_id: u64,
+) -> Result<ParsedAiThreadReply> {
+    let json = strip_json_code_fence(raw_reply);
+    let parsed: AiThreadReplyJson = serde_json::from_str(json)
+        .map_err(|error| anyhow!("expected JSON object with thread_id, reply, status: {error}"))?;
+
+    if parsed.thread_id != expected_thread_id {
+        return Err(anyhow!(
+            "thread_id {} did not match requested thread {}",
+            parsed.thread_id,
+            expected_thread_id
+        ));
+    }
+
+    if parsed.status != "pending_human" {
+        return Err(anyhow!(
+            "status {:?} did not match required pending_human",
+            parsed.status
+        ));
+    }
+
+    let reply = parsed.reply.trim().to_string();
+    if reply.is_empty() {
+        return Err(anyhow!("reply must not be empty"));
+    }
+
+    Ok(ParsedAiThreadReply {
+        thread_id: parsed.thread_id,
+        reply,
+    })
+}
+
+fn strip_json_code_fence(raw_reply: &str) -> &str {
+    let trimmed = raw_reply.trim();
+    if !trimmed.starts_with("```") {
+        return trimmed;
+    }
+
+    let without_start = if let Some(value) = trimmed.strip_prefix("```json") {
+        value
+    } else if let Some(value) = trimmed.strip_prefix("```") {
+        value
+    } else {
+        trimmed
+    };
+
+    let without_start = without_start.trim_start();
+    if let Some(value) = without_start.strip_suffix("```") {
+        value.trim()
+    } else {
+        without_start
+    }
 }
 
 fn comment_is_targetable(status: CommentStatus, mode: AiSessionMode) -> bool {
