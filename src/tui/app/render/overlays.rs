@@ -329,7 +329,7 @@ pub(super) fn draw_ai_progress_popup(frame: &mut Frame<'_>, app: &mut TuiApp) {
         lines.extend(wrapped_entries.into_iter().skip(scroll).take(end - scroll));
     }
     lines.push(Line::from(Span::styled(
-        "H hide/show | K cancel current-file runs | PgUp/PgDn/Home/End scroll",
+        "H hide/show | O pager | K cancel current-file runs | PgUp/PgDn/Home/End scroll",
         Style::default().fg(colors.status_help),
     )));
 
@@ -450,7 +450,7 @@ pub(super) fn draw_ai_activity_overlay(frame: &mut Frame<'_>, app: &mut TuiApp) 
         }
     }
     lines.push(Line::from(Span::styled(
-        "L/Esc close | Enter jump | j/k/PgUp/PgDn/Home/End select",
+        "L/Esc close | Enter jump | O pager | j/k/PgUp/PgDn/Home/End select",
         Style::default().fg(colors.status_help),
     )));
     lines.push(Line::from(Span::styled(

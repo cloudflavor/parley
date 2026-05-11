@@ -1,4 +1,4 @@
-use std::{io, process::Command, sync::OnceLock};
+use std::{io, path::Path, process::Command, sync::OnceLock};
 
 use anyhow::{Context, Result};
 use crossterm::event::DisableMouseCapture;
@@ -240,6 +240,65 @@ pub(super) fn suspend_tui_process(
         .context("failed to clear terminal after suspend")?;
 
     suspend_result
+}
+
+pub(super) fn open_file_in_pager(
+    terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
+    mouse_capture_enabled: bool,
+    path: &Path,
+) -> Result<()> {
+    disable_raw_mode().context("failed to disable raw mode before opening pager")?;
+    if mouse_capture_enabled {
+        execute!(
+            terminal.backend_mut(),
+            LeaveAlternateScreen,
+            DisableMouseCapture
+        )
+        .context("failed to leave alternate screen before opening pager")?;
+    } else {
+        execute!(terminal.backend_mut(), LeaveAlternateScreen)
+            .context("failed to leave alternate screen before opening pager")?;
+    }
+    terminal
+        .show_cursor()
+        .context("failed to show cursor before opening pager")?;
+
+    let pager_result = run_pager(path);
+
+    if mouse_capture_enabled {
+        execute!(
+            terminal.backend_mut(),
+            EnterAlternateScreen,
+            EnableMouseCapture
+        )
+        .context("failed to re-enter alternate screen after pager")?;
+    } else {
+        execute!(terminal.backend_mut(), EnterAlternateScreen)
+            .context("failed to re-enter alternate screen after pager")?;
+    }
+    enable_raw_mode().context("failed to re-enable raw mode after pager")?;
+    terminal
+        .hide_cursor()
+        .context("failed to hide cursor after pager")?;
+    terminal
+        .clear()
+        .context("failed to clear terminal after pager")?;
+
+    pager_result
+}
+
+fn run_pager(path: &Path) -> Result<()> {
+    let status = Command::new("sh")
+        .arg("-c")
+        .arg("exec ${PAGER:-less} \"$1\"")
+        .arg("parley-pager")
+        .arg(path)
+        .status()
+        .with_context(|| format!("failed to launch pager for {}", path.display()))?;
+    if !status.success() {
+        return Err(anyhow::anyhow!("pager exited with status {status}"));
+    }
+    Ok(())
 }
 
 #[cfg(unix)]

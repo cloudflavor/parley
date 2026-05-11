@@ -8,7 +8,7 @@ impl TuiApp {
         key: KeyEvent,
         service: &ReviewService,
     ) -> Result<()> {
-        if self.ai_progress_visible && self.handle_ai_progress_scroll_key(key) {
+        if self.ai_progress_visible && self.handle_ai_progress_key(key)? {
             return Ok(());
         }
 
@@ -345,29 +345,33 @@ impl TuiApp {
         Ok(())
     }
 
-    fn handle_ai_progress_scroll_key(&mut self, key: KeyEvent) -> bool {
+    fn handle_ai_progress_key(&mut self, key: KeyEvent) -> Result<bool> {
         match key.code {
             KeyCode::PageUp => {
                 self.ai_progress_scroll_up(8);
                 self.status_line = "ai stream scrolled up".into();
-                true
+                Ok(true)
             }
             KeyCode::PageDown => {
                 self.ai_progress_scroll_down(8);
                 self.status_line = "ai stream scrolled down".into();
-                true
+                Ok(true)
             }
             KeyCode::Home => {
                 self.ai_progress_scroll_home();
                 self.status_line = "ai stream at beginning".into();
-                true
+                Ok(true)
             }
             KeyCode::End => {
                 self.ai_progress_scroll_end();
                 self.status_line = "ai stream at latest output".into();
-                true
+                Ok(true)
             }
-            _ => false,
+            KeyCode::Char('O' | 'o') => {
+                self.queue_runtime_log_pager();
+                Ok(true)
+            }
+            _ => Ok(false),
         }
     }
 }

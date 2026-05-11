@@ -43,7 +43,8 @@ use helpers::{
     MOUSE_WHEEL_FILE_SCROLL_FILES, MOUSE_WHEEL_SCROLL_LINES,
     comment_line_range_contains_display_row, comment_matches_display_row,
     comment_reference_matches_display_row, format_comment_reference, format_line_range_reference,
-    format_line_reference, insert_char_at, point_in_rect, remove_char_at, suspend_tui_process,
+    format_line_reference, insert_char_at, open_file_in_pager, point_in_rect, remove_char_at,
+    suspend_tui_process,
 };
 use render::draw;
 pub(super) use render::{
@@ -208,6 +209,16 @@ async fn run_loop(
                         }
                         Err(error) => {
                             app.status_line = format!("suspend failed: {error}");
+                        }
+                    }
+                }
+                PendingUiAction::OpenFileInPager(path) => {
+                    match open_file_in_pager(terminal, mouse_capture_enabled, &path) {
+                        Ok(()) => {
+                            app.status_line = format!("returned from pager: {}", path.display());
+                        }
+                        Err(error) => {
+                            app.status_line = format!("pager failed: {error}");
                         }
                     }
                 }
@@ -531,6 +542,7 @@ struct CommandPaletteState {
 #[derive(Debug, Clone)]
 enum PendingUiAction {
     SuspendTuiProcess,
+    OpenFileInPager(PathBuf),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]

@@ -5,6 +5,7 @@
 use std::collections::VecDeque;
 use std::time::{Duration, Instant};
 
+use anyhow::Result;
 use crossterm::event::{KeyCode, KeyEvent};
 use tokio::sync::mpsc;
 
@@ -326,6 +327,11 @@ impl TuiApp {
             .unwrap_or_default()
     }
 
+    pub(crate) fn queue_runtime_log_pager(&mut self) {
+        self.pending_action = Some(PendingUiAction::OpenFileInPager(self.log_path.clone()));
+        self.status_line = format!("opening runtime log in pager: {}", self.log_path.display());
+    }
+
     pub(crate) fn ai_log_file_path(&self) -> String {
         self.current_file()
             .map(|file| file.path.clone())
@@ -378,7 +384,7 @@ impl TuiApp {
         pushed
     }
 
-    pub(crate) fn handle_ai_activity_key(&mut self, key: KeyEvent) -> bool {
+    pub(crate) fn handle_ai_activity_key(&mut self, key: KeyEvent) -> Result<bool> {
         match key.code {
             KeyCode::Esc | KeyCode::Char('L') => {
                 self.dismiss_ai_activity_overlay();
@@ -406,9 +412,12 @@ impl TuiApp {
             KeyCode::Enter => {
                 self.ai_activity_jump_selected();
             }
-            _ => return false,
+            KeyCode::Char('O' | 'o') => {
+                self.queue_runtime_log_pager();
+            }
+            _ => return Ok(false),
         }
-        true
+        Ok(true)
     }
 
     pub(crate) fn drain_ai_progress(&mut self) -> bool {
@@ -877,6 +886,19 @@ mod tests {
         assert!(app.ai_progress_visible);
         assert!(!app.ai_activity_visible);
         assert_eq!(app.ai_activity_unread_count(), 0);
+        Ok(())
+    }
+
+    #[test]
+    fn runtime_log_pager_opens_existing_review_log() -> Result<()> {
+        let mut app = make_test_app(vec!["src/a.rs"], Vec::new())?;
+
+        app.queue_runtime_log_pager();
+
+        let Some(PendingUiAction::OpenFileInPager(path)) = app.pending_action.as_ref() else {
+            return Err(anyhow::anyhow!("missing pager action"));
+        };
+        assert_eq!(path, &app.log_path);
         Ok(())
     }
 }
