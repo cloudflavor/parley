@@ -674,6 +674,31 @@ button {
   }
 }
 
+.showcase {
+  margin: 24px 0;
+  padding: 20px;
+  border: 2px solid #000;
+  background: #2d2d2d;
+  box-shadow: 2px 2px 0 #000;
+}
+
+:root[data-theme="dark"] .showcase {
+  border-color: #fff;
+  background: #1a1a1a;
+  box-shadow: 2px 2px 0 #5a5a5a;
+}
+
+.showcase-img {
+  display: block;
+  width: 100%;
+  height: auto;
+  border: 1px solid #000;
+}
+
+:root[data-theme="dark"] .showcase-img {
+  border-color: #444;
+}
+
 /* system.css integration overrides */
 
 html,

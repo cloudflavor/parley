@@ -2,9 +2,13 @@
 
 Parley is a terminal-first review tool for local Git diffs with structured, line-anchored discussion threads and optional AI-assisted replies/refactors.
 
+![Parley AI](assets/parley-ai.png)
+
 It is designed for iterative review loops where code changes are generated or assisted by AI, but review state and thread resolution remain explicit and human-controlled.
 
 Primary docs site: [https://parley.cloudflavor.io](https://parley.cloudflavor.io)
+
+![Parley Diff](assets/parley-diff.png)
 
 ## Why Parley
 
