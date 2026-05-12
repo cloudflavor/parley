@@ -365,11 +365,11 @@ Priority work:
 
 1. [x] Lazy-highlight visible rows instead of full-file syntax highlighting during row cache rebuild.
 2. [x] Cache comments by file path so diff/thread rendering does not scan every review comment.
-3. [ ] Cache visible file indices until comments/filter/sort/search state changes. File stats are already cached by file path.
+3. [x] Cache visible file indices until comments/filter/sort/search state changes. File stats are already cached by file path.
 4. [x] Avoid cloning full diff render cache entries on cache hits.
 5. [x] Make root mode load file lists first, then load file content lazily or with bounded concurrency.
 6. [x] Index comment anchors by file/line to reduce refresh/remap scans.
-7. [ ] Cache wrapped/rendered thread bodies by width plus thread revision.
+7. [x] Cache wrapped/rendered thread bodies by width plus thread revision.
 
 Keep the ignored perf tests updated with each optimization so regressions are measurable.
 
@@ -405,12 +405,12 @@ Root mode specifics:
 
 Implementation slices:
 
-1. Add stored anchor snapshot fields and migration/default handling for existing reviews.
-2. Capture snapshots when creating comments in root mode and diff mode.
-3. Add exact projection computation that never mutates the original anchor.
-4. Render detached/outdated thread context when projection is missing.
-5. Update AI prompt context to include anchor status and original/current projection data.
-6. Add tests for refactored lines, deleted lines, moved text, same-file multiple threads, and root-mode file changes.
+1. [x] Add stored anchor snapshot fields and migration/default handling for existing reviews.
+2. [x] Capture snapshots when creating comments in root mode and diff mode.
+3. [x] Add exact projection computation that never mutates the original anchor.
+4. [x] Render detached/outdated thread context when projection is missing.
+5. [x] Update AI prompt context to include anchor status and original/current projection data.
+6. [ ] Add tests for refactored lines, deleted lines, moved text, same-file multiple threads, and root-mode file changes.
 
 ## Refactoring follow-up
 

@@ -6,16 +6,14 @@ use super::{
     TuiApp,
 };
 use crate::git::history::FileHeatmapEntry;
-use crate::tui::app::help_docs::HELP_DOCS;
+use crate::tui::app::HELP_DOCS;
 use crate::tui::theme::ThemeColors;
 use crate::utils::cast::{i32_to_u16_saturating, usize_to_u16_saturating};
-use ratatui::{
-    Frame,
-    layout::{Constraint, Direction, Layout, Rect},
-    style::{Color, Modifier, Style},
-    text::{Line, Span},
-    widgets::{Block, Borders, Clear, Paragraph, Wrap},
-};
+use ratatui::Frame;
+use ratatui::layout::{Constraint, Direction, Layout, Rect};
+use ratatui::style::{Color, Modifier, Style};
+use ratatui::text::{Line, Span};
+use ratatui::widgets::{Block, Borders, Clear, Paragraph, Wrap};
 
 pub(super) fn draw_thread_navigator_overlay(frame: &mut Frame<'_>, app: &mut TuiApp) {
     let colors = app.theme().colors.clone();

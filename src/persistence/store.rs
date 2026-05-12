@@ -245,6 +245,9 @@ pub fn validate_review_name(name: &str) -> StoreResult<()> {
 #[cfg(test)]
 mod tests {
     use crate::domain::config::{AiConfig, DiffViewMode};
+    use crate::domain::review::{
+        Author, DiffSide, NewLineComment, SourceAnchorSnapshot, StoredAnchorSnapshot,
+    };
     use anyhow::Result;
     use tempfile::tempdir;
 
@@ -289,6 +292,95 @@ mod tests {
 
         assert_eq!(loaded.name, "legacy");
         assert_eq!(reviews, vec!["legacy"]);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn load_review_should_default_missing_original_anchor() -> Result<()> {
+        let tmp = tempdir()?;
+        let store = super::Store::from_project_root(tmp.path());
+        store.ensure_dirs().await?;
+        let review_dir = tmp.path().join(".parley/reviews/old");
+        super::fs::create_dir_all(&review_dir).await?;
+        super::fs::write(
+            review_dir.join("review.json"),
+            r#"{
+  "name": "old",
+  "state": "open",
+  "created_at_ms": 1,
+  "updated_at_ms": 1,
+  "comments": [
+    {
+      "id": 1,
+      "file_path": "src/lib.rs",
+      "old_line": null,
+      "new_line": 1,
+      "line_range": null,
+      "side": "right",
+      "line_anchor": null,
+      "detached": false,
+      "body": "old",
+      "author": "user",
+      "status": "open",
+      "replies": [],
+      "created_at_ms": 1,
+      "updated_at_ms": 1,
+      "addressed_at_ms": null
+    }
+  ],
+  "next_comment_id": 2,
+  "next_reply_id": 1
+}"#,
+        )
+        .await?;
+
+        let loaded = store.load_review("old").await?;
+
+        assert_eq!(loaded.comments[0].original_anchor, None);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn save_and_load_review_should_round_trip_original_anchor() -> Result<()> {
+        let tmp = tempdir()?;
+        let store = super::Store::from_project_root(tmp.path());
+        let mut review = super::ReviewSession::new("anchored".into(), 1);
+        let original_anchor = StoredAnchorSnapshot {
+            file_path: "src/lib.rs".into(),
+            side: DiffSide::Right,
+            old_line: None,
+            new_line: Some(10),
+            line_range: None,
+            selected_text: "let value = 1;".into(),
+            before_context: vec!["fn main() {".into()],
+            after_context: vec!["}".into()],
+            diff: None,
+            source: Some(SourceAnchorSnapshot {
+                file_content_hash: Some("file-hash".into()),
+                selected_text_hash: Some("text-hash".into()),
+            }),
+            base_rev: Some("base".into()),
+            head_rev: Some("head".into()),
+        };
+        review.add_comment(
+            NewLineComment {
+                file_path: "src/lib.rs".into(),
+                old_line: None,
+                new_line: Some(10),
+                line_range: None,
+                side: DiffSide::Right,
+                line_anchor: None,
+                original_anchor: Some(original_anchor.clone()),
+                body: "anchor".into(),
+                author: Author::User,
+            },
+            2,
+        );
+
+        store.save_review(&review).await?;
+        let loaded = store.load_review("anchored").await?;
+
+        assert_eq!(loaded.comments[0].original_anchor, Some(original_anchor));
         Ok(())
     }
 

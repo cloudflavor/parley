@@ -1,5 +1,5 @@
 use super::*;
-use crate::tui::app::help_docs::HELP_DOCS;
+use crate::tui::app::HELP_DOCS;
 
 impl TuiApp {
     pub(super) fn handle_shortcuts_modal_key(&mut self, key: KeyEvent) -> Result<()> {

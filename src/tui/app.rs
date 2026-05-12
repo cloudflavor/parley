@@ -6,7 +6,7 @@ use crate::domain::config::{AgentTransport, AppConfig, ProviderTransport, defaul
 use crate::domain::diff::{DiffDocument, DiffFile, DiffLineKind};
 use crate::domain::review::{
     Author, CommentLineRange, CommentStatus, DiffSide, LineAnchorSnapshot, LineComment,
-    ReviewSession, ReviewState,
+    ReviewSession, ReviewState, StoredAnchorSnapshot,
 };
 use crate::git::diff::{
     DiffSource, load_git_diff, load_root_directory_file, load_root_directory_file_list,
@@ -21,10 +21,8 @@ use crossterm::event;
 use crossterm::event::Event;
 use helpers::{
     MOUSE_WHEEL_FILE_SCROLL_FILES, MOUSE_WHEEL_SCROLL_LINES, apply_single_line_edit_key,
-    comment_line_range_contains_display_row, comment_matches_display_row,
-    comment_reference_matches_display_row, format_comment_reference, format_line_range_reference,
-    format_line_reference, insert_char_at, open_file_in_pager, point_in_rect, remove_char_at,
-    suspend_tui_process,
+    format_comment_reference, format_line_range_reference, format_line_reference, insert_char_at,
+    open_file_in_pager, point_in_rect, remove_char_at, suspend_tui_process,
 };
 use ratatui::Terminal;
 use ratatui::backend::CrosstermBackend;
@@ -32,6 +30,7 @@ use ratatui::layout::Rect;
 use render::draw;
 pub(super) use render::{
     DiffRenderCacheEntry, DiffRenderCacheKey, DisplayRow, FileReferenceHit, HighlightParts,
+    ThreadBodyRenderCacheEntry, ThreadBodyRenderCacheKey,
 };
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::io;
@@ -41,7 +40,8 @@ use tokio::sync::mpsc::UnboundedReceiver;
 use tokio::task;
 use tokio::task::JoinHandle;
 
-mod help_docs;
+pub(super) use crate::docs::PARLEY_DOCS as HELP_DOCS;
+
 mod helpers;
 mod input;
 #[cfg(test)]
@@ -244,6 +244,7 @@ async fn run_loop(
 const AI_PROGRESS_MAX_LINES: usize = 300;
 const AI_LOG_MAX_SESSIONS_PER_FILE: usize = 32;
 const DIFF_RENDER_CACHE_MAX_ENTRIES: usize = 64;
+const THREAD_BODY_RENDER_CACHE_MAX_ENTRIES: usize = 512;
 const INLINE_FILE_MENTION_MAX_VISIBLE_ROWS: usize = 6;
 const INLINE_FILE_MENTION_MAX_CANDIDATES: usize = 120;
 
@@ -271,6 +272,17 @@ struct CommentTarget {
     line_range: Option<CommentLineRange>,
     file_path: String,
     line_anchor: LineAnchorSnapshot,
+    original_anchor: Box<StoredAnchorSnapshot>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct AnchorProjection {
+    file_path: String,
+    side: DiffSide,
+    old_line: Option<u32>,
+    new_line: Option<u32>,
+    line_range: Option<CommentLineRange>,
+    row_index: usize,
 }
 
 #[derive(Debug, Clone)]
@@ -466,6 +478,19 @@ enum FileSortMode {
     TotalCountDesc,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct VisibleFileIndicesCache {
+    key: VisibleFileIndicesCacheKey,
+    indices: Vec<usize>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct VisibleFileIndicesCacheKey {
+    file_filter_mode: FileFilterMode,
+    file_sort_mode: FileSortMode,
+    file_query: Option<String>,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum CommandPaletteAction {
     ToggleFullscreen,
@@ -636,6 +661,7 @@ struct TuiApp {
     review: ReviewSession,
     comment_indices_by_file: HashMap<String, Vec<usize>>,
     comment_stats_by_file: HashMap<String, FileCommentStats>,
+    comment_anchor_projections: HashMap<u64, AnchorProjection>,
     diff_source: DiffSource,
     config: AppConfig,
     themes: Vec<UiTheme>,
@@ -675,6 +701,7 @@ struct TuiApp {
     file_search: FileSearchState,
     file_filter_mode: FileFilterMode,
     file_sort_mode: FileSortMode,
+    visible_file_indices_cache: Option<VisibleFileIndicesCache>,
     collapsed_file_groups: HashSet<String>,
     thread_density_mode: ThreadDensityMode,
     expanded_threads: HashSet<u64>,
@@ -737,6 +764,8 @@ struct TuiApp {
     row_cache: HashMap<usize, CachedFileRows>,
     diff_render_cache: HashMap<DiffRenderCacheKey, DiffRenderCacheEntry>,
     diff_render_cache_order: VecDeque<DiffRenderCacheKey>,
+    thread_body_render_cache: HashMap<ThreadBodyRenderCacheKey, ThreadBodyRenderCacheEntry>,
+    thread_body_render_cache_order: VecDeque<ThreadBodyRenderCacheKey>,
     pending_z_prefix_at: Option<Instant>,
     redraw_invalidated: bool,
     should_quit: bool,

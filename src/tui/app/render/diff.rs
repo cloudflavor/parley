@@ -1,7 +1,5 @@
 use super::super::helpers::{
-    comment_line_range_contains_display_row, comment_matches_display_row,
-    comment_reference_matches_display_row, format_comment_reference, format_line_range_reference,
-    format_timestamp_utc,
+    comment_reference_matches_display_row, format_line_range_reference, format_timestamp_utc,
 };
 use super::helpers::{
     apply_search_highlighting, blank_line, fit_spans_to_width, pad_line_to_width,
@@ -13,7 +11,10 @@ use super::helpers::{
 use super::status::{
     comment_status_label, comment_status_style, review_state_label, spinner_frame,
 };
-use super::threads::{RenderCommentThreadSpec, render_comment_thread};
+use super::threads::{
+    RenderCommentThreadSpec, cached_comment_body_lines, cached_reply_body_lines,
+    detached_thread_body_lines, render_comment_thread,
+};
 use super::{
     DiffPane, DiffRenderCacheEntry, DiffRenderCacheKey, DisplayRow,
     INLINE_FILE_MENTION_MAX_VISIBLE_ROWS, InlineDraftMode, InlineFileMentionState,
@@ -24,13 +25,11 @@ use crate::domain::review::LineComment;
 use crate::git::diff::DiffSource;
 use crate::tui::theme::ThemeColors;
 use crate::utils::cast::usize_to_u16_saturating;
-use ratatui::{
-    Frame,
-    layout::Rect,
-    style::{Color, Modifier, Style},
-    text::{Line, Span},
-    widgets::{Block, Borders, Clear, Paragraph, Wrap},
-};
+use ratatui::Frame;
+use ratatui::layout::Rect;
+use ratatui::style::{Color, Modifier, Style};
+use ratatui::text::{Line, Span};
+use ratatui::widgets::{Block, Borders, Clear, Paragraph, Wrap};
 use std::collections::{HashMap, HashSet};
 
 pub(super) fn draw_diff_view_for_pane(
@@ -166,15 +165,15 @@ pub(super) fn draw_diff_view_for_pane(
             );
             let highlighted_segments =
                 apply_search_highlighting(&highlighted_parts, app.search_query.as_deref(), &colors);
-            let Some(row) = app.row_for_file(file_index, index) else {
+            let Some(row) = app.row_for_file(file_index, index).cloned() else {
                 continue;
             };
             let is_current_line = index == selected_line;
             let is_range_selected = selected_row_range
                 .is_some_and(|(start, end)| is_active && index >= start && index <= end)
-                || file_comments
-                    .iter()
-                    .any(|comment| comment_line_range_contains_display_row(comment, row));
+                || file_comments.iter().any(|comment| {
+                    app.comment_line_range_contains_current_projection(comment, &row)
+                });
             let selection = if is_current_line {
                 RowSelectionKind::Current
             } else if is_range_selected {
@@ -188,7 +187,7 @@ pub(super) fn draw_diff_view_for_pane(
                     DiffLineKind::Added | DiffLineKind::Removed | DiffLineKind::Context
                 ) {
                 build_side_by_side_row_lines(
-                    row,
+                    &row,
                     &highlighted_segments,
                     selection,
                     is_active,
@@ -197,7 +196,7 @@ pub(super) fn draw_diff_view_for_pane(
                 )
             } else {
                 build_unified_row_lines(
-                    row,
+                    &row,
                     &highlighted_segments,
                     selection,
                     is_active,
@@ -210,12 +209,17 @@ pub(super) fn draw_diff_view_for_pane(
                 row_map.push(index);
             }
 
-            for comment in file_comments.iter().filter(|comment| {
-                comment_matches_display_row(comment, row)
-                    || root_fallback_rows
-                        .get(&comment.id)
-                        .is_some_and(|row_index| *row_index == index)
-            }) {
+            let row_comments = file_comments
+                .iter()
+                .filter(|comment| {
+                    app.comment_matches_current_projection(comment, &row)
+                        || root_fallback_rows
+                            .get(&comment.id)
+                            .is_some_and(|row_index| *row_index == index)
+                })
+                .cloned()
+                .collect::<Vec<_>>();
+            for comment in &row_comments {
                 rendered_comment_ids.insert(comment.id);
                 render_comment_thread(
                     &mut lines,
@@ -249,7 +253,7 @@ pub(super) fn draw_diff_view_for_pane(
                 app.author_label(&comment.author),
                 format_timestamp_utc(comment.created_at_ms),
                 anchor_state,
-                format_comment_reference(comment)
+                app.projected_comment_reference(comment)
             );
             if !app.is_thread_expanded(comment.id, selected_comment_id) {
                 super::helpers::push_compact_thread_row(
@@ -266,7 +270,7 @@ pub(super) fn draw_diff_view_for_pane(
                             comment_status_label(&comment.status),
                             app.author_label(&comment.author),
                             anchor_state,
-                            format_comment_reference(comment),
+                            app.projected_comment_reference(comment),
                             compact_preview(&comment.body)
                         ),
                         style: Style::default()
@@ -277,6 +281,10 @@ pub(super) fn draw_diff_view_for_pane(
                 );
             } else {
                 let comment_title_prefix = format!("comment #{} [", comment.id);
+                let comment_body_lines =
+                    cached_comment_body_lines(app, comment, inner_width, &colors);
+                let detached_body_lines =
+                    detached_thread_body_lines(comment, &comment_body_lines, inner_width, &colors);
                 super::threads::push_thread_box(
                     &mut lines,
                     &mut row_map,
@@ -290,7 +298,7 @@ pub(super) fn draw_diff_view_for_pane(
                         title_status: Some(comment_status_label(&comment.status)),
                         title_suffix: &format!(" | review: {review_state}]"),
                         title_status_style: Some(comment_status_style(&comment.status, &colors)),
-                        body: &comment.body,
+                        body_lines: &detached_body_lines,
                         border_color: colors.thread_border,
                         title_color: colors.comment_title,
                         colors: &colors,
@@ -303,6 +311,13 @@ pub(super) fn draw_diff_view_for_pane(
                         "{} | {}",
                         app.author_label(&reply.author),
                         format_timestamp_utc(reply.created_at_ms)
+                    );
+                    let reply_body_lines = cached_reply_body_lines(
+                        app,
+                        comment.id,
+                        reply,
+                        compute_thread_inner_width(pane_inner_width, 14),
+                        &colors,
                     );
                     super::threads::push_thread_box(
                         &mut lines,
@@ -317,7 +332,7 @@ pub(super) fn draw_diff_view_for_pane(
                             title_status: None,
                             title_suffix: "",
                             title_status_style: None,
-                            body: &reply.body,
+                            body_lines: &reply_body_lines,
                             border_color: colors.thread_border,
                             title_color: colors.reply_title,
                             colors: &colors,
@@ -613,7 +628,7 @@ fn build_root_comment_fallback_rows(
             let Some(row) = app.row_for_file(file_index, index) else {
                 continue;
             };
-            if comment_matches_display_row(comment, row) {
+            if app.comment_matches_current_projection(comment, row) {
                 exact_match = true;
                 break;
             }

@@ -1,10 +1,8 @@
 use super::FileReferenceHit;
 use crate::domain::reference::parse_file_references;
 use crate::tui::theme::ThemeColors;
-use ratatui::{
-    style::{Modifier, Style},
-    text::{Line, Span},
-};
+use ratatui::style::{Modifier, Style};
+use ratatui::text::{Line, Span};
 
 const TAB_WIDTH: usize = 4;
 

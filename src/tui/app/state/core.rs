@@ -17,11 +17,12 @@ impl TuiApp {
         let side_by_side_diff = config.diff_view.is_side_by_side();
         let comment_indices_by_file = Self::build_comment_index(&review);
         let comment_stats_by_file = Self::build_comment_stats(&review);
-        Self {
+        let mut app = Self {
             review_name,
             review,
             comment_indices_by_file,
             comment_stats_by_file,
+            comment_anchor_projections: HashMap::new(),
             diff_source,
             config,
             themes,
@@ -65,6 +66,7 @@ impl TuiApp {
             },
             file_filter_mode: FileFilterMode::All,
             file_sort_mode: FileSortMode::Path,
+            visible_file_indices_cache: None,
             collapsed_file_groups: std::collections::HashSet::new(),
             thread_density_mode: ThreadDensityMode::Compact,
             expanded_threads: std::collections::HashSet::new(),
@@ -127,10 +129,14 @@ impl TuiApp {
             row_cache: HashMap::new(),
             diff_render_cache: HashMap::new(),
             diff_render_cache_order: VecDeque::new(),
+            thread_body_render_cache: HashMap::new(),
+            thread_body_render_cache_order: VecDeque::new(),
             pending_z_prefix_at: None,
             redraw_invalidated: true,
             should_quit: false,
-        }
+        };
+        app.refresh_comment_anchor_projections();
+        app
     }
 
     pub(crate) fn theme(&self) -> &UiTheme {
@@ -194,14 +200,7 @@ impl TuiApp {
         let target_row = rows
             .iter()
             .enumerate()
-            .find(|(_, row)| anchor::row_matches_exact_anchor(comment, row))
-            .or_else(|| {
-                matches!(self.diff_source, DiffSource::RootDirectory).then(|| {
-                    rows.iter()
-                        .enumerate()
-                        .find(|(_, row)| comment_reference_matches_display_row(comment, row))
-                })?
-            });
+            .find(|(_, row)| self.comment_matches_current_projection(comment, row));
         let Some(target_row) = target_row else {
             return;
         };

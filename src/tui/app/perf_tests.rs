@@ -8,7 +8,8 @@ use crate::persistence::store::Store;
 use crate::services::review_service::ReviewService;
 use crate::tui::theme::{default_theme_name, load_themes, resolve_theme_index};
 use anyhow::Result;
-use ratatui::{Terminal, backend::TestBackend};
+use ratatui::Terminal;
+use ratatui::backend::TestBackend;
 use std::hint::black_box;
 use std::time::{Duration, Instant};
 
@@ -112,7 +113,7 @@ fn perf_rebuild_row_cache_large_file() -> Result<()> {
 
 #[test]
 fn perf_visible_file_indices_many_files_and_comments() -> Result<()> {
-    let app = make_perf_app(2_000, 8, 4_000)?;
+    let mut app = make_perf_app(2_000, 8, 4_000)?;
 
     let elapsed = measure(200, || {
         black_box(app.visible_file_indices());
@@ -313,6 +314,7 @@ fn make_comments(
                     before_context: Vec::new(),
                     after_context: Vec::new(),
                 }),
+                original_anchor: None,
                 detached: false,
                 body: format!("Perf comment {index}: this is a long enough body to wrap in the TUI and exercise thread rendering paths."),
                 author: Author::User,

@@ -1,8 +1,6 @@
 use super::DisplayRow;
-use crate::domain::{
-    diff::DiffLineKind,
-    review::{CommentLineRange, DiffSide, LineComment},
-};
+use crate::domain::diff::DiffLineKind;
+use crate::domain::review::{CommentLineRange, DiffSide, LineComment};
 use anyhow::{Context, Result};
 use crossterm::event::DisableMouseCapture;
 use crossterm::event::EnableMouseCapture;
@@ -12,20 +10,17 @@ use crossterm::terminal::EnterAlternateScreen;
 use crossterm::terminal::LeaveAlternateScreen;
 use crossterm::terminal::disable_raw_mode;
 use crossterm::terminal::enable_raw_mode;
-use ratatui::{Terminal, backend::CrosstermBackend, layout::Rect};
-use std::{io, path::Path, process::Command, sync::OnceLock};
+use ratatui::Terminal;
+use ratatui::backend::CrosstermBackend;
+use ratatui::layout::Rect;
+use std::io;
+use std::path::Path;
+use std::process::Command;
+use std::sync::OnceLock;
 use time::{OffsetDateTime, UtcOffset};
 
 pub(super) const MOUSE_WHEEL_SCROLL_LINES: usize = 3;
 pub(super) const MOUSE_WHEEL_FILE_SCROLL_FILES: usize = 3;
-
-pub(super) fn comment_matches_display_row(comment: &LineComment, row: &DisplayRow) -> bool {
-    if comment.detached {
-        return false;
-    }
-
-    comment_reference_matches_display_row(comment, row)
-}
 
 pub(super) fn comment_reference_matches_display_row(
     comment: &LineComment,
@@ -62,20 +57,6 @@ pub(super) fn comment_reference_matches_display_row(
     }
 }
 
-pub(super) fn comment_line_range_contains_display_row(
-    comment: &LineComment,
-    row: &DisplayRow,
-) -> bool {
-    if comment.detached {
-        return false;
-    }
-    let Some(range) = comment.line_range.as_ref() else {
-        return false;
-    };
-    line_in_optional_range(row.old_line, range.start_old_line, range.end_old_line)
-        || line_in_optional_range(row.new_line, range.start_new_line, range.end_new_line)
-}
-
 fn comment_line_range_end_matches_display_row(range: &CommentLineRange, row: &DisplayRow) -> bool {
     range
         .end_old_line
@@ -83,17 +64,6 @@ fn comment_line_range_end_matches_display_row(range: &CommentLineRange, row: &Di
         || range
             .end_new_line
             .is_some_and(|line| row.new_line == Some(line))
-}
-
-fn line_in_optional_range(line: Option<u32>, start: Option<u32>, end: Option<u32>) -> bool {
-    let Some(line) = line else {
-        return false;
-    };
-    let Some(start) = start else {
-        return false;
-    };
-    let end = end.unwrap_or(start);
-    line >= start.min(end) && line <= start.max(end)
 }
 
 pub(super) fn format_line_reference(old_line: Option<u32>, new_line: Option<u32>) -> String {
@@ -380,42 +350,7 @@ pub(super) fn apply_single_line_edit_key(
 
 #[cfg(test)]
 mod tests {
-    use super::{DisplayRow, comment_matches_display_row, parse_utc_offset_seconds};
-    use crate::domain::{
-        diff::DiffLineKind,
-        review::{Author, CommentStatus, DiffSide, LineComment},
-    };
-
-    fn make_row(kind: DiffLineKind, old_line: Option<u32>, new_line: Option<u32>) -> DisplayRow {
-        DisplayRow {
-            kind,
-            old_line,
-            new_line,
-            raw: String::new(),
-            code: String::new(),
-            rendered: None,
-        }
-    }
-
-    fn make_comment(side: DiffSide, old_line: Option<u32>, new_line: Option<u32>) -> LineComment {
-        LineComment {
-            id: 1,
-            file_path: "src/lib.rs".to_string(),
-            old_line,
-            new_line,
-            line_range: None,
-            side,
-            line_anchor: None,
-            detached: false,
-            body: "x".to_string(),
-            author: Author::User,
-            status: CommentStatus::Open,
-            replies: Vec::new(),
-            created_at_ms: 0,
-            updated_at_ms: 0,
-            addressed_at_ms: None,
-        }
-    }
+    use super::parse_utc_offset_seconds;
 
     #[test]
     fn parses_positive_utc_offset() {
@@ -438,26 +373,5 @@ mod tests {
         assert_eq!(parse_utc_offset_seconds("0200"), None);
         assert_eq!(parse_utc_offset_seconds("+2"), None);
         assert_eq!(parse_utc_offset_seconds("+25AA"), None);
-    }
-
-    #[test]
-    fn anchor_with_both_lines_prefers_exact_pair() {
-        let comment = make_comment(DiffSide::Right, Some(8), Some(7));
-        let exact = make_row(DiffLineKind::Context, Some(8), Some(7));
-        assert!(comment_matches_display_row(&comment, &exact));
-    }
-
-    #[test]
-    fn anchor_with_both_lines_requires_exact_pair_after_shift() {
-        let comment = make_comment(DiffSide::Right, Some(8), Some(7));
-        let shifted = make_row(DiffLineKind::Context, Some(8), Some(10));
-        assert!(!comment_matches_display_row(&comment, &shifted));
-    }
-
-    #[test]
-    fn anchor_with_both_lines_does_not_match_new_line_only() {
-        let comment = make_comment(DiffSide::Right, Some(8), Some(7));
-        let wrong_context = make_row(DiffLineKind::Context, Some(5), Some(7));
-        assert!(!comment_matches_display_row(&comment, &wrong_context));
     }
 }

@@ -5,6 +5,7 @@
 use super::helpers::format_timestamp_utc;
 use super::*;
 use crate::services::ai_session::json_text::collect_named_text;
+use crate::utils::time::now_ms_utc;
 use anyhow::{Context, Result};
 use crossterm::event::{KeyCode, KeyEvent};
 use std::collections::VecDeque;
@@ -198,7 +199,7 @@ impl TuiApp {
             provider,
             mode,
             started_at: Instant::now(),
-            started_at_ms: anchor::now_ms_utc(),
+            started_at_ms: now_ms_utc(),
             finished_at_ms: None,
             status: AiLogSessionStatus::Running,
             unread_events: 0,
@@ -230,7 +231,7 @@ impl TuiApp {
         message: impl Into<String>,
     ) {
         let event = AiLogEvent {
-            timestamp_ms: anchor::now_ms_utc(),
+            timestamp_ms: now_ms_utc(),
             stream: stream.to_string(),
             message: message.into(),
         };
@@ -307,7 +308,7 @@ impl TuiApp {
             };
             session.status = status;
             if !matches!(status, AiLogSessionStatus::Running) {
-                session.finished_at_ms = Some(anchor::now_ms_utc());
+                session.finished_at_ms = Some(now_ms_utc());
             }
             return;
         }

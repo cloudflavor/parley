@@ -1,7 +1,7 @@
 use crate::domain::config::AppConfig;
 use crate::domain::review::{
     Author, CommentLineRange, CommentStatus, DiffSide, LineAnchorSnapshot, NewLineComment,
-    ReanchorLineComment, ReviewSession, ReviewState,
+    ReanchorLineComment, ReviewSession, ReviewState, StoredAnchorSnapshot,
 };
 use crate::persistence::store::{Store, StoreError};
 use crate::utils::time::now_ms;
@@ -21,6 +21,7 @@ pub struct AddCommentInput {
     pub line_range: Option<CommentLineRange>,
     pub side: DiffSide,
     pub line_anchor: Option<LineAnchorSnapshot>,
+    pub original_anchor: Option<StoredAnchorSnapshot>,
     pub body: String,
     pub author: Author,
 }
@@ -145,6 +146,7 @@ impl ReviewService {
             line_range: input.line_range,
             side: input.side,
             line_anchor: input.line_anchor,
+            original_anchor: input.original_anchor,
             body: input.body,
             author: input.author,
         };

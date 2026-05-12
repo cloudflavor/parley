@@ -6,10 +6,10 @@ use super::provider::{
 };
 use super::{comment_is_targetable, parse_ai_thread_reply_json};
 use crate::domain::ai::AiSessionMode;
-use crate::domain::diff::{DiffFile, DiffHunk, DiffLine, DiffLineKind};
+use crate::domain::diff::{DiffDocument, DiffFile, DiffHunk, DiffLine, DiffLineKind};
 use crate::domain::review::{
-    Author, CommentLineRange, CommentReply, CommentStatus, DiffSide, LineComment, ReviewSession,
-    ReviewState,
+    Author, CommentLineRange, CommentReply, CommentStatus, DiffAnchorSnapshot, DiffSide,
+    LineComment, ReviewSession, ReviewState, StoredAnchorSnapshot,
 };
 use anyhow::{Result, anyhow};
 
@@ -35,6 +35,7 @@ async fn thread_prompt_marks_latest_human_reply_as_current_request() -> anyhow::
             line_range: None,
             side: DiffSide::Right,
             line_anchor: None,
+            original_anchor: None,
             detached: false,
             body: "original request".into(),
             author: Author::User,
@@ -91,6 +92,7 @@ async fn thread_prompt_uses_custom_task_prompt_when_provided() -> anyhow::Result
             line_range: None,
             side: DiffSide::Right,
             line_anchor: None,
+            original_anchor: None,
             detached: false,
             body: "original request".into(),
             author: Author::User,
@@ -139,6 +141,7 @@ async fn thread_prompt_requires_exact_thread_id_targeting() -> anyhow::Result<()
                 line_range: None,
                 side: DiffSide::Right,
                 line_anchor: None,
+                original_anchor: None,
                 detached: false,
                 body: "first thread".into(),
                 author: Author::User,
@@ -156,6 +159,7 @@ async fn thread_prompt_requires_exact_thread_id_targeting() -> anyhow::Result<()
                 line_range: None,
                 side: DiffSide::Right,
                 line_anchor: None,
+                original_anchor: None,
                 detached: false,
                 body: "target thread".into(),
                 author: Author::User,
@@ -299,6 +303,7 @@ async fn thread_prompt_includes_selected_line_range_for_ai_context() -> anyhow::
             }),
             side: DiffSide::Right,
             line_anchor: None,
+            original_anchor: None,
             detached: false,
             body: "handle this whole block".into(),
             author: Author::User,
@@ -317,6 +322,160 @@ async fn thread_prompt_includes_selected_line_range_for_ai_context() -> anyhow::
 
     assert!(prompt.contains("Selected line range: 10-12:10-12"));
     assert!(prompt.contains("- thread anchor: src/lib.rs:10"));
+    Ok(())
+}
+
+#[tokio::test]
+async fn thread_prompt_includes_exact_original_and_current_anchor_context() -> anyhow::Result<()> {
+    let review = ReviewSession {
+        name: "review".into(),
+        state: ReviewState::Open,
+        created_at_ms: 0,
+        updated_at_ms: 0,
+        comments: vec![LineComment {
+            id: 7,
+            file_path: "src/lib.rs".into(),
+            old_line: Some(10),
+            new_line: Some(10),
+            line_range: None,
+            side: DiffSide::Right,
+            line_anchor: None,
+            original_anchor: Some(StoredAnchorSnapshot {
+                file_path: "src/lib.rs".into(),
+                side: DiffSide::Right,
+                old_line: Some(10),
+                new_line: Some(10),
+                line_range: None,
+                selected_text: "context 10:10".into(),
+                before_context: vec!["before context".into()],
+                after_context: vec!["after context".into()],
+                diff: Some(DiffAnchorSnapshot {
+                    hunk_header: "@@ -10,1 +10,1 @@".into(),
+                    hunk_lines: vec![" context 10:10".into()],
+                }),
+                source: None,
+                base_rev: Some("base-rev".into()),
+                head_rev: Some("head-rev".into()),
+            }),
+            detached: false,
+            body: "handle this exact line".into(),
+            author: Author::User,
+            status: CommentStatus::Open,
+            replies: Vec::new(),
+            created_at_ms: 0,
+            updated_at_ms: 0,
+            addressed_at_ms: None,
+        }],
+        next_comment_id: 8,
+        next_reply_id: 1,
+    };
+    let diff = DiffDocument {
+        files: vec![DiffFile {
+            path: "src/lib.rs".into(),
+            header_lines: Vec::new(),
+            hunks: vec![make_hunk(
+                "@@ -10,1 +10,1 @@",
+                10,
+                10,
+                vec![line_ctx(10, 10)],
+            )],
+        }],
+    };
+
+    let prompt = build_thread_prompt(
+        "review",
+        7,
+        &review,
+        Some(&diff),
+        AiSessionMode::Refactor,
+        None,
+    )
+    .await?;
+
+    assert!(prompt.contains("- anchor status: exact_current_projection"));
+    assert!(prompt.contains("- original anchor:"));
+    assert!(prompt.contains("  reference: 10:10"));
+    assert!(prompt.contains("  selected text:\n    context 10:10"));
+    assert!(prompt.contains("  before context:\n    before context"));
+    assert!(prompt.contains("  after context:\n    after context"));
+    assert!(prompt.contains("  diff hunk: @@ -10,1 +10,1 @@"));
+    assert!(prompt.contains("  revisions: base=base-rev, head=head-rev"));
+    assert!(prompt.contains("- current projection:"));
+    assert!(prompt.contains("  confidence: exact"));
+    Ok(())
+}
+
+#[tokio::test]
+async fn thread_prompt_marks_anchor_outdated_when_original_text_no_longer_matches()
+-> anyhow::Result<()> {
+    let review = ReviewSession {
+        name: "review".into(),
+        state: ReviewState::Open,
+        created_at_ms: 0,
+        updated_at_ms: 0,
+        comments: vec![LineComment {
+            id: 7,
+            file_path: "src/lib.rs".into(),
+            old_line: Some(10),
+            new_line: Some(10),
+            line_range: None,
+            side: DiffSide::Right,
+            line_anchor: None,
+            original_anchor: Some(StoredAnchorSnapshot {
+                file_path: "src/lib.rs".into(),
+                side: DiffSide::Right,
+                old_line: Some(10),
+                new_line: Some(10),
+                line_range: None,
+                selected_text: "fn old() {}".into(),
+                before_context: Vec::new(),
+                after_context: Vec::new(),
+                diff: None,
+                source: None,
+                base_rev: None,
+                head_rev: None,
+            }),
+            detached: false,
+            body: "handle this stale line".into(),
+            author: Author::User,
+            status: CommentStatus::Open,
+            replies: Vec::new(),
+            created_at_ms: 0,
+            updated_at_ms: 0,
+            addressed_at_ms: None,
+        }],
+        next_comment_id: 8,
+        next_reply_id: 1,
+    };
+    let diff = DiffDocument {
+        files: vec![DiffFile {
+            path: "src/lib.rs".into(),
+            header_lines: Vec::new(),
+            hunks: vec![make_hunk(
+                "@@ -10,1 +10,1 @@",
+                10,
+                10,
+                vec![line_ctx(10, 10)],
+            )],
+        }],
+    };
+
+    let prompt = build_thread_prompt(
+        "review",
+        7,
+        &review,
+        Some(&diff),
+        AiSessionMode::Refactor,
+        None,
+    )
+    .await?;
+
+    assert!(prompt.contains("- anchor status: outdated_or_detached"));
+    assert!(
+        prompt.contains(
+            "- current projection: none (no exact match in current diff; confidence: none)"
+        )
+    );
     Ok(())
 }
 
