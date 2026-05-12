@@ -1,3 +1,6 @@
+use super::super::super::theme::ThemeColors;
+use super::super::helpers::slice_chars;
+use crate::domain::reference::parse_file_references;
 use pulldown_cmark::{
     CodeBlockKind, Event as MdEvent, HeadingLevel, Options as MdOptions, Parser as MdParser,
     Tag as MdTag, TagEnd as MdTagEnd,
@@ -6,11 +9,6 @@ use ratatui::{
     style::{Modifier, Style},
     text::{Line, Span},
 };
-
-use crate::domain::reference::parse_file_references;
-
-use super::super::super::theme::ThemeColors;
-use super::super::helpers::slice_chars;
 
 #[derive(Debug, Clone, Copy)]
 enum MdListKind {

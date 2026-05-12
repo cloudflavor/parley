@@ -1,10 +1,9 @@
+use crate::domain::config::AppConfig;
+use crate::domain::review::ReviewSession;
 use std::io::Error;
 use std::io::ErrorKind;
 use std::path::Path;
 use std::path::PathBuf;
-
-use crate::domain::config::AppConfig;
-use crate::domain::review::ReviewSession;
 use tokio::fs;
 
 #[derive(Debug, thiserror::Error)]

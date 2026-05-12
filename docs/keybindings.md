@@ -14,7 +14,8 @@
 ## Search and jump
 
 - `:<line>`: go to line
-- `/` or `Ctrl+g`: open codebase search popup (`rg`, falling back to `grep`)
+- `/<text>`: search within the current file (`rg`, falling back to `grep`)
+- `Ctrl+g`: open codebase search popup (`rg`, falling back to `grep`)
 - Code search `type`: update results live
 - Code search `Enter`: open selected file and line
 - Code search `↑/↓`, `j/k`, `PgUp/PgDn`, `Home`, `End`: move selected result

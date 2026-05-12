@@ -1,16 +1,14 @@
-use std::collections::BTreeSet;
-use std::env::current_dir;
-use std::path::{Path, PathBuf};
-
-use anyhow::{Context, Result};
-use include_dir::{Dir, include_dir};
-use tokio::fs;
-
 use crate::domain::ai::AiSessionMode;
 use crate::domain::config::AppConfig;
 use crate::domain::diff::{DiffDocument, DiffFile, DiffHunk};
 use crate::domain::reference::parse_file_references;
 use crate::domain::review::{Author, LineComment, ReviewSession};
+use anyhow::{Context, Result};
+use include_dir::{Dir, include_dir};
+use std::collections::BTreeSet;
+use std::env::current_dir;
+use std::path::{Path, PathBuf};
+use tokio::fs;
 
 static AI_SESSION_PROMPTS_DIR: Dir<'_> = include_dir!("$CARGO_MANIFEST_DIR/prompts/ai_session");
 const OUTPUT_CONTRACT: &str = r#"

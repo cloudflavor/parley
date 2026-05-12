@@ -1,13 +1,3 @@
-use ratatui::{
-    style::{Color, Modifier, Style},
-    text::{Line, Span},
-};
-
-use crate::domain::reference::parse_file_references;
-use crate::domain::review::DiffSide;
-use crate::git::diff::DiffSource;
-use crate::tui::theme::ThemeColors;
-
 use super::super::helpers::{format_comment_reference, format_timestamp_utc};
 use super::helpers::{
     CompactThreadRowSpec, compact_preview, compute_compact_thread_content_width, fit_to_width,
@@ -15,6 +5,14 @@ use super::helpers::{
 };
 use super::status::{comment_status_label, comment_status_style};
 use super::{FileReferenceHit, TuiApp};
+use crate::domain::reference::parse_file_references;
+use crate::domain::review::DiffSide;
+use crate::git::diff::DiffSource;
+use crate::tui::theme::ThemeColors;
+use ratatui::{
+    style::{Color, Modifier, Style},
+    text::{Line, Span},
+};
 
 pub(super) struct RenderCommentThreadSpec<'a> {
     pub(super) app: &'a TuiApp,
@@ -41,7 +39,7 @@ pub(super) fn render_comment_thread(
         spec.pane_inner_width,
     );
 
-    if matches!(app.thread_density_mode, super::ThreadDensityMode::Compact) && !expanded {
+    if !expanded {
         let comment_preview = format!(
             "▸ #{} [{}] {} @ {} - {}",
             comment.id,
@@ -333,4 +331,57 @@ pub(super) fn push_thread_box(
         Span::styled(format!("╰{horizontal}╯"), border),
     ]));
     row_map.push(spec.source_row_index);
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::domain::review::CommentStatus;
+    use crate::tui::app::state::tests::{make_comment_with_anchor, make_test_app};
+
+    fn line_text(line: &Line<'_>) -> String {
+        line.spans
+            .iter()
+            .map(|span| span.content.as_ref())
+            .collect::<String>()
+    }
+
+    #[test]
+    fn collapsed_thread_renders_compact_row_in_expanded_density_mode() -> anyhow::Result<()> {
+        let mut app = make_test_app(
+            vec!["src/a.rs"],
+            vec![make_comment_with_anchor(
+                1,
+                "src/a.rs",
+                CommentStatus::Open,
+                1,
+                1,
+            )],
+        )?;
+        app.thread_density_mode = super::super::ThreadDensityMode::Expanded;
+        app.collapsed_threads.insert(1);
+        let comment = app.comments_for_file("src/a.rs")[0].clone();
+        let mut lines = Vec::new();
+        let mut row_map = Vec::new();
+        let mut link_hits = Vec::new();
+
+        render_comment_thread(
+            &mut lines,
+            &mut row_map,
+            &mut link_hits,
+            RenderCommentThreadSpec {
+                app: &app,
+                comment: &comment,
+                review_state: "open",
+                source_row_index: 0,
+                pane_inner_width: 80,
+                selected_comment_id: Some(1),
+            },
+        );
+
+        let rendered_text = lines.iter().map(line_text).collect::<Vec<_>>().join("\n");
+        assert!(rendered_text.contains("▸ #1"));
+        assert!(!rendered_text.contains("comment #1 ["));
+        Ok(())
+    }
 }

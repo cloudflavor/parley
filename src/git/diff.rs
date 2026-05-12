@@ -1,15 +1,13 @@
+use crate::domain::config::AppConfig;
+use crate::domain::diff::{DiffDocument, DiffFile, DiffHunk, DiffLine, DiffLineKind};
+use anyhow::{Context, Result, anyhow};
+use git2::{Commit, DiffFormat, DiffOptions, Repository};
 use std::collections::BTreeSet;
 use std::fs as std_fs;
 use std::path::{Component, Path, PathBuf};
-
-use anyhow::{Context, Result, anyhow};
-use git2::{Commit, DiffFormat, DiffOptions, Repository};
 use tokio::fs;
 use tokio::task::spawn_blocking;
 use tracing::{debug, info};
-
-use crate::domain::config::AppConfig;
-use crate::domain::diff::{DiffDocument, DiffFile, DiffHunk, DiffLine, DiffLineKind};
 
 const MAX_ROOT_FILE_PREVIEW_BYTES: u64 = 2 * 1024 * 1024;
 const MAX_ROOT_FILE_PREVIEW_LINES: usize = 20_000;
@@ -830,21 +828,18 @@ fn parse_diff_path(raw: &str) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
-    use std::fs;
-    use std::path::PathBuf;
-
-    use anyhow::{Result, anyhow};
-    use git2::{Oid, Repository, Signature};
-    use tempfile::tempdir;
-
-    use crate::domain::config::AppConfig;
-    use crate::domain::diff::DiffLineKind;
-
     use super::{
         DiffSource, MAX_ROOT_FILE_PREVIEW_BYTES, filter_ignored_files, load_git_diff_for_repo,
         parse_unified_diff, root_directory_file_sync, root_directory_placeholder_file,
         safe_root_relative_path,
     };
+    use crate::domain::config::AppConfig;
+    use crate::domain::diff::DiffLineKind;
+    use anyhow::{Result, anyhow};
+    use git2::{Oid, Repository, Signature};
+    use std::fs;
+    use std::path::PathBuf;
+    use tempfile::tempdir;
 
     #[test]
     fn parse_unified_diff_should_parse_added_and_removed_lines_with_numbers() -> Result<()> {

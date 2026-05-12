@@ -1,11 +1,9 @@
-use std::{path::Path, sync::LazyLock};
-
+use super::theme::ThemeColors;
 use ratatui::style::{Color, Modifier, Style};
+use std::{path::Path, sync::LazyLock};
 use syntect::easy::HighlightLines;
 use syntect::highlighting::{FontStyle, Theme, ThemeSet};
 use syntect::parsing::{SyntaxReference, SyntaxSet};
-
-use super::theme::ThemeColors;
 
 static SYNTAX_SET: LazyLock<SyntaxSet> = LazyLock::new(SyntaxSet::load_defaults_newlines);
 static THEME_DARK: LazyLock<Theme> = LazyLock::new(|| {
@@ -246,11 +244,9 @@ fn blend_rgb(from: (u8, u8, u8), to: (u8, u8, u8), t: f32) -> (u8, u8, u8) {
 
 #[cfg(test)]
 mod tests {
-    use std::collections::HashSet;
-
-    use anyhow::{Result, anyhow};
-
     use super::{SyntaxPainter, syntax_for_path};
+    use anyhow::{Result, anyhow};
+    use std::collections::HashSet;
 
     #[test]
     fn syntax_for_path_detects_toml_files() {

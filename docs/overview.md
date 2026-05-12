@@ -122,7 +122,7 @@ Root mode is lazy-loaded for startup performance. The TUI builds the file tree f
 
 ## Finding code and hotspots
 
-Code search is available from `/`, `Ctrl+g`, or command palette `Search Codebase`. It searches the repository with `rg` when available and falls back to `grep` otherwise. Results update while typing, show the match count and search engine, and `Enter` or mouse click opens the selected file at the matched line.
+Current-file search is available from `/` and uses `rg` when available with a `grep` fallback. Codebase search is available from `Ctrl+g` or command palette `Search Codebase`; results update while typing, show the match count and search engine, and `Enter` or mouse click opens the selected file at the matched line.
 
 The git file heatmap is available from `M` or command palette `Show Git File Heatmap`. It scans git history only when requested, not at startup, and renders per-file hotspots as colored cells.
 

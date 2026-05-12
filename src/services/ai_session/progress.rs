@@ -1,9 +1,7 @@
-use tokio::sync::mpsc;
-
+use super::AiProgressEvent;
 use crate::domain::ai::AiProvider;
 use crate::utils::cast::u128_to_u64_saturating;
-
-use super::AiProgressEvent;
+use tokio::sync::mpsc;
 
 pub(super) fn emit_progress(
     progress_sender: Option<&mpsc::UnboundedSender<AiProgressEvent>>,

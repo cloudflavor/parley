@@ -1,23 +1,20 @@
+use super::{ProviderInvocation, detect_model_from_text};
+use crate::domain::ai::{AiProvider, AiSessionMode};
+use crate::domain::config::AiProviderConfig;
+use crate::services::ai_session::AiProgressEvent;
+use crate::services::ai_session::progress::emit_progress;
+use anyhow::{Context, Result, anyhow};
+use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::process::Stdio;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-
-use anyhow::{Context, Result, anyhow};
-use serde_json::{Value, json};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, ChildStdin, Command};
 use tokio::sync::{Mutex, OnceCell, mpsc};
 use tokio::time::timeout;
 use tracing::{info, warn};
-
-use crate::domain::ai::{AiProvider, AiSessionMode};
-use crate::domain::config::AiProviderConfig;
-use crate::services::ai_session::AiProgressEvent;
-use crate::services::ai_session::progress::emit_progress;
-
-use super::{ProviderInvocation, detect_model_from_text};
 
 type SharedPiClient = Arc<Mutex<PiRpcClient>>;
 
@@ -582,12 +579,11 @@ fn extract_assistant_text(value: &Value) -> Option<String> {
 
 #[cfg(test)]
 mod tests {
-    use serde_json::json;
-
     use super::{
         PiLogEntry, extract_pi_reply_text, extract_pi_thought_text, finish_pi_message_reply,
         pi_log_entries, should_flush_pi_agent_log, should_log_pi_event,
     };
+    use serde_json::json;
 
     #[test]
     fn extracts_text_delta_from_pi_message_update() {

@@ -113,6 +113,7 @@ pub(crate) fn cache_key(file_index: usize) -> DiffRenderCacheKey {
         selected_row_range: None,
         selected_comment_id: None,
         expanded_thread_ids: vec![],
+        collapsed_thread_ids: vec![],
         review_state_code: 0,
         is_active: true,
     }

@@ -1,18 +1,6 @@
-use std::collections::{HashMap, HashSet, VecDeque};
-use std::io;
-use std::path::PathBuf;
-use std::time::{Duration, Instant};
-
-use anyhow::{Context, Result};
-use crossterm::event;
-use crossterm::event::Event;
-use ratatui::Terminal;
-use ratatui::backend::CrosstermBackend;
-use ratatui::layout::Rect;
-use tokio::sync::mpsc::UnboundedReceiver;
-use tokio::task;
-use tokio::task::JoinHandle;
-
+use super::syntax::SyntaxPainter;
+use super::terminal::TerminalSession;
+use super::theme::{UiTheme, default_theme_name, load_themes, resolve_theme_index};
 use crate::domain::ai::{AiProvider, AiSessionMode};
 use crate::domain::config::{AgentTransport, AppConfig, default_user_name};
 use crate::domain::diff::{DiffDocument, DiffFile, DiffLineKind};
@@ -28,10 +16,19 @@ use crate::services::ai_session::{
     AiProgressEvent, RunAiSessionInput, run_ai_session_with_progress,
 };
 use crate::services::review_service::ReviewService;
-
-use super::syntax::SyntaxPainter;
-use super::terminal::TerminalSession;
-use super::theme::{UiTheme, default_theme_name, load_themes, resolve_theme_index};
+use anyhow::{Context, Result};
+use crossterm::event;
+use crossterm::event::Event;
+use ratatui::Terminal;
+use ratatui::backend::CrosstermBackend;
+use ratatui::layout::Rect;
+use std::collections::{HashMap, HashSet, VecDeque};
+use std::io;
+use std::path::PathBuf;
+use std::time::{Duration, Instant};
+use tokio::sync::mpsc::UnboundedReceiver;
+use tokio::task;
+use tokio::task::JoinHandle;
 use helpers::{
     MOUSE_WHEEL_FILE_SCROLL_FILES, MOUSE_WHEEL_SCROLL_LINES,
     comment_line_range_contains_display_row, comment_matches_display_row,
@@ -343,6 +340,7 @@ enum DiffPane {
 #[derive(Debug, Clone)]
 enum CommandPromptMode {
     GotoLine,
+    SearchCurrentFile,
 }
 
 #[derive(Debug, Clone)]

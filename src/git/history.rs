@@ -1,8 +1,7 @@
-use std::collections::{HashMap, HashSet};
-use std::path::{Component, Path};
-
 use anyhow::{Context, Result};
 use git2::{Commit, DiffOptions, Repository, Sort};
+use std::collections::{HashMap, HashSet};
+use std::path::{Component, Path};
 
 #[derive(Debug, Clone)]
 pub struct CommitSummary {
@@ -195,14 +194,12 @@ fn normalize_git_path(path: &Path) -> String {
 
 #[cfg(test)]
 mod tests {
-    use std::fs;
-    use std::path::Path;
-
+    use super::{file_heatmap, normalize_git_path};
     use anyhow::Result;
     use git2::{Oid, Signature};
+    use std::fs;
+    use std::path::Path;
     use tempfile::tempdir;
-
-    use super::{file_heatmap, normalize_git_path};
 
     #[test]
     fn normalize_git_path_uses_forward_slashes() {

@@ -7,23 +7,20 @@ mod sidebar;
 mod status;
 mod threads;
 
-use std::sync::Arc;
-
-use ratatui::{
-    Frame,
-    layout::{Constraint, Direction, Layout},
-    style::Style,
-    text::Line,
-};
-
-use crate::domain::diff::DiffLineKind;
-
 use super::ThreadDensityMode;
 use super::{
     AiLogEvent, AiLogSessionStatus, CommandPromptMode, DiffPane, FileHeatmapSortMode,
     InlineDraftMode, InlineFileMentionState, InlineFileReferencePickerState, SettingsEditorKind,
     ThreadSelectorEntry, TuiApp,
 };
+use crate::domain::diff::DiffLineKind;
+use ratatui::{
+    Frame,
+    layout::{Constraint, Direction, Layout},
+    style::Style,
+    text::Line,
+};
+use std::sync::Arc;
 
 const INLINE_FILE_MENTION_MAX_VISIBLE_ROWS: usize = 6;
 
@@ -59,6 +56,7 @@ pub(crate) struct DiffRenderCacheKey {
     pub(crate) selected_row_range: Option<(usize, usize)>,
     pub(crate) selected_comment_id: Option<u64>,
     pub(crate) expanded_thread_ids: Vec<u64>,
+    pub(crate) collapsed_thread_ids: Vec<u64>,
     pub(crate) review_state_code: u8,
     pub(crate) is_active: bool,
 }
@@ -252,8 +250,6 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &mut TuiApp) {
 
 #[cfg(test)]
 mod tests {
-    use anyhow::{Result, anyhow};
-
     use super::diff::{
         RowSelectionKind, build_side_by_side_row_lines, build_unified_row_lines,
         editor_cursor_visual_position, inline_comment_editor_area, keep_source_row_range_visible,
@@ -269,6 +265,7 @@ mod tests {
         diff_file_with_context_lines, make_test_app_with_files_and_comments,
     };
     use crate::tui::theme::{default_theme_name, load_themes, resolve_theme_index};
+    use anyhow::{Result, anyhow};
     use ratatui::{Terminal, backend::TestBackend, layout::Rect, widgets::Paragraph};
 
     fn test_colors() -> Result<crate::tui::theme::ThemeColors> {

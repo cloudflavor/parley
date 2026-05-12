@@ -1,6 +1,5 @@
-use clap::Parser;
-
 use super::args::{AiProviderArg, AiSessionModeArg, AuthorArg, SideArg, StateArg};
+use clap::Parser;
 
 #[derive(Debug, Parser)]
 #[command(
@@ -133,9 +132,8 @@ pub enum ReviewCommand {
 
 #[cfg(test)]
 mod tests {
-    use clap::Parser;
-
     use super::{Cli, Command};
+    use clap::Parser;
 
     #[test]
     fn tui_command_parses_no_mouse_flag() {

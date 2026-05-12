@@ -1,4 +1,14 @@
 use super::*;
+use std::io::ErrorKind;
+use tokio::process::Command;
+
+const FILE_SEARCH_MAX_RESULTS: usize = 200;
+
+#[derive(Debug)]
+struct FileSearchRun {
+    engine: &'static str,
+    results: Vec<CodeSearchResult>,
+}
 
 impl TuiApp {
     pub(super) fn handle_file_search_key(&mut self, key: KeyEvent) -> Result<()> {
@@ -53,7 +63,7 @@ impl TuiApp {
         Ok(())
     }
 
-    pub(super) fn handle_command_prompt_key(&mut self, key: KeyEvent) -> Result<()> {
+    pub(super) async fn handle_command_prompt_key(&mut self, key: KeyEvent) -> Result<()> {
         if matches!(key.code, KeyCode::Esc) {
             if let Some(prompt) = self.command_prompt.take() {
                 let _ = prompt;
@@ -64,7 +74,7 @@ impl TuiApp {
             return Ok(());
         }
         if matches!(key.code, KeyCode::Enter) {
-            return self.run_command_prompt();
+            return self.run_command_prompt().await;
         }
 
         let Some(prompt) = self.command_prompt.as_mut() else {
@@ -99,13 +109,16 @@ impl TuiApp {
         Ok(())
     }
 
-    fn run_command_prompt(&mut self) -> Result<()> {
+    async fn run_command_prompt(&mut self) -> Result<()> {
         let Some(prompt) = self.command_prompt.take() else {
             return Ok(());
         };
 
         match prompt.mode {
             CommandPromptMode::GotoLine => self.goto_line_from_prompt(&prompt.value),
+            CommandPromptMode::SearchCurrentFile => {
+                self.search_current_file_from_prompt(&prompt.value).await
+            }
         }
     }
 
@@ -158,6 +171,59 @@ impl TuiApp {
         false
     }
 
+    async fn search_current_file_from_prompt(&mut self, input: &str) -> Result<()> {
+        let query = input.trim();
+        if query.is_empty() {
+            self.search_query = None;
+            self.status_line = "file search expects text".into();
+            return Ok(());
+        }
+
+        let Some(path) = self.current_file().map(|file| file.path.clone()) else {
+            self.search_query = None;
+            self.status_line = "no current file to search".into();
+            return Ok(());
+        };
+
+        self.search_query = Some(query.to_string());
+        let run = run_file_search(&path, query).await?;
+        if run.results.is_empty() {
+            if self.find_search_match(query, true) {
+                self.status_line = format!("search match in rendered diff: {query}");
+            } else {
+                self.search_query = None;
+                self.status_line = format!("no matches in {path} via {}", run.engine);
+            }
+            return Ok(());
+        }
+
+        let active_line = self
+            .current_rows()
+            .get(self.active_line_index())
+            .and_then(|row| row.new_line.or(row.old_line))
+            .unwrap_or(0);
+        let target = run
+            .results
+            .iter()
+            .find(|result| result.line > active_line)
+            .or_else(|| run.results.first());
+        let Some(target) = target else {
+            return Ok(());
+        };
+
+        if self.goto_line_number(target.line) {
+            self.status_line = format!("search match: {query} via {}", run.engine);
+        } else if self.find_search_match(query, true) {
+            self.status_line = format!("search match in rendered diff: {query}");
+        } else {
+            self.status_line = format!(
+                "match in {path}:{} via {} is outside current diff view",
+                target.line, run.engine
+            );
+        }
+        Ok(())
+    }
+
     pub(super) fn jump_search(&mut self, forward: bool) {
         let Some(query) = self.search_query.clone() else {
             self.status_line = "no active search (use /text)".into();
@@ -205,42 +271,133 @@ impl TuiApp {
             }
         }
 
-        let files_len = self.diff.files.len();
-        if files_len == 0 {
-            return false;
-        }
-
-        let mut file_index = self.active_file_index();
-        for _ in 0..files_len {
-            file_index = if forward {
-                (file_index + 1) % files_len
-            } else {
-                (file_index + files_len - 1) % files_len
-            };
-
-            let path_matches = self.diff.files[file_index]
-                .path
-                .to_lowercase()
-                .contains(&query_lower);
-            if !path_matches {
-                continue;
-            }
-
-            self.select_file(file_index);
-            self.ensure_row_cache_for_file(file_index);
-
-            let first_row_match = self
-                .current_rows()
-                .iter()
-                .enumerate()
-                .find(|(_, row)| row.raw.to_lowercase().contains(&query_lower))
-                .map(|(idx, _)| idx);
-            if let Some(row_idx) = first_row_match {
-                self.set_active_line_index(row_idx);
-            }
-            return true;
-        }
-
         false
+    }
+}
+
+async fn run_file_search(path: &str, query: &str) -> Result<FileSearchRun> {
+    match run_rg_file_search(path, query).await {
+        Ok(results) => Ok(FileSearchRun {
+            engine: "rg",
+            results,
+        }),
+        Err(error)
+            if error
+                .downcast_ref::<std::io::Error>()
+                .is_some_and(|io_error| io_error.kind() == ErrorKind::NotFound) =>
+        {
+            Ok(FileSearchRun {
+                engine: "grep",
+                results: run_grep_file_search(path, query).await?,
+            })
+        }
+        Err(error) => Err(error),
+    }
+}
+
+async fn run_rg_file_search(path: &str, query: &str) -> Result<Vec<CodeSearchResult>> {
+    let output = Command::new("rg")
+        .args([
+            "--line-number",
+            "--column",
+            "--color",
+            "never",
+            "--smart-case",
+            "--with-filename",
+            "--",
+            query,
+            path,
+        ])
+        .output()
+        .await?;
+
+    if !output.status.success() && output.status.code() != Some(1) {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        anyhow::bail!("rg file search failed: {}", stderr.trim());
+    }
+
+    Ok(parse_file_rg_output(&String::from_utf8_lossy(
+        &output.stdout,
+    )))
+}
+
+async fn run_grep_file_search(path: &str, query: &str) -> Result<Vec<CodeSearchResult>> {
+    let output = Command::new("grep")
+        .args(["-nIH", "-e", query, "--", path])
+        .output()
+        .await?;
+    if !output.status.success() && output.status.code() != Some(1) {
+        let stderr = String::from_utf8_lossy(&output.stderr);
+        anyhow::bail!("grep file search failed: {}", stderr.trim());
+    }
+
+    Ok(parse_file_grep_output(&String::from_utf8_lossy(
+        &output.stdout,
+    )))
+}
+
+fn parse_file_rg_output(output: &str) -> Vec<CodeSearchResult> {
+    output
+        .lines()
+        .filter_map(parse_file_rg_output_line)
+        .take(FILE_SEARCH_MAX_RESULTS)
+        .collect()
+}
+
+fn parse_file_grep_output(output: &str) -> Vec<CodeSearchResult> {
+    output
+        .lines()
+        .filter_map(parse_file_grep_output_line)
+        .take(FILE_SEARCH_MAX_RESULTS)
+        .collect()
+}
+
+fn parse_file_rg_output_line(line: &str) -> Option<CodeSearchResult> {
+    let (path, rest) = line.split_once(':')?;
+    let (line_number, rest) = rest.split_once(':')?;
+    let (column, text) = rest.split_once(':')?;
+    Some(CodeSearchResult {
+        path: path.to_string(),
+        line: line_number.parse().ok()?,
+        column: column.parse().ok()?,
+        text: text.to_string(),
+    })
+}
+
+fn parse_file_grep_output_line(line: &str) -> Option<CodeSearchResult> {
+    let (path, rest) = line.split_once(':')?;
+    let (line_number, text) = rest.split_once(':')?;
+    Some(CodeSearchResult {
+        path: path.to_string(),
+        line: line_number.parse().ok()?,
+        column: 1,
+        text: text.to_string(),
+    })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parse_file_rg_output_line_reads_path_line_column_and_text() {
+        let parsed = parse_file_rg_output_line("src/main.rs:12:4:let query = search();")
+            .expect("rg file output should parse");
+
+        assert_eq!(parsed.path, "src/main.rs");
+        assert_eq!(parsed.line, 12);
+        assert_eq!(parsed.column, 4);
+        assert_eq!(parsed.text, "let query = search();");
+    }
+
+    #[test]
+    fn parse_file_grep_output_line_defaults_column_to_one() {
+        let parsed = parse_file_grep_output_line("src/main.rs:12:let query = search();")
+            .expect("grep file output should parse");
+
+        assert_eq!(parsed.path, "src/main.rs");
+        assert_eq!(parsed.line, 12);
+        assert_eq!(parsed.column, 1);
+        assert_eq!(parsed.text, "let query = search();");
     }
 }

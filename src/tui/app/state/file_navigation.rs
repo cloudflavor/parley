@@ -2,10 +2,9 @@
 //!
 //! Handles file selection, filtering, sorting, and group management.
 
-use std::collections::{HashMap, HashSet};
-
 use super::*;
 use crate::utils::cast::offset_index;
+use std::collections::{HashMap, HashSet};
 
 impl TuiApp {
     pub(crate) fn active_file_index(&self) -> usize {

@@ -1,5 +1,8 @@
-use std::{io, path::Path, process::Command, sync::OnceLock};
-
+use super::DisplayRow;
+use crate::domain::{
+    diff::DiffLineKind,
+    review::{CommentLineRange, DiffSide, LineComment},
+};
 use anyhow::{Context, Result};
 use crossterm::event::DisableMouseCapture;
 use crossterm::event::EnableMouseCapture;
@@ -9,14 +12,8 @@ use crossterm::terminal::LeaveAlternateScreen;
 use crossterm::terminal::disable_raw_mode;
 use crossterm::terminal::enable_raw_mode;
 use ratatui::{Terminal, backend::CrosstermBackend, layout::Rect};
+use std::{io, path::Path, process::Command, sync::OnceLock};
 use time::{OffsetDateTime, UtcOffset};
-
-use crate::domain::{
-    diff::DiffLineKind,
-    review::{CommentLineRange, DiffSide, LineComment},
-};
-
-use super::DisplayRow;
 
 pub(super) const MOUSE_WHEEL_SCROLL_LINES: usize = 3;
 pub(super) const MOUSE_WHEEL_FILE_SCROLL_FILES: usize = 3;

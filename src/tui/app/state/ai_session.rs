@@ -2,18 +2,16 @@
 //!
 //! Handles AI task lifecycle, progress tracking, and session management.
 
+use super::helpers::format_timestamp_utc;
+use super::*;
+use anyhow::{Context, Result};
+use crossterm::event::{KeyCode, KeyEvent};
 use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
-
-use anyhow::{Context, Result};
-use crossterm::event::{KeyCode, KeyEvent};
 use tokio::fs;
 use tokio::io::AsyncWriteExt;
 use tokio::sync::mpsc;
-
-use super::helpers::format_timestamp_utc;
-use super::*;
 
 const AI_TASK_LOG_HEARTBEAT_INTERVAL: Duration = Duration::from_secs(2);
 const AI_LOG_FILE_NAME: &str = "ai.log";
@@ -902,11 +900,10 @@ fn sanitize_ai_log_text(value: &str) -> String {
 
 #[cfg(test)]
 mod tests {
-    use anyhow::Result;
-    use tempfile::tempdir;
-
     use super::*;
     use crate::tui::app::state::tests::make_test_app;
+    use anyhow::Result;
+    use tempfile::tempdir;
 
     #[tokio::test]
     async fn ai_log_sessions_keep_events_scoped_to_file_and_session() -> Result<()> {

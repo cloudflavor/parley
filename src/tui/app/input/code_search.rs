@@ -1,10 +1,8 @@
-use std::io::ErrorKind;
-
-use anyhow::{Context, Result};
-use tokio::process::Command;
-
 use super::*;
 use crate::git::diff::{DiffSource, load_root_directory_file};
+use anyhow::{Context, Result};
+use std::io::ErrorKind;
+use tokio::process::Command;
 
 const CODE_SEARCH_MAX_RESULTS: usize = 200;
 const GREP_FILE_CHUNK_SIZE: usize = 200;
