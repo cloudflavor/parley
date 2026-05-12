@@ -557,7 +557,7 @@ fn render_diff_text(diff: git2::Diff<'_>) -> Result<String> {
     })
     .context("failed to render patch text")?;
 
-    String::from_utf8(patch_bytes).context("git2 patch output is not utf-8")
+    Ok(String::from_utf8_lossy(&patch_bytes).into_owned())
 }
 
 fn resolve_commit<'repo>(repo: &'repo Repository, rev: &str) -> Result<Commit<'repo>> {
@@ -1022,6 +1022,22 @@ mod tests {
         assert!(lines.iter().any(|line| line.raw == "-fn one() {}"));
         assert!(lines.iter().any(|line| line.raw == "+fn three() {}"));
         assert!(!lines.iter().any(|line| line.raw == "+fn two() {}"));
+        Ok(())
+    }
+
+    #[test]
+    fn load_git_diff_tolerates_non_utf8_patch_content() -> Result<()> {
+        let temp = tempdir()?;
+        let repo = Repository::init(temp.path())?;
+        commit_file(&repo, temp.path(), "notes.txt", "hello\n", "base")?;
+        fs::write(temp.path().join("notes.txt"), b"hello \xFF\n")?;
+
+        let doc = load_git_diff_for_repo(&repo, &AppConfig::default(), &DiffSource::WorkingTree)?;
+
+        assert_eq!(doc.files.len(), 1);
+        let lines = &doc.files[0].hunks[0].lines;
+        assert!(lines.iter().any(|line| line.raw == "-hello"));
+        assert!(lines.iter().any(|line| line.raw == "+hello \u{FFFD}"));
         Ok(())
     }
 
