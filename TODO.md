@@ -262,9 +262,9 @@ Success criteria:
 
 ### Unit 12: Share ACP Protocol Structures
 
-- [ ] Introduce ACP protocol request/response/event structs if they remove ad hoc JSON handling.
-- [ ] Keep provider differences limited to command/profile setup and genuinely provider-specific event interpretation.
-- [ ] Avoid one ACP JSON parser per agent.
+- [x] Introduce ACP protocol request/response/event structs if they remove ad hoc JSON handling.
+- [x] Keep provider differences limited to command/profile setup and genuinely provider-specific event interpretation.
+- [x] Avoid one ACP JSON parser per agent.
 
 Files:
 - `src/services/ai_session/provider/acp.rs`

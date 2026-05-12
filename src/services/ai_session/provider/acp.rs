@@ -7,6 +7,7 @@ use crate::services::ai_session::AiProgressEvent;
 use crate::services::ai_session::progress::emit_progress;
 use crate::utils::time::now_ms;
 use anyhow::{Context, Result, anyhow};
+use serde::Serialize;
 use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::io::ErrorKind;
@@ -26,6 +27,119 @@ type SharedAcpClient = Arc<Mutex<AcpClient>>;
 static ACP_CLIENTS: OnceCell<Mutex<HashMap<String, SharedAcpClient>>> = OnceCell::const_new();
 const ACP_REQUEST_TIMEOUT: Duration = Duration::from_secs(20);
 const ACP_PROGRESS_HEARTBEAT: Duration = Duration::from_secs(5);
+
+#[derive(Serialize)]
+struct AcpJsonRpcRequest<'a, P> {
+    jsonrpc: &'static str,
+    id: u64,
+    method: &'a str,
+    params: P,
+}
+
+#[derive(Serialize)]
+struct AcpJsonRpcSuccessResponse {
+    jsonrpc: &'static str,
+    id: Value,
+    result: Value,
+}
+
+#[derive(Serialize)]
+struct AcpJsonRpcErrorResponse {
+    jsonrpc: &'static str,
+    id: Value,
+    error: AcpJsonRpcError,
+}
+
+#[derive(Serialize)]
+struct AcpJsonRpcError {
+    code: i64,
+    message: String,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AcpInitializeParams {
+    protocol_version: u8,
+    client_capabilities: AcpClientCapabilities,
+    client_info: AcpClientInfo,
+}
+
+impl Default for AcpInitializeParams {
+    fn default() -> Self {
+        Self {
+            protocol_version: 1,
+            client_capabilities: AcpClientCapabilities {
+                fs: AcpFsCapabilities {
+                    read_text_file: true,
+                    write_text_file: true,
+                },
+            },
+            client_info: AcpClientInfo {
+                name: "parley",
+                title: "Parley",
+                version: env!("CARGO_PKG_VERSION"),
+            },
+        }
+    }
+}
+
+#[derive(Serialize)]
+struct AcpClientCapabilities {
+    fs: AcpFsCapabilities,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AcpFsCapabilities {
+    read_text_file: bool,
+    write_text_file: bool,
+}
+
+#[derive(Serialize)]
+struct AcpClientInfo {
+    name: &'static str,
+    title: &'static str,
+    version: &'static str,
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AcpNewSessionParams {
+    cwd: PathBuf,
+    mcp_servers: Vec<Value>,
+}
+
+impl AcpNewSessionParams {
+    fn new(cwd: PathBuf) -> Self {
+        Self {
+            cwd,
+            mcp_servers: Vec::new(),
+        }
+    }
+}
+
+#[derive(Serialize)]
+#[serde(rename_all = "camelCase")]
+struct AcpPromptParams<'a> {
+    session_id: &'a str,
+    prompt: [AcpPromptItem<'a>; 1],
+}
+
+impl<'a> AcpPromptParams<'a> {
+    fn new(session_id: &'a str, text: &'a str) -> Self {
+        Self {
+            session_id,
+            prompt: [AcpPromptItem { kind: "text", text }],
+        }
+    }
+}
+
+#[derive(Serialize)]
+struct AcpPromptItem<'a> {
+    #[serde(rename = "type")]
+    kind: &'static str,
+    text: &'a str,
+}
 
 struct AcpClient {
     provider: AiProvider,
@@ -199,20 +313,7 @@ impl AcpClient {
             "system",
             "ACP initialize started",
         );
-        let params = json!({
-            "protocolVersion": 1,
-            "clientCapabilities": {
-                "fs": {
-                    "readTextFile": true,
-                    "writeTextFile": true
-                }
-            },
-            "clientInfo": {
-                "name": "parley",
-                "title": "Parley",
-                "version": env!("CARGO_PKG_VERSION")
-            }
-        });
+        let params = AcpInitializeParams::default();
         let _ = self.request("initialize", params, progress_sender).await?;
         self.initialized = true;
         emit_progress(progress_sender, self.provider, "system", "ACP initialized");
@@ -223,10 +324,7 @@ impl AcpClient {
         &mut self,
         progress_sender: Option<&mpsc::UnboundedSender<AiProgressEvent>>,
     ) -> Result<String> {
-        let params = json!({
-            "cwd": self.cwd,
-            "mcpServers": []
-        });
+        let params = AcpNewSessionParams::new(self.cwd.clone());
         let result = self.request("session/new", params, progress_sender).await?;
         result
             .get("sessionId")
@@ -244,18 +342,11 @@ impl AcpClient {
         progress_sender: Option<&mpsc::UnboundedSender<AiProgressEvent>>,
     ) -> Result<ProviderInvocation> {
         let id = self.next_request_id();
-        let request = json!({
-            "jsonrpc": "2.0",
-            "id": id,
-            "method": "session/prompt",
-            "params": {
-                "sessionId": session_id,
-                "prompt": [{
-                    "type": "text",
-                    "text": prompt
-                }]
-            }
-        });
+        let request = acp_request(
+            id,
+            "session/prompt",
+            AcpPromptParams::new(session_id, prompt),
+        );
         emit_progress(
             progress_sender,
             self.provider,
@@ -337,7 +428,7 @@ impl AcpClient {
     async fn request(
         &mut self,
         method: &str,
-        params: Value,
+        params: impl Serialize,
         progress_sender: Option<&mpsc::UnboundedSender<AiProgressEvent>>,
     ) -> Result<Value> {
         let id = self.next_request_id();
@@ -347,12 +438,7 @@ impl AcpClient {
             "system",
             format!("ACP request started: {method}"),
         );
-        let request = json!({
-            "jsonrpc": "2.0",
-            "id": id,
-            "method": method,
-            "params": params
-        });
+        let request = acp_request(id, method, params);
         emit_progress(
             progress_sender,
             self.provider,
@@ -501,11 +587,7 @@ impl AcpClient {
     ) -> Result<()> {
         let id = message.get("id").cloned().unwrap_or(Value::Null);
         let result = match self.read_text_file_result(message).await {
-            Ok(content) => json!({
-                "jsonrpc": "2.0",
-                "id": id,
-                "result": { "content": content }
-            }),
+            Ok(content) => acp_success_response(id, json!({ "content": content })),
             Err(error) => acp_error_response(id, -32000, error.to_string()),
         };
         emit_progress(
@@ -524,11 +606,7 @@ impl AcpClient {
     ) -> Result<()> {
         let id = message.get("id").cloned().unwrap_or(Value::Null);
         let result = match self.write_text_file_result(message).await {
-            Ok(()) => json!({
-                "jsonrpc": "2.0",
-                "id": id,
-                "result": {}
-            }),
+            Ok(()) => acp_success_response(id, json!({})),
             Err(error) => acp_error_response(id, -32000, error.to_string()),
         };
         emit_progress(
@@ -737,15 +815,32 @@ fn redact_file_content(value: &mut Value) {
     }
 }
 
-fn acp_error_response(id: Value, code: i64, message: String) -> Value {
-    json!({
-        "jsonrpc": "2.0",
-        "id": id,
-        "error": {
-            "code": code,
-            "message": message
-        }
+fn acp_request(id: u64, method: &str, params: impl Serialize) -> Value {
+    serde_json::to_value(AcpJsonRpcRequest {
+        jsonrpc: "2.0",
+        id,
+        method,
+        params,
     })
+    .expect("ACP JSON-RPC request should serialize")
+}
+
+fn acp_success_response(id: Value, result: Value) -> Value {
+    serde_json::to_value(AcpJsonRpcSuccessResponse {
+        jsonrpc: "2.0",
+        id,
+        result,
+    })
+    .expect("ACP JSON-RPC success response should serialize")
+}
+
+fn acp_error_response(id: Value, code: i64, message: String) -> Value {
+    serde_json::to_value(AcpJsonRpcErrorResponse {
+        jsonrpc: "2.0",
+        id,
+        error: AcpJsonRpcError { code, message },
+    })
+    .expect("ACP JSON-RPC error response should serialize")
 }
 
 fn client_path_param(params: &Value) -> Result<&Path> {
