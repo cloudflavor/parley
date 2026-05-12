@@ -14,35 +14,10 @@ use crate::domain::review::{
 use anyhow::{Result, anyhow};
 
 #[test]
-fn reply_mode_excludes_addressed_threads() {
-    assert!(comment_is_targetable(
-        CommentStatus::Open,
-        AiSessionMode::Reply
-    ));
-    assert!(comment_is_targetable(
-        CommentStatus::Pending,
-        AiSessionMode::Reply
-    ));
-    assert!(!comment_is_targetable(
-        CommentStatus::Addressed,
-        AiSessionMode::Reply
-    ));
-}
-
-#[test]
-fn refactor_mode_skips_only_addressed_threads() {
-    assert!(comment_is_targetable(
-        CommentStatus::Open,
-        AiSessionMode::Refactor
-    ));
-    assert!(comment_is_targetable(
-        CommentStatus::Pending,
-        AiSessionMode::Refactor
-    ));
-    assert!(!comment_is_targetable(
-        CommentStatus::Addressed,
-        AiSessionMode::Refactor
-    ));
+fn targetability_excludes_addressed_threads() {
+    assert!(comment_is_targetable(CommentStatus::Open));
+    assert!(comment_is_targetable(CommentStatus::Pending));
+    assert!(!comment_is_targetable(CommentStatus::Addressed));
 }
 
 #[tokio::test]

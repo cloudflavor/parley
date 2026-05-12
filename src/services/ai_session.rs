@@ -163,7 +163,7 @@ async fn run_ai_session_inner(
         .provider_config_for_transport(input.provider, effective_transport);
     let mut result = AiSessionResult::new(&input, &provider_cfg, now_ms);
 
-    let target_ids = ai_session_target_ids(&review, &input.comment_ids, input.mode);
+    let target_ids = ai_session_target_ids(&review, &input.comment_ids);
     let total_targets = target_ids.len();
     if total_targets == 0 {
         result.push_skipped(0, no_targets_message(input.mode));
@@ -270,7 +270,7 @@ async fn process_ai_session_target(
         return Ok(());
     };
 
-    if !comment_is_targetable(comment_status.clone(), context.input.mode) {
+    if !comment_is_targetable(comment_status.clone()) {
         debug!(
             review = %context.input.review_name,
             provider = %context.input.provider.as_str(),
@@ -398,11 +398,7 @@ async fn process_ai_session_target(
     Ok(())
 }
 
-fn ai_session_target_ids(
-    review: &ReviewSession,
-    comment_ids: &[u64],
-    mode: AiSessionMode,
-) -> Vec<u64> {
+fn ai_session_target_ids(review: &ReviewSession, comment_ids: &[u64]) -> Vec<u64> {
     if !comment_ids.is_empty() {
         return comment_ids.to_vec();
     }
@@ -410,7 +406,7 @@ fn ai_session_target_ids(
     review
         .comments
         .iter()
-        .filter(|comment| comment_is_targetable(comment.status.clone(), mode))
+        .filter(|comment| comment_is_targetable(comment.status.clone()))
         .map(|comment| comment.id)
         .collect()
 }
@@ -603,13 +599,6 @@ fn balanced_json_object_end(value: &str, start: usize) -> Option<usize> {
     None
 }
 
-fn comment_is_targetable(status: CommentStatus, mode: AiSessionMode) -> bool {
-    match mode {
-        AiSessionMode::Reply => {
-            matches!(status, CommentStatus::Open | CommentStatus::Pending)
-        }
-        AiSessionMode::Refactor => {
-            matches!(status, CommentStatus::Open | CommentStatus::Pending)
-        }
-    }
+fn comment_is_targetable(status: CommentStatus) -> bool {
+    matches!(status, CommentStatus::Open | CommentStatus::Pending)
 }
