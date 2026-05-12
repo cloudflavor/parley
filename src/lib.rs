@@ -164,6 +164,7 @@ async fn handle_review_command(command: ReviewCommand, service: &ReviewService) 
                         line_range: None,
                         side: side.0,
                         line_anchor: None,
+                        original_anchor: None,
                         body,
                         author: author.0,
                     },

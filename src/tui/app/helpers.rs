@@ -407,6 +407,7 @@ mod tests {
             line_range: None,
             side,
             line_anchor: None,
+            original_anchor: None,
             detached: false,
             body: "x".to_string(),
             author: Author::User,

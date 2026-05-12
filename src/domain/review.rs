@@ -90,6 +90,43 @@ pub struct CommentLineRange {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct DiffAnchorSnapshot {
+    pub hunk_header: String,
+    #[serde(default)]
+    pub hunk_lines: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq, Default)]
+pub struct SourceAnchorSnapshot {
+    pub file_content_hash: Option<String>,
+    pub selected_text_hash: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+pub struct StoredAnchorSnapshot {
+    pub file_path: String,
+    pub side: DiffSide,
+    pub old_line: Option<u32>,
+    pub new_line: Option<u32>,
+    #[serde(default)]
+    pub line_range: Option<CommentLineRange>,
+    #[serde(default)]
+    pub selected_text: String,
+    #[serde(default)]
+    pub before_context: Vec<String>,
+    #[serde(default)]
+    pub after_context: Vec<String>,
+    #[serde(default)]
+    pub diff: Option<DiffAnchorSnapshot>,
+    #[serde(default)]
+    pub source: Option<SourceAnchorSnapshot>,
+    #[serde(default)]
+    pub base_rev: Option<String>,
+    #[serde(default)]
+    pub head_rev: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct LineComment {
     pub id: u64,
     pub file_path: String,
@@ -100,6 +137,8 @@ pub struct LineComment {
     pub side: DiffSide,
     #[serde(default)]
     pub line_anchor: Option<LineAnchorSnapshot>,
+    #[serde(default)]
+    pub original_anchor: Option<StoredAnchorSnapshot>,
     #[serde(default)]
     pub detached: bool,
     pub body: String,
@@ -130,6 +169,8 @@ pub struct NewLineComment {
     pub line_range: Option<CommentLineRange>,
     pub side: DiffSide,
     pub line_anchor: Option<LineAnchorSnapshot>,
+    #[serde(default)]
+    pub original_anchor: Option<StoredAnchorSnapshot>,
     pub body: String,
     pub author: Author,
 }
@@ -179,6 +220,7 @@ impl ReviewSession {
             line_range: new_comment.line_range,
             side: new_comment.side,
             line_anchor: new_comment.line_anchor,
+            original_anchor: new_comment.original_anchor,
             detached: false,
             body: new_comment.body,
             author: new_comment.author,
@@ -345,7 +387,10 @@ impl ReviewSession {
 
 #[cfg(test)]
 mod tests {
-    use super::{Author, CommentStatus, DiffSide, NewLineComment, ReviewSession, ReviewState};
+    use super::{
+        Author, CommentStatus, DiffSide, NewLineComment, ReviewSession, ReviewState,
+        StoredAnchorSnapshot,
+    };
     use anyhow::Result;
 
     #[test]
@@ -359,6 +404,7 @@ mod tests {
                 line_range: None,
                 side: DiffSide::Right,
                 line_anchor: None,
+                original_anchor: None,
                 body: "needs refactor".into(),
                 author: Author::User,
             },
@@ -414,6 +460,7 @@ mod tests {
                 line_range: None,
                 side: DiffSide::Right,
                 line_anchor: None,
+                original_anchor: None,
                 body: "needs refactor".into(),
                 author: Author::User,
             },
@@ -443,6 +490,7 @@ mod tests {
                 line_range: None,
                 side: DiffSide::Right,
                 line_anchor: None,
+                original_anchor: None,
                 body: "needs refactor".into(),
                 author: Author::User,
             },
@@ -465,6 +513,7 @@ mod tests {
                 line_range: None,
                 side: DiffSide::Right,
                 line_anchor: None,
+                original_anchor: None,
                 body: "needs refactor".into(),
                 author: Author::User,
             },
@@ -489,6 +538,7 @@ mod tests {
                 line_range: None,
                 side: DiffSide::Right,
                 line_anchor: None,
+                original_anchor: None,
                 body: "needs refactor".into(),
                 author: Author::User,
             },
@@ -500,5 +550,41 @@ mod tests {
 
         assert_eq!(session.state, ReviewState::UnderReview);
         Ok(())
+    }
+
+    #[test]
+    fn add_comment_should_store_original_anchor_snapshot() {
+        let mut session = ReviewSession::new("r1".into(), 1);
+        let original_anchor = StoredAnchorSnapshot {
+            file_path: "src/lib.rs".into(),
+            side: DiffSide::Right,
+            old_line: None,
+            new_line: Some(7),
+            line_range: None,
+            selected_text: "fn main() {}".into(),
+            before_context: vec!["mod cli;".into()],
+            after_context: vec!["mod tui;".into()],
+            diff: None,
+            source: None,
+            base_rev: Some("base".into()),
+            head_rev: Some("head".into()),
+        };
+
+        session.add_comment(
+            NewLineComment {
+                file_path: "src/lib.rs".into(),
+                old_line: None,
+                new_line: Some(7),
+                line_range: None,
+                side: DiffSide::Right,
+                line_anchor: None,
+                original_anchor: Some(original_anchor.clone()),
+                body: "anchor".into(),
+                author: Author::User,
+            },
+            2,
+        );
+
+        assert_eq!(session.comments[0].original_anchor, Some(original_anchor));
     }
 }

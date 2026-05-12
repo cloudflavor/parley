@@ -313,6 +313,7 @@ fn make_comments(
                     before_context: Vec::new(),
                     after_context: Vec::new(),
                 }),
+                original_anchor: None,
                 detached: false,
                 body: format!("Perf comment {index}: this is a long enough body to wrap in the TUI and exercise thread rendering paths."),
                 author: Author::User,

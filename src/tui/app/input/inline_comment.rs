@@ -413,6 +413,7 @@ impl TuiApp {
                             line_range: target.line_range,
                             side: target.side,
                             line_anchor: Some(target.line_anchor),
+                            original_anchor: None,
                             body,
                             author: Author::User,
                         },

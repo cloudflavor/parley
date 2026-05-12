@@ -91,6 +91,7 @@ pub(crate) fn make_comment_with_anchor(
             before_context: vec![],
             after_context: vec![],
         }),
+        original_anchor: None,
         detached: false,
         body: "test comment".to_string(),
         status,
