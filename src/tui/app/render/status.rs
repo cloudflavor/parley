@@ -4,12 +4,10 @@ use super::TuiApp;
 use crate::domain::review::{CommentStatus, ReviewState};
 use crate::tui::app::render::helpers::fit_spans_to_width;
 use crate::utils::cast::usize_to_u16_saturating;
-use ratatui::{
-    layout::Rect,
-    style::{Modifier, Style},
-    text::{Line, Span},
-    widgets::{Block, Borders, Paragraph},
-};
+use ratatui::layout::Rect;
+use ratatui::style::{Modifier, Style};
+use ratatui::text::{Line, Span};
+use ratatui::widgets::{Block, Borders, Paragraph};
 use std::time::Instant;
 
 pub(super) fn compute_status_height(total_height: u16) -> u16 {

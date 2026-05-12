@@ -41,7 +41,8 @@ use tokio::sync::mpsc::UnboundedReceiver;
 use tokio::task;
 use tokio::task::JoinHandle;
 
-mod help_docs;
+pub(super) use crate::docs::PARLEY_DOCS as HELP_DOCS;
+
 mod helpers;
 mod input;
 #[cfg(test)]

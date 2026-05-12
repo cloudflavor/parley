@@ -3,13 +3,11 @@ use super::helpers::fit_to_width;
 use super::status::{review_state_label, theme_family_label, theme_variant_label};
 use super::{SettingsEditorKind, TuiApp};
 use crate::utils::cast::usize_to_u16_saturating;
-use ratatui::{
-    Frame,
-    layout::{Constraint, Direction, Layout, Rect},
-    style::{Modifier, Style},
-    text::{Line, Span},
-    widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragraph},
-};
+use ratatui::Frame;
+use ratatui::layout::{Constraint, Direction, Layout, Rect};
+use ratatui::style::{Modifier, Style};
+use ratatui::text::{Line, Span};
+use ratatui::widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragraph};
 
 pub(super) fn draw_settings_editor(frame: &mut Frame<'_>, app: &TuiApp) {
     let Some(editor) = app.settings_editor.as_ref() else {

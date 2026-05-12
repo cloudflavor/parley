@@ -1,8 +1,6 @@
 use super::DisplayRow;
-use crate::domain::{
-    diff::DiffLineKind,
-    review::{CommentLineRange, DiffSide, LineComment},
-};
+use crate::domain::diff::DiffLineKind;
+use crate::domain::review::{CommentLineRange, DiffSide, LineComment};
 use anyhow::{Context, Result};
 use crossterm::event::DisableMouseCapture;
 use crossterm::event::EnableMouseCapture;
@@ -12,8 +10,13 @@ use crossterm::terminal::EnterAlternateScreen;
 use crossterm::terminal::LeaveAlternateScreen;
 use crossterm::terminal::disable_raw_mode;
 use crossterm::terminal::enable_raw_mode;
-use ratatui::{Terminal, backend::CrosstermBackend, layout::Rect};
-use std::{io, path::Path, process::Command, sync::OnceLock};
+use ratatui::Terminal;
+use ratatui::backend::CrosstermBackend;
+use ratatui::layout::Rect;
+use std::io;
+use std::path::Path;
+use std::process::Command;
+use std::sync::OnceLock;
 use time::{OffsetDateTime, UtcOffset};
 
 pub(super) const MOUSE_WHEEL_SCROLL_LINES: usize = 3;
@@ -381,10 +384,8 @@ pub(super) fn apply_single_line_edit_key(
 #[cfg(test)]
 mod tests {
     use super::{DisplayRow, comment_matches_display_row, parse_utc_offset_seconds};
-    use crate::domain::{
-        diff::DiffLineKind,
-        review::{Author, CommentStatus, DiffSide, LineComment},
-    };
+    use crate::domain::diff::DiffLineKind;
+    use crate::domain::review::{Author, CommentStatus, DiffSide, LineComment};
 
     fn make_row(kind: DiffLineKind, old_line: Option<u32>, new_line: Option<u32>) -> DisplayRow {
         DisplayRow {

@@ -9,10 +9,8 @@ use crate::domain::reference::parse_file_references;
 use crate::domain::review::DiffSide;
 use crate::git::diff::DiffSource;
 use crate::tui::theme::ThemeColors;
-use ratatui::{
-    style::{Color, Modifier, Style},
-    text::{Line, Span},
-};
+use ratatui::style::{Color, Modifier, Style};
+use ratatui::text::{Line, Span};
 
 pub(super) struct RenderCommentThreadSpec<'a> {
     pub(super) app: &'a TuiApp,

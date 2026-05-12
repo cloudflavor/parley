@@ -5,10 +5,8 @@ use pulldown_cmark::{
     CodeBlockKind, Event as MdEvent, HeadingLevel, Options as MdOptions, Parser as MdParser,
     Tag as MdTag, TagEnd as MdTagEnd,
 };
-use ratatui::{
-    style::{Modifier, Style},
-    text::{Line, Span},
-};
+use ratatui::style::{Modifier, Style};
+use ratatui::text::{Line, Span};
 
 #[derive(Debug, Clone, Copy)]
 enum MdListKind {

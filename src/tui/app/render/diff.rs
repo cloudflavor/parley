@@ -24,13 +24,11 @@ use crate::domain::review::LineComment;
 use crate::git::diff::DiffSource;
 use crate::tui::theme::ThemeColors;
 use crate::utils::cast::usize_to_u16_saturating;
-use ratatui::{
-    Frame,
-    layout::Rect,
-    style::{Color, Modifier, Style},
-    text::{Line, Span},
-    widgets::{Block, Borders, Clear, Paragraph, Wrap},
-};
+use ratatui::Frame;
+use ratatui::layout::Rect;
+use ratatui::style::{Color, Modifier, Style};
+use ratatui::text::{Line, Span};
+use ratatui::widgets::{Block, Borders, Clear, Paragraph, Wrap};
 use std::collections::{HashMap, HashSet};
 
 pub(super) fn draw_diff_view_for_pane(

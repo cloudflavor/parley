@@ -1,3 +1,16 @@
+use super::ThreadDensityMode;
+use super::{
+    AiLogEvent, AiLogSessionStatus, CommandPromptMode, DiffPane, FileHeatmapSortMode,
+    InlineDraftMode, InlineFileMentionState, InlineFileReferencePickerState, SettingsEditorKind,
+    ThreadSelectorEntry, TuiApp,
+};
+use crate::domain::diff::DiffLineKind;
+use ratatui::Frame;
+use ratatui::layout::{Constraint, Direction, Layout};
+use ratatui::style::Style;
+use ratatui::text::Line;
+use std::sync::Arc;
+
 mod diff;
 mod helpers;
 mod markdown;
@@ -6,21 +19,6 @@ mod overlays;
 mod sidebar;
 mod status;
 mod threads;
-
-use super::ThreadDensityMode;
-use super::{
-    AiLogEvent, AiLogSessionStatus, CommandPromptMode, DiffPane, FileHeatmapSortMode,
-    InlineDraftMode, InlineFileMentionState, InlineFileReferencePickerState, SettingsEditorKind,
-    ThreadSelectorEntry, TuiApp,
-};
-use crate::domain::diff::DiffLineKind;
-use ratatui::{
-    Frame,
-    layout::{Constraint, Direction, Layout},
-    style::Style,
-    text::Line,
-};
-use std::sync::Arc;
 
 const INLINE_FILE_MENTION_MAX_VISIBLE_ROWS: usize = 6;
 
@@ -266,7 +264,10 @@ mod tests {
     };
     use crate::tui::theme::{default_theme_name, load_themes, resolve_theme_index};
     use anyhow::{Result, anyhow};
-    use ratatui::{Terminal, backend::TestBackend, layout::Rect, widgets::Paragraph};
+    use ratatui::Terminal;
+    use ratatui::backend::TestBackend;
+    use ratatui::layout::Rect;
+    use ratatui::widgets::Paragraph;
 
     fn test_colors() -> Result<crate::tui::theme::ThemeColors> {
         let themes = load_themes()?;

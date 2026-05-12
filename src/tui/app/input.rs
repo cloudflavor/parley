@@ -9,12 +9,10 @@ use super::{
     format_line_range_reference, format_line_reference, insert_char_at, point_in_rect,
     remove_char_at,
 };
-use crate::domain::{
-    ai::AiSessionMode,
-    config::DiffViewMode,
-    diff::DiffLineKind,
-    review::{Author, DiffSide, LineComment, ReviewState},
-};
+use crate::domain::ai::AiSessionMode;
+use crate::domain::config::DiffViewMode;
+use crate::domain::diff::DiffLineKind;
+use crate::domain::review::{Author, DiffSide, LineComment, ReviewState};
 use crate::services::review_service::{
     AddCommentInput, AddReplyInput, ReanchorCommentInput, ReviewService,
 };
@@ -112,11 +110,9 @@ fn is_code_search_shortcut(key: KeyEvent) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::domain::{
-        config::AppConfig,
-        diff::{DiffDocument, DiffFile, DiffHunk, DiffLine, DiffLineKind},
-        review::{LineAnchorSnapshot, ReviewSession, ReviewState},
-    };
+    use crate::domain::config::AppConfig;
+    use crate::domain::diff::{DiffDocument, DiffFile, DiffHunk, DiffLine, DiffLineKind};
+    use crate::domain::review::{LineAnchorSnapshot, ReviewSession, ReviewState};
     use crate::git::diff::DiffSource;
     use crate::persistence::store::Store;
     use crate::tui::app::{InlineFileReferencePickerState, TuiAppInit};

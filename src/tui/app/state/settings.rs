@@ -296,7 +296,7 @@ impl TuiApp {
     }
 
     pub(crate) fn help_docs_count(&self) -> usize {
-        super::help_docs::HELP_DOCS.len()
+        HELP_DOCS.len()
     }
 
     pub(crate) fn cycle_help_doc(&mut self, forward: bool) {
