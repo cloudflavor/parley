@@ -4,6 +4,9 @@ use super::{
 use crate::domain::ai::{AiProvider, AiSessionMode};
 use crate::domain::config::AiProviderConfig;
 use crate::services::ai_session::AiProgressEvent;
+use crate::services::ai_session::json_text::{
+    assistant_text, collect_named_text, first_named_text, text_delta,
+};
 use crate::services::ai_session::progress::emit_progress;
 use anyhow::{Context, Result, anyhow};
 use serde_json::{Value, json};
@@ -319,35 +322,8 @@ impl Drop for PiRpcClient {
     }
 }
 
-fn extract_text_delta(value: &Value) -> Option<String> {
-    match value {
-        Value::Object(map) => {
-            if map.get("type").and_then(Value::as_str) == Some("text_delta")
-                && let Some(delta) = map.get("delta").and_then(Value::as_str)
-            {
-                return Some(delta.to_string());
-            }
-            for nested in map.values() {
-                if let Some(delta) = extract_text_delta(nested) {
-                    return Some(delta);
-                }
-            }
-            None
-        }
-        Value::Array(items) => {
-            for item in items {
-                if let Some(delta) = extract_text_delta(item) {
-                    return Some(delta);
-                }
-            }
-            None
-        }
-        _ => None,
-    }
-}
-
 fn extract_pi_reply_text(value: &Value) -> Option<String> {
-    extract_text_delta(value).or_else(|| extract_assistant_text(value))
+    text_delta(value).or_else(|| assistant_text(value))
 }
 
 fn extract_pi_thought_text(value: &Value) -> Option<String> {
@@ -364,7 +340,7 @@ fn extract_pi_thought_text(value: &Value) -> Option<String> {
                 if matches!(
                     key.as_str(),
                     "thought" | "thinking" | "reasoning" | "analysis"
-                ) && let Some(text) = extract_assistant_text(nested)
+                ) && let Some(text) = assistant_text(nested)
                 {
                     return Some(text);
                 }
@@ -503,85 +479,8 @@ fn pi_log_entries(event: &Value) -> Vec<PiLogEntry> {
     entries
 }
 
-fn collect_named_text(value: &Value, keys: &[&str]) -> Vec<String> {
-    let mut out = Vec::new();
-    collect_named_text_into(value, keys, None, &mut out);
-    out
-}
-
-fn first_named_text(value: &Value, keys: &[&str]) -> Option<String> {
-    collect_named_text(value, keys).into_iter().next()
-}
-
-fn collect_named_text_into(
-    value: &Value,
-    keys: &[&str],
-    current_key: Option<&str>,
-    out: &mut Vec<String>,
-) {
-    match value {
-        Value::String(text) => {
-            let Some(current_key) = current_key else {
-                return;
-            };
-            if keys.iter().any(|key| current_key.eq_ignore_ascii_case(key))
-                && !text.trim().is_empty()
-            {
-                out.push(text.trim().to_string());
-            }
-        }
-        Value::Object(map) => {
-            for (key, nested) in map {
-                collect_named_text_into(nested, keys, Some(key), out);
-            }
-        }
-        Value::Array(items) => {
-            for item in items {
-                collect_named_text_into(item, keys, current_key, out);
-            }
-        }
-        _ => {}
-    }
-}
-
 fn compact_pi_event_json(event: &Value) -> String {
     serde_json::to_string(event).unwrap_or_else(|_| "<invalid pi event>".to_string())
-}
-
-fn extract_assistant_text(value: &Value) -> Option<String> {
-    match value {
-        Value::Object(map) => {
-            if let Some(role) = map.get("role").and_then(Value::as_str)
-                && role != "assistant"
-            {
-                return None;
-            }
-            for key in [
-                "delta", "text", "content", "message", "body", "reply", "output",
-            ] {
-                if let Some(text) = map.get(key).and_then(Value::as_str)
-                    && !text.trim().is_empty()
-                {
-                    return Some(text.to_string());
-                }
-            }
-            for nested in map.values() {
-                if let Some(text) = extract_assistant_text(nested) {
-                    return Some(text);
-                }
-            }
-            None
-        }
-        Value::Array(items) => {
-            for item in items {
-                if let Some(text) = extract_assistant_text(item) {
-                    return Some(text);
-                }
-            }
-            None
-        }
-        _ => None,
-    }
 }
 
 #[cfg(test)]

@@ -13,6 +13,7 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::mpsc;
 use tracing::{debug, error, info, warn};
 
+pub(crate) mod json_text;
 mod progress;
 mod prompt;
 mod provider;

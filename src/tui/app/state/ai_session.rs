@@ -4,6 +4,7 @@
 
 use super::helpers::format_timestamp_utc;
 use super::*;
+use crate::services::ai_session::json_text::collect_named_text;
 use anyhow::{Context, Result};
 use crossterm::event::{KeyCode, KeyEvent};
 use std::collections::VecDeque;
@@ -783,7 +784,12 @@ impl TuiApp {
 
         let json_candidate = trimmed.strip_prefix("data:").map_or(trimmed, str::trim);
         if let Ok(value) = serde_json::from_str::<serde_json::Value>(json_candidate) {
-            let parts = Self::collect_ai_text_fragments(&value, None);
+            let parts = collect_named_text(
+                &value,
+                &[
+                    "content", "text", "body", "message", "reply", "output", "input",
+                ],
+            );
             let merged = parts.join("");
             let normalized = merged.trim();
             if !normalized.is_empty() {
@@ -798,41 +804,6 @@ impl TuiApp {
         }
 
         Some(message.to_string())
-    }
-
-    fn collect_ai_text_fragments(
-        value: &serde_json::Value,
-        parent_key: Option<&str>,
-    ) -> Vec<String> {
-        let mut fragments = Vec::new();
-
-        match value {
-            serde_json::Value::String(s)
-                if Self::is_text_field(parent_key) && !s.trim().is_empty() =>
-            {
-                fragments.push(s.clone());
-            }
-            serde_json::Value::Object(map) => {
-                for (key, val) in map {
-                    fragments.extend(Self::collect_ai_text_fragments(val, Some(key.as_str())));
-                }
-            }
-            serde_json::Value::Array(arr) => {
-                for item in arr {
-                    fragments.extend(Self::collect_ai_text_fragments(item, parent_key));
-                }
-            }
-            _ => {}
-        }
-
-        fragments
-    }
-
-    fn is_text_field(parent_key: Option<&str>) -> bool {
-        matches!(
-            parent_key,
-            Some("content" | "text" | "body" | "message" | "reply" | "output" | "input")
-        )
     }
 
     fn extract_ai_activity_tag(value: &serde_json::Value) -> Option<String> {

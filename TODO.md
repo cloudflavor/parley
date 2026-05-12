@@ -279,11 +279,11 @@ Success criteria:
 
 ### Unit 13: Share JSON Text Extraction And Redaction
 
-- [ ] Create a shared JSON text extraction utility for provider and TUI AI logs.
-- [ ] Move ACP `extract_text` into it.
-- [ ] Move Pi RPC text/thought/named-text walking into it where behavior matches.
-- [ ] Move TUI AI log text-fragment extraction into it where behavior matches.
-- [ ] Make JSON log redaction reusable.
+- [x] Create a shared JSON text extraction utility for provider and TUI AI logs.
+- [x] Move ACP `extract_text` into it.
+- [x] Move Pi RPC text/thought/named-text walking into it where behavior matches.
+- [x] Move TUI AI log text-fragment extraction into it where behavior matches.
+- [x] Make JSON log redaction reusable.
 
 Files:
 - `src/services/ai_session/provider/acp.rs`

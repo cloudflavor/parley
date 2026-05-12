@@ -4,6 +4,7 @@ use super::{
 use crate::domain::ai::{AiProvider, AiSessionMode};
 use crate::domain::config::AiProviderConfig;
 use crate::services::ai_session::AiProgressEvent;
+use crate::services::ai_session::json_text::{compact_redacted_json_for_log, first_text};
 use crate::services::ai_session::progress::emit_progress;
 use crate::utils::time::now_ms;
 use anyhow::{Context, Result, anyhow};
@@ -408,7 +409,7 @@ impl AcpClient {
                 if let Some(result) = message.get("result") {
                     model = model.or_else(|| detect_model_from_text(&result.to_string()));
                     if reply.trim().is_empty()
-                        && let Some(text) = extract_text(result)
+                        && let Some(text) = first_text(result)
                     {
                         reply.push_str(&text);
                     }
@@ -500,7 +501,7 @@ impl AcpClient {
         }
         match update.get("sessionUpdate").and_then(Value::as_str) {
             Some("agent_message_chunk") => {
-                if let Some(text) = update.get("content").and_then(extract_text) {
+                if let Some(text) = update.get("content").and_then(first_text) {
                     emit_progress(progress_sender, self.provider, "agent", text.as_str());
                     reply.push_str(&text);
                 }
@@ -508,8 +509,8 @@ impl AcpClient {
             Some("thought_chunk") => {
                 let text = update
                     .get("content")
-                    .and_then(extract_text)
-                    .or_else(|| extract_text(update))
+                    .and_then(first_text)
+                    .or_else(|| first_text(update))
                     .unwrap_or_else(|| compact_json_for_log(update));
                 emit_progress(progress_sender, self.provider, "thought", text);
             }
@@ -734,85 +735,8 @@ impl Drop for AcpClient {
     }
 }
 
-fn extract_text(value: &Value) -> Option<String> {
-    match value {
-        Value::String(text) => Some(text.clone()),
-        Value::Object(map) => {
-            if let Some(Value::String(text)) = map.get("text") {
-                return Some(text.clone());
-            }
-            if let Some(Value::String(text)) = map.get("content") {
-                return Some(text.clone());
-            }
-            for nested in map.values() {
-                if let Some(text) = extract_text(nested) {
-                    return Some(text);
-                }
-            }
-            None
-        }
-        Value::Array(items) => {
-            for item in items {
-                if let Some(text) = extract_text(item) {
-                    return Some(text);
-                }
-            }
-            None
-        }
-        _ => None,
-    }
-}
-
 fn compact_json_for_log(value: &Value) -> String {
-    let mut redacted = value.clone();
-    redact_prompt_text(&mut redacted);
-    redact_file_content(&mut redacted);
-    serde_json::to_string(&redacted).unwrap_or_else(|_| "<invalid json>".to_string())
-}
-
-fn redact_prompt_text(value: &mut Value) {
-    match value {
-        Value::Object(map) => {
-            let looks_like_prompt_item = map
-                .get("type")
-                .and_then(Value::as_str)
-                .is_some_and(|kind| kind == "text")
-                && map.contains_key("text");
-            if looks_like_prompt_item && let Some(Value::String(text)) = map.get_mut("text") {
-                let chars = text.chars().count();
-                *text = format!("<redacted prompt: {chars} chars>");
-            }
-            for nested in map.values_mut() {
-                redact_prompt_text(nested);
-            }
-        }
-        Value::Array(items) => {
-            for item in items {
-                redact_prompt_text(item);
-            }
-        }
-        _ => {}
-    }
-}
-
-fn redact_file_content(value: &mut Value) {
-    match value {
-        Value::Object(map) => {
-            if let Some(Value::String(content)) = map.get_mut("content") {
-                let chars = content.chars().count();
-                *content = format!("<redacted file content: {chars} chars>");
-            }
-            for nested in map.values_mut() {
-                redact_file_content(nested);
-            }
-        }
-        Value::Array(items) => {
-            for item in items {
-                redact_file_content(item);
-            }
-        }
-        _ => {}
-    }
+    compact_redacted_json_for_log(value)
 }
 
 fn acp_request(id: u64, method: &str, params: impl Serialize) -> Value {
@@ -882,7 +806,8 @@ fn session_name(provider: AiProvider) -> Result<String> {
 
 #[cfg(test)]
 mod tests {
-    use super::{absolute_client_path, compact_json_for_log, extract_text, slice_text_lines};
+    use super::{absolute_client_path, compact_json_for_log, slice_text_lines};
+    use crate::services::ai_session::json_text::first_text;
     use serde_json::json;
 
     #[test]
@@ -896,7 +821,7 @@ mod tests {
         });
 
         assert_eq!(
-            update.get("content").and_then(extract_text),
+            update.get("content").and_then(first_text),
             Some("checking imports".to_string())
         );
     }
