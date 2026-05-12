@@ -59,9 +59,9 @@ Success criteria:
 
 ### Unit 3: Collapse AI Targetability Logic
 
-- [ ] Remove the `AiSessionMode` parameter from `comment_is_targetable` if `Reply` and `Refactor` remain identical.
-- [ ] Replace duplicated tests with one targetability test covering open, pending, and addressed.
-- [ ] Keep user-facing skipped messages mode-specific only where text differs.
+- [x] Remove the `AiSessionMode` parameter from `comment_is_targetable` if `Reply` and `Refactor` remain identical.
+- [x] Replace duplicated tests with one targetability test covering open, pending, and addressed.
+- [x] Keep user-facing skipped messages mode-specific only where text differs.
 
 Files:
 - `src/services/ai_session.rs`

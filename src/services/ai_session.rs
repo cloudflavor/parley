@@ -138,7 +138,7 @@ async fn run_ai_session_inner(
         review
             .comments
             .iter()
-            .filter(|comment| comment_is_targetable(comment.status.clone(), input.mode))
+            .filter(|comment| comment_is_targetable(comment.status.clone()))
             .map(|comment| comment.id)
             .collect()
     } else {
@@ -208,7 +208,7 @@ async fn run_ai_session_inner(
             continue;
         };
 
-        if !comment_is_targetable(comment.status.clone(), input.mode) {
+        if !comment_is_targetable(comment.status.clone()) {
             debug!(
                 review = %input.review_name,
                 provider = %input.provider.as_str(),
@@ -544,13 +544,6 @@ fn balanced_json_object_end(value: &str, start: usize) -> Option<usize> {
     None
 }
 
-fn comment_is_targetable(status: CommentStatus, mode: AiSessionMode) -> bool {
-    match mode {
-        AiSessionMode::Reply => {
-            matches!(status, CommentStatus::Open | CommentStatus::Pending)
-        }
-        AiSessionMode::Refactor => {
-            matches!(status, CommentStatus::Open | CommentStatus::Pending)
-        }
-    }
+fn comment_is_targetable(status: CommentStatus) -> bool {
+    matches!(status, CommentStatus::Open | CommentStatus::Pending)
 }
