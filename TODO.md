@@ -408,7 +408,7 @@ Implementation slices:
 1. [x] Add stored anchor snapshot fields and migration/default handling for existing reviews.
 2. [x] Capture snapshots when creating comments in root mode and diff mode.
 3. [x] Add exact projection computation that never mutates the original anchor.
-4. [ ] Render detached/outdated thread context when projection is missing.
+4. [x] Render detached/outdated thread context when projection is missing.
 5. [ ] Update AI prompt context to include anchor status and original/current projection data.
 6. [ ] Add tests for refactored lines, deleted lines, moved text, same-file multiple threads, and root-mode file changes.
 

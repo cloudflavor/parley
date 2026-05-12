@@ -13,7 +13,7 @@ use super::status::{
 };
 use super::threads::{
     RenderCommentThreadSpec, cached_comment_body_lines, cached_reply_body_lines,
-    render_comment_thread,
+    detached_thread_body_lines, render_comment_thread,
 };
 use super::{
     DiffPane, DiffRenderCacheEntry, DiffRenderCacheKey, DisplayRow,
@@ -283,6 +283,8 @@ pub(super) fn draw_diff_view_for_pane(
                 let comment_title_prefix = format!("comment #{} [", comment.id);
                 let comment_body_lines =
                     cached_comment_body_lines(app, comment, inner_width, &colors);
+                let detached_body_lines =
+                    detached_thread_body_lines(comment, &comment_body_lines, inner_width, &colors);
                 super::threads::push_thread_box(
                     &mut lines,
                     &mut row_map,
@@ -296,7 +298,7 @@ pub(super) fn draw_diff_view_for_pane(
                         title_status: Some(comment_status_label(&comment.status)),
                         title_suffix: &format!(" | review: {review_state}]"),
                         title_status_style: Some(comment_status_style(&comment.status, &colors)),
-                        body_lines: &comment_body_lines,
+                        body_lines: &detached_body_lines,
                         border_color: colors.thread_border,
                         title_color: colors.comment_title,
                         colors: &colors,

@@ -1,7 +1,10 @@
-use super::super::helpers::{format_comment_reference, format_timestamp_utc};
+use super::super::helpers::{
+    format_comment_reference, format_line_range_reference, format_line_reference,
+    format_timestamp_utc,
+};
 use super::helpers::{
     CompactThreadRowSpec, compact_preview, compute_compact_thread_content_width, fit_to_width,
-    line_plain_text, push_compact_thread_row, wrap_markdown_lines,
+    line_plain_text, push_compact_thread_row, wrap_markdown_lines, wrap_styled_line_words,
 };
 use super::status::{comment_status_label, comment_status_style};
 use super::{
@@ -9,7 +12,7 @@ use super::{
     ThreadBodyRenderCacheKind, TuiApp,
 };
 use crate::domain::reference::parse_file_references;
-use crate::domain::review::{CommentReply, DiffSide, LineComment};
+use crate::domain::review::{CommentReply, DiffSide, LineComment, StoredAnchorSnapshot};
 use crate::git::diff::DiffSource;
 use crate::tui::theme::ThemeColors;
 use ratatui::style::{Color, Modifier, Style};
@@ -377,6 +380,24 @@ pub(super) fn cached_reply_body_lines(
     cached_thread_body_lines(app, key, &reply.body, inner_width, colors)
 }
 
+pub(super) fn detached_thread_body_lines(
+    comment: &LineComment,
+    comment_body_lines: &[Line<'static>],
+    inner_width: usize,
+    colors: &ThemeColors,
+) -> Vec<Line<'static>> {
+    let Some(anchor) = comment.original_anchor.as_ref() else {
+        return comment_body_lines.to_vec();
+    };
+
+    let mut lines = original_anchor_context_lines(anchor, inner_width, colors);
+    if !lines.is_empty() {
+        lines.push(Line::from(""));
+    }
+    lines.extend(comment_body_lines.iter().cloned());
+    lines
+}
+
 fn cached_thread_body_lines(
     app: &mut TuiApp,
     key: ThreadBodyRenderCacheKey,
@@ -399,6 +420,88 @@ fn cached_thread_body_lines(
     lines
 }
 
+fn original_anchor_context_lines(
+    anchor: &StoredAnchorSnapshot,
+    inner_width: usize,
+    colors: &ThemeColors,
+) -> Vec<Line<'static>> {
+    let mut lines = Vec::new();
+    push_context_line(
+        &mut lines,
+        "original anchor",
+        &format!(
+            "{} @ {} ({})",
+            anchor.file_path,
+            original_anchor_reference(anchor),
+            anchor.side.as_str()
+        ),
+        inner_width,
+        colors,
+    );
+    if let Some(diff) = anchor.diff.as_ref() {
+        push_context_line(&mut lines, "hunk", &diff.hunk_header, inner_width, colors);
+    }
+    for line in anchor.before_context.iter().rev() {
+        push_context_code_line(&mut lines, "  ", line, inner_width, colors);
+    }
+    for line in anchor.selected_text.lines() {
+        push_context_code_line(&mut lines, "> ", line, inner_width, colors);
+    }
+    for line in &anchor.after_context {
+        push_context_code_line(&mut lines, "  ", line, inner_width, colors);
+    }
+    lines
+}
+
+fn original_anchor_reference(anchor: &StoredAnchorSnapshot) -> String {
+    anchor.line_range.as_ref().map_or_else(
+        || format_line_reference(anchor.old_line, anchor.new_line),
+        format_line_range_reference,
+    )
+}
+
+fn push_context_line(
+    lines: &mut Vec<Line<'static>>,
+    label: &str,
+    value: &str,
+    inner_width: usize,
+    colors: &ThemeColors,
+) {
+    let label_style = Style::default()
+        .fg(colors.comment_title)
+        .bg(colors.thread_background)
+        .add_modifier(Modifier::BOLD);
+    let value_style = Style::default()
+        .fg(colors.text_muted)
+        .bg(colors.thread_background);
+    let line = Line::from(vec![
+        Span::styled(format!("{label}: "), label_style),
+        Span::styled(value.to_string(), value_style),
+    ]);
+    lines.extend(wrap_styled_line_words(&line, inner_width));
+}
+
+fn push_context_code_line(
+    lines: &mut Vec<Line<'static>>,
+    prefix: &str,
+    value: &str,
+    inner_width: usize,
+    colors: &ThemeColors,
+) {
+    let prefix_style = Style::default()
+        .fg(colors.markdown_quote_mark)
+        .bg(colors.thread_background)
+        .add_modifier(Modifier::BOLD);
+    let value_style = Style::default()
+        .fg(colors.markdown_code_fg)
+        .bg(colors.thread_background);
+    let line = Line::from(vec![
+        Span::styled(prefix.to_string(), prefix_style),
+        Span::styled(value.to_string(), value_style),
+    ]);
+    lines.extend(wrap_styled_line_words(&line, inner_width));
+}
+
 fn text_hash(value: &str) -> u64 {
     let mut hasher = DefaultHasher::new();
     value.hash(&mut hasher);
@@ -408,7 +511,9 @@ fn text_hash(value: &str) -> u64 {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::domain::review::{Author, CommentReply, CommentStatus};
+    use crate::domain::review::{
+        Author, CommentReply, CommentStatus, DiffSide, StoredAnchorSnapshot,
+    };
     use crate::tui::app::state::tests::{make_comment_with_anchor, make_test_app};
 
     fn line_text(line: &Line<'_>) -> String {
@@ -454,6 +559,51 @@ mod tests {
         let rendered_text = lines.iter().map(line_text).collect::<Vec<_>>().join("\n");
         assert!(rendered_text.contains("▸ #1"));
         assert!(!rendered_text.contains("comment #1 ["));
+        Ok(())
+    }
+
+    #[test]
+    fn detached_thread_body_lines_prepend_original_anchor_context() -> anyhow::Result<()> {
+        let app = make_test_app(
+            vec!["src/a.rs"],
+            vec![make_comment_with_anchor(
+                1,
+                "src/a.rs",
+                CommentStatus::Open,
+                2,
+                2,
+            )],
+        )?;
+        let colors = app.theme().colors.clone();
+        let mut comment = make_comment_with_anchor(1, "src/a.rs", CommentStatus::Open, 2, 2);
+        comment.original_anchor = Some(StoredAnchorSnapshot {
+            file_path: "src/a.rs".to_string(),
+            side: DiffSide::Right,
+            old_line: Some(2),
+            new_line: Some(2),
+            line_range: None,
+            selected_text: "fn target() {}".to_string(),
+            before_context: vec!["fn before() {}".to_string()],
+            after_context: vec!["fn after() {}".to_string()],
+            diff: None,
+            source: None,
+            base_rev: None,
+            head_rev: None,
+        });
+        let body_lines = vec![Line::from("review body")];
+
+        let rendered = detached_thread_body_lines(&comment, &body_lines, 80, &colors);
+        let rendered_text = rendered
+            .iter()
+            .map(line_text)
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        assert!(rendered_text.contains("original anchor: src/a.rs @ 2:2 (right)"));
+        assert!(rendered_text.contains("  fn before() {}"));
+        assert!(rendered_text.contains("> fn target() {}"));
+        assert!(rendered_text.contains("  fn after() {}"));
+        assert!(rendered_text.contains("review body"));
         Ok(())
     }
 
