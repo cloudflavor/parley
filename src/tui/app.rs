@@ -467,6 +467,19 @@ enum FileSortMode {
     TotalCountDesc,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct VisibleFileIndicesCache {
+    key: VisibleFileIndicesCacheKey,
+    indices: Vec<usize>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct VisibleFileIndicesCacheKey {
+    file_filter_mode: FileFilterMode,
+    file_sort_mode: FileSortMode,
+    file_query: Option<String>,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum CommandPaletteAction {
     ToggleFullscreen,
@@ -676,6 +689,7 @@ struct TuiApp {
     file_search: FileSearchState,
     file_filter_mode: FileFilterMode,
     file_sort_mode: FileSortMode,
+    visible_file_indices_cache: Option<VisibleFileIndicesCache>,
     collapsed_file_groups: HashSet<String>,
     thread_density_mode: ThreadDensityMode,
     expanded_threads: HashSet<u64>,

@@ -88,7 +88,7 @@ impl TuiApp {
         self.file_sidebar_manual_scroll = true;
     }
 
-    fn ordered_file_selection_indices(&self) -> Vec<usize> {
+    fn ordered_file_selection_indices(&mut self) -> Vec<usize> {
         let rendered_rows = self
             .last_file_row_map
             .iter()
@@ -133,6 +133,7 @@ impl TuiApp {
     pub(crate) fn rebuild_comment_index(&mut self) {
         self.comment_indices_by_file = Self::build_comment_index(&self.review);
         self.comment_stats_by_file = Self::build_comment_stats(&self.review);
+        self.invalidate_visible_file_indices_cache();
     }
 
     pub(crate) fn comments_for_file(&self, file_path: &str) -> Vec<&LineComment> {
@@ -170,8 +171,35 @@ impl TuiApp {
         true
     }
 
-    pub(crate) fn visible_file_indices(&self) -> Vec<usize> {
-        let file_query = self.file_search_query().map(str::to_lowercase);
+    pub(crate) fn invalidate_visible_file_indices_cache(&mut self) {
+        self.visible_file_indices_cache = None;
+    }
+
+    pub(crate) fn visible_file_indices(&mut self) -> Vec<usize> {
+        let key = self.visible_file_indices_cache_key();
+        if let Some(cache) = self.visible_file_indices_cache.as_ref()
+            && cache.key == key
+        {
+            return cache.indices.clone();
+        }
+
+        let indices = self.compute_visible_file_indices(key.file_query.as_deref());
+        self.visible_file_indices_cache = Some(VisibleFileIndicesCache {
+            key,
+            indices: indices.clone(),
+        });
+        indices
+    }
+
+    fn visible_file_indices_cache_key(&self) -> VisibleFileIndicesCacheKey {
+        VisibleFileIndicesCacheKey {
+            file_filter_mode: self.file_filter_mode,
+            file_sort_mode: self.file_sort_mode,
+            file_query: self.file_search_query().map(str::to_lowercase),
+        }
+    }
+
+    fn compute_visible_file_indices(&self, file_query: Option<&str>) -> Vec<usize> {
         let mut indices: Vec<usize> = self
             .diff
             .files
@@ -187,7 +215,7 @@ impl TuiApp {
                 if !visible {
                     return None;
                 }
-                if let Some(query) = file_query.as_ref() {
+                if let Some(query) = file_query {
                     let path = file.path.to_lowercase();
                     if !path.contains(query) {
                         return None;
@@ -374,6 +402,35 @@ mod tests {
         app.set_file_filter_mode(FileFilterMode::Pending);
         let visible_pending = app.visible_file_indices();
         assert_eq!(visible_pending.len(), 1);
+        Ok(())
+    }
+
+    #[test]
+    fn visible_file_indices_cache_invalidates_when_comment_stats_rebuild() -> Result<()> {
+        let comments = vec![make_comment_with_anchor(
+            1,
+            "src/a.rs",
+            CommentStatus::Open,
+            1,
+            1,
+        )];
+        let mut app = make_test_app(vec!["src/a.rs", "src/b.rs"], comments)?;
+        app.set_file_filter_mode(FileFilterMode::Open);
+
+        let visible = app.visible_file_indices();
+        assert_eq!(visible, vec![0]);
+
+        app.review.comments = vec![make_comment_with_anchor(
+            2,
+            "src/b.rs",
+            CommentStatus::Open,
+            2,
+            2,
+        )];
+        app.rebuild_comment_index();
+
+        let visible = app.visible_file_indices();
+        assert_eq!(visible, vec![1]);
         Ok(())
     }
 

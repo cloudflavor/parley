@@ -46,6 +46,7 @@ impl TuiApp {
         let selected_comment_id = self.selected_comment_id();
 
         self.diff = result;
+        self.invalidate_visible_file_indices_cache();
         self.row_cache.clear();
         self.root_hydrated_files.clear();
         self.clear_diff_render_cache();
@@ -250,6 +251,7 @@ impl TuiApp {
         self.collapsed_threads
             .retain(|id| self.review.comments.iter().any(|comment| comment.id == *id));
         self.diff = load_git_diff(&self.config, &self.diff_source).await?;
+        self.invalidate_visible_file_indices_cache();
         self.row_cache.clear();
         self.root_hydrated_files.clear();
         self.clear_diff_render_cache();

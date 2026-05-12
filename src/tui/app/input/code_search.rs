@@ -195,6 +195,7 @@ impl TuiApp {
             .with_context(|| format!("failed to load {}", result.path))?
         {
             self.diff.files.push(file);
+            self.invalidate_visible_file_indices_cache();
             let index = self.diff.files.len().saturating_sub(1);
             self.root_hydrated_files.insert(index);
             index
