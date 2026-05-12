@@ -202,42 +202,13 @@ pub(super) fn suspend_tui_process(
     terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
     mouse_capture_enabled: bool,
 ) -> Result<()> {
-    disable_raw_mode().context("failed to disable raw mode before suspend")?;
-    if mouse_capture_enabled {
-        execute!(
-            terminal.backend_mut(),
-            LeaveAlternateScreen,
-            DisableMouseCapture
-        )
-        .context("failed to leave alternate screen before suspend")?;
-    } else {
-        execute!(terminal.backend_mut(), LeaveAlternateScreen)
-            .context("failed to leave alternate screen before suspend")?;
-    }
-    terminal.show_cursor().context("failed to show cursor")?;
-
-    let suspend_result = suspend_current_process();
-
-    if mouse_capture_enabled {
-        execute!(
-            terminal.backend_mut(),
-            EnterAlternateScreen,
-            EnableMouseCapture
-        )
-        .context("failed to re-enter alternate screen after suspend")?;
-    } else {
-        execute!(terminal.backend_mut(), EnterAlternateScreen)
-            .context("failed to re-enter alternate screen after suspend")?;
-    }
-    enable_raw_mode().context("failed to re-enable raw mode after suspend")?;
-    terminal
-        .hide_cursor()
-        .context("failed to hide cursor after suspend")?;
-    terminal
-        .clear()
-        .context("failed to clear terminal after suspend")?;
-
-    suspend_result
+    run_with_terminal_released(
+        terminal,
+        mouse_capture_enabled,
+        "suspend",
+        "suspend",
+        suspend_current_process,
+    )
 }
 
 pub(super) fn open_file_in_pager(
@@ -245,44 +216,76 @@ pub(super) fn open_file_in_pager(
     mouse_capture_enabled: bool,
     path: &Path,
 ) -> Result<()> {
-    disable_raw_mode().context("failed to disable raw mode before opening pager")?;
+    run_with_terminal_released(
+        terminal,
+        mouse_capture_enabled,
+        "opening pager",
+        "pager",
+        || run_pager(path),
+    )
+}
+
+fn run_with_terminal_released(
+    terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
+    mouse_capture_enabled: bool,
+    before_label: &str,
+    after_label: &str,
+    action: impl FnOnce() -> Result<()>,
+) -> Result<()> {
+    disable_raw_mode()
+        .with_context(|| format!("failed to disable raw mode before {before_label}"))?;
+    leave_terminal_screen(terminal, mouse_capture_enabled)
+        .with_context(|| format!("failed to leave alternate screen before {before_label}"))?;
+    terminal
+        .show_cursor()
+        .with_context(|| format!("failed to show cursor before {before_label}"))?;
+
+    let action_result = action();
+
+    enter_terminal_screen(terminal, mouse_capture_enabled)
+        .with_context(|| format!("failed to re-enter alternate screen after {after_label}"))?;
+    enable_raw_mode()
+        .with_context(|| format!("failed to re-enable raw mode after {after_label}"))?;
+    terminal
+        .hide_cursor()
+        .with_context(|| format!("failed to hide cursor after {after_label}"))?;
+    terminal
+        .clear()
+        .with_context(|| format!("failed to clear terminal after {after_label}"))?;
+
+    action_result
+}
+
+fn leave_terminal_screen(
+    terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
+    mouse_capture_enabled: bool,
+) -> Result<()> {
     if mouse_capture_enabled {
         execute!(
             terminal.backend_mut(),
             LeaveAlternateScreen,
             DisableMouseCapture
-        )
-        .context("failed to leave alternate screen before opening pager")?;
+        )?;
     } else {
-        execute!(terminal.backend_mut(), LeaveAlternateScreen)
-            .context("failed to leave alternate screen before opening pager")?;
+        execute!(terminal.backend_mut(), LeaveAlternateScreen)?;
     }
-    terminal
-        .show_cursor()
-        .context("failed to show cursor before opening pager")?;
+    Ok(())
+}
 
-    let pager_result = run_pager(path);
-
+fn enter_terminal_screen(
+    terminal: &mut Terminal<CrosstermBackend<io::Stdout>>,
+    mouse_capture_enabled: bool,
+) -> Result<()> {
     if mouse_capture_enabled {
         execute!(
             terminal.backend_mut(),
             EnterAlternateScreen,
             EnableMouseCapture
-        )
-        .context("failed to re-enter alternate screen after pager")?;
+        )?;
     } else {
-        execute!(terminal.backend_mut(), EnterAlternateScreen)
-            .context("failed to re-enter alternate screen after pager")?;
+        execute!(terminal.backend_mut(), EnterAlternateScreen)?;
     }
-    enable_raw_mode().context("failed to re-enable raw mode after pager")?;
-    terminal
-        .hide_cursor()
-        .context("failed to hide cursor after pager")?;
-    terminal
-        .clear()
-        .context("failed to clear terminal after pager")?;
-
-    pager_result
+    Ok(())
 }
 
 fn run_pager(path: &Path) -> Result<()> {

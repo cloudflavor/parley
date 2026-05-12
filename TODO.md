@@ -325,9 +325,9 @@ Success criteria:
 
 ### Unit 15: Deduplicate Terminal Leave/Restore
 
-- [ ] Factor terminal leave/restore around pager and suspend actions.
-- [ ] Use one helper that leaves raw/alternate-screen mode, runs an action, restores terminal state, and clears.
-- [ ] Preserve mouse capture behavior.
+- [x] Factor terminal leave/restore around pager and suspend actions.
+- [x] Use one helper that leaves raw/alternate-screen mode, runs an action, restores terminal state, and clears.
+- [x] Preserve mouse capture behavior.
 
 Files:
 - `src/tui/app/helpers.rs`
