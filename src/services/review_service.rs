@@ -5,7 +5,7 @@ use crate::domain::review::{
 };
 use crate::persistence::store::{Store, StoreError};
 use crate::utils::time::now_ms;
-use anyhow::{Context, Result, anyhow};
+use anyhow::{Context, Result};
 use std::path::PathBuf;
 
 #[derive(Debug, Clone)]
@@ -127,15 +127,10 @@ impl ReviewService {
     /// Returns an error when the review cannot be loaded, the clock is invalid, the state
     /// transition is rejected, or the updated review cannot be saved.
     pub async fn set_state(&self, name: &str, next: ReviewState) -> Result<ReviewSession> {
-        let mut session = self.load_review(name).await?;
-        session
-            .set_state(next, now_ms()?)
-            .map_err(|error| anyhow!(error))?;
-        self.store
-            .save_review(&session)
-            .await
-            .context("failed to save state change")?;
-        Ok(session)
+        self.mutate_review(name, "failed to save state change", |session, now_ms| {
+            session.set_state(next, now_ms).map_err(anyhow::Error::msg)
+        })
+        .await
     }
 
     /// # Errors
@@ -143,25 +138,22 @@ impl ReviewService {
     /// Returns an error when the review cannot be loaded, the clock is invalid, or the new comment
     /// cannot be persisted.
     pub async fn add_comment(&self, name: &str, input: AddCommentInput) -> Result<ReviewSession> {
-        let mut session = self.load_review(name).await?;
-        session.add_comment(
-            NewLineComment {
-                file_path: input.file_path,
-                old_line: input.old_line,
-                new_line: input.new_line,
-                line_range: input.line_range,
-                side: input.side,
-                line_anchor: input.line_anchor,
-                body: input.body,
-                author: input.author,
-            },
-            now_ms()?,
-        );
-        self.store
-            .save_review(&session)
-            .await
-            .context("failed to persist new comment")?;
-        Ok(session)
+        let new_comment = NewLineComment {
+            file_path: input.file_path,
+            old_line: input.old_line,
+            new_line: input.new_line,
+            line_range: input.line_range,
+            side: input.side,
+            line_anchor: input.line_anchor,
+            body: input.body,
+            author: input.author,
+        };
+
+        self.mutate_review(name, "failed to persist new comment", |session, now_ms| {
+            session.add_comment(new_comment, now_ms);
+            Ok(())
+        })
+        .await
     }
 
     /// # Errors
@@ -169,15 +161,13 @@ impl ReviewService {
     /// Returns an error when the review cannot be loaded, the target comment is missing, the clock
     /// is invalid, or the reply cannot be persisted.
     pub async fn add_reply(&self, name: &str, input: AddReplyInput) -> Result<ReviewSession> {
-        let mut session = self.load_review(name).await?;
-        session
-            .add_reply(input.comment_id, input.author, input.body, now_ms()?)
-            .map_err(|error| anyhow!(error))?;
-        self.store
-            .save_review(&session)
-            .await
-            .context("failed to persist new reply")?;
-        Ok(session)
+        self.mutate_review(name, "failed to persist new reply", |session, now_ms| {
+            session
+                .add_reply(input.comment_id, input.author, input.body, now_ms)
+                .map(|_| ())
+                .map_err(anyhow::Error::msg)
+        })
+        .await
     }
 
     /// # Errors
@@ -213,15 +203,16 @@ impl ReviewService {
     /// Returns an error when the review cannot be loaded, the target comment is missing, the clock
     /// is invalid, or the update cannot be persisted.
     pub async fn force_mark_addressed(&self, name: &str, comment_id: u64) -> Result<ReviewSession> {
-        let mut session = self.load_review(name).await?;
-        session
-            .set_comment_status_force(comment_id, CommentStatus::Addressed, now_ms()?)
-            .map_err(|error| anyhow!(error))?;
-        self.store
-            .save_review(&session)
-            .await
-            .context("failed to persist forced comment status")?;
-        Ok(session)
+        self.mutate_review(
+            name,
+            "failed to persist forced comment status",
+            |session, now_ms| {
+                session
+                    .set_comment_status_force(comment_id, CommentStatus::Addressed, now_ms)
+                    .map_err(anyhow::Error::msg)
+            },
+        )
+        .await
     }
 
     /// # Errors
@@ -233,26 +224,25 @@ impl ReviewService {
         name: &str,
         input: ReanchorCommentInput,
     ) -> Result<ReviewSession> {
-        let mut session = self.load_review(name).await?;
-        session
-            .reanchor_comment(
-                input.comment_id,
-                ReanchorLineComment {
-                    file_path: input.file_path,
-                    old_line: input.old_line,
-                    new_line: input.new_line,
-                    line_range: input.line_range,
-                    side: input.side,
-                    line_anchor: input.line_anchor,
-                },
-                now_ms()?,
-            )
-            .map_err(|error| anyhow!(error))?;
-        self.store
-            .save_review(&session)
-            .await
-            .context("failed to persist comment re-anchor")?;
-        Ok(session)
+        let target = ReanchorLineComment {
+            file_path: input.file_path,
+            old_line: input.old_line,
+            new_line: input.new_line,
+            line_range: input.line_range,
+            side: input.side,
+            line_anchor: input.line_anchor,
+        };
+
+        self.mutate_review(
+            name,
+            "failed to persist comment re-anchor",
+            |session, now_ms| {
+                session
+                    .reanchor_comment(input.comment_id, target, now_ms)
+                    .map_err(anyhow::Error::msg)
+            },
+        )
+        .await
     }
 
     /// # Errors
@@ -272,14 +262,30 @@ impl ReviewService {
         status: CommentStatus,
         actor: Author,
     ) -> Result<ReviewSession> {
+        self.mutate_review(
+            name,
+            "failed to persist comment status",
+            |session, now_ms| {
+                session
+                    .set_comment_status(comment_id, status, actor, now_ms)
+                    .map_err(anyhow::Error::msg)
+            },
+        )
+        .await
+    }
+
+    async fn mutate_review(
+        &self,
+        name: &str,
+        save_context: &'static str,
+        mutate: impl FnOnce(&mut ReviewSession, u64) -> Result<()>,
+    ) -> Result<ReviewSession> {
         let mut session = self.load_review(name).await?;
-        session
-            .set_comment_status(comment_id, status, actor, now_ms()?)
-            .map_err(|error| anyhow!(error))?;
+        mutate(&mut session, now_ms()?)?;
         self.store
             .save_review(&session)
             .await
-            .context("failed to persist comment status")?;
+            .context(save_context)?;
         Ok(session)
     }
 }

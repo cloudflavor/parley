@@ -131,9 +131,9 @@ Success criteria:
 
 ### Unit 6: Simplify Review Mutation Boilerplate
 
-- [ ] Add a private `mutate_review` helper in `ReviewService`.
-- [ ] Use it for `set_state`, `add_reply`, `force_mark_addressed`, `reanchor_comment`, and `set_comment_status`.
-- [ ] Keep method-specific context messages if they add useful failure location.
+- [x] Add a private `mutate_review` helper in `ReviewService`.
+- [x] Use it for `set_state`, `add_reply`, `force_mark_addressed`, `reanchor_comment`, and `set_comment_status`.
+- [x] Keep method-specific context messages if they add useful failure location.
 
 Files:
 - `src/services/review_service.rs`
