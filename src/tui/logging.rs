@@ -6,13 +6,12 @@ use std::sync::Arc;
 use std::sync::Mutex;
 
 use anyhow::{Context, Result};
+use tokio::fs::OpenOptions;
+use tokio::fs::create_dir_all;
 use tracing_subscriber::Layer;
 use tracing_subscriber::filter::LevelFilter;
 use tracing_subscriber::layer::SubscriberExt;
 use tracing_subscriber::util::SubscriberInitExt;
-
-use tokio::fs::OpenOptions;
-use tokio::fs::create_dir_all;
 
 #[derive(Clone)]
 struct FileMakeWriter {
