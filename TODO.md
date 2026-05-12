@@ -410,7 +410,7 @@ Implementation slices:
 3. [x] Add exact projection computation that never mutates the original anchor.
 4. [x] Render detached/outdated thread context when projection is missing.
 5. [x] Update AI prompt context to include anchor status and original/current projection data.
-6. [ ] Add tests for refactored lines, deleted lines, moved text, same-file multiple threads, and root-mode file changes.
+6. [x] Add tests for refactored lines, deleted lines, moved text, same-file multiple threads, and root-mode file changes.
 
 ## Refactoring follow-up
 

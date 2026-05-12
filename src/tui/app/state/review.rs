@@ -273,6 +273,8 @@ impl TuiApp {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::domain::diff::{DiffFile, DiffHunk, DiffLine, DiffLineKind};
+    use crate::domain::review::SourceAnchorSnapshot;
     use crate::persistence::store::Store;
     use crate::services::review_service::ReviewService;
     use crate::tui::app::state::tests::{
@@ -343,8 +345,8 @@ mod tests {
     }
 
     #[test]
-    fn exact_anchor_projection_rejects_changed_original_text_without_mutating_comment() -> Result<()>
-    {
+    fn exact_anchor_projection_marks_refactored_line_outdated_without_mutating_comment()
+    -> Result<()> {
         let comment = comment_with_original_anchor(1, "src/a.rs", 2, "fn target() {}");
         let app = make_test_app_with_files_and_comments(
             vec![diff_file_with_context_lines(
@@ -367,19 +369,161 @@ mod tests {
         Ok(())
     }
 
+    #[test]
+    fn exact_anchor_projection_does_not_follow_moved_text_automatically() -> Result<()> {
+        let comment = comment_with_original_anchor(1, "src/a.rs", 2, "fn target() {}");
+        let app = make_test_app_with_files_and_comments(
+            vec![diff_file_with_context_lines(
+                "src/a.rs",
+                &[
+                    (1, "fn before() {}"),
+                    (2, "fn replacement() {}"),
+                    (9, "fn target() {}"),
+                ],
+            )],
+            vec![comment],
+        )?;
+        let moved_row = app
+            .current_rows()
+            .iter()
+            .find(|row| row.new_line == Some(9))
+            .ok_or_else(|| anyhow!("moved row should exist"))?;
+
+        assert!(!app.comment_matches_current_projection(&app.review.comments[0], moved_row));
+        assert_eq!(
+            app.projected_comment_reference(&app.review.comments[0]),
+            "2:2"
+        );
+        Ok(())
+    }
+
+    #[test]
+    fn exact_anchor_projection_matches_deleted_line_on_left_side() -> Result<()> {
+        let comment = comment_with_side_original_anchor(
+            1,
+            "src/a.rs",
+            DiffSide::Left,
+            Some(4),
+            None,
+            "fn deleted() {}",
+        );
+        let app = make_test_app_with_files_and_comments(
+            vec![diff_file_with_lines(
+                "src/a.rs",
+                vec![
+                    diff_context_line(3, 3, "fn before() {}"),
+                    diff_removed_line(4, "fn deleted() {}"),
+                    diff_context_line(5, 4, "fn after() {}"),
+                ],
+            )],
+            vec![comment],
+        )?;
+        let deleted_row = app
+            .current_rows()
+            .iter()
+            .find(|row| row.old_line == Some(4) && row.new_line.is_none())
+            .ok_or_else(|| anyhow!("deleted row should exist"))?;
+
+        assert!(app.comment_matches_current_projection(&app.review.comments[0], deleted_row));
+        Ok(())
+    }
+
+    #[test]
+    fn exact_anchor_projection_keeps_same_file_threads_separate() -> Result<()> {
+        let first = comment_with_original_anchor(1, "src/a.rs", 2, "fn first() {}");
+        let second = comment_with_original_anchor(2, "src/a.rs", 3, "fn second() {}");
+        let app = make_test_app_with_files_and_comments(
+            vec![diff_file_with_context_lines(
+                "src/a.rs",
+                &[(2, "fn first() {}"), (3, "fn second() {}")],
+            )],
+            vec![first, second],
+        )?;
+        let first_row = app
+            .current_rows()
+            .iter()
+            .find(|row| row.new_line == Some(2))
+            .ok_or_else(|| anyhow!("first row should exist"))?;
+        let second_row = app
+            .current_rows()
+            .iter()
+            .find(|row| row.new_line == Some(3))
+            .ok_or_else(|| anyhow!("second row should exist"))?;
+
+        assert!(app.comment_matches_current_projection(&app.review.comments[0], first_row));
+        assert!(!app.comment_matches_current_projection(&app.review.comments[0], second_row));
+        assert!(app.comment_matches_current_projection(&app.review.comments[1], second_row));
+        assert!(!app.comment_matches_current_projection(&app.review.comments[1], first_row));
+        Ok(())
+    }
+
+    #[test]
+    fn exact_anchor_projection_marks_root_mode_file_change_outdated() -> Result<()> {
+        let mut comment = comment_with_original_anchor(1, "src/a.rs", 2, "fn original() {}");
+        if let Some(anchor) = comment.original_anchor.as_mut() {
+            anchor.source = Some(SourceAnchorSnapshot {
+                file_content_hash: Some("old-file-hash".to_string()),
+                selected_text_hash: Some("old-selected-hash".to_string()),
+            });
+        }
+        let mut app = make_test_app_with_files_and_comments(
+            vec![diff_file_with_context_lines(
+                "src/a.rs",
+                &[(1, "fn before() {}"), (2, "fn changed() {}")],
+            )],
+            vec![comment],
+        )?;
+        app.diff_source = DiffSource::RootDirectory;
+        app.refresh_comment_anchor_projections();
+        let changed_row = app
+            .current_rows()
+            .iter()
+            .find(|row| row.new_line == Some(2))
+            .ok_or_else(|| anyhow!("changed root row should exist"))?;
+
+        assert!(!app.comment_matches_current_projection(&app.review.comments[0], changed_row));
+        assert_eq!(
+            app.projected_comment_reference(&app.review.comments[0]),
+            "2:2"
+        );
+        Ok(())
+    }
+
     fn comment_with_original_anchor(
         id: u64,
         file_path: &str,
         line: u32,
         selected_text: &str,
     ) -> LineComment {
+        comment_with_side_original_anchor(
+            id,
+            file_path,
+            DiffSide::Right,
+            Some(line),
+            Some(line),
+            selected_text,
+        )
+    }
+
+    fn comment_with_side_original_anchor(
+        id: u64,
+        file_path: &str,
+        side: DiffSide,
+        old_line: Option<u32>,
+        new_line: Option<u32>,
+        selected_text: &str,
+    ) -> LineComment {
+        let line = new_line.or(old_line).unwrap_or(1);
         let mut comment = make_comment_with_anchor(id, file_path, CommentStatus::Open, line, line);
         comment.line_anchor = None;
+        comment.side = side.clone();
+        comment.old_line = old_line;
+        comment.new_line = new_line;
         comment.original_anchor = Some(StoredAnchorSnapshot {
             file_path: file_path.to_string(),
-            side: DiffSide::Right,
-            old_line: Some(line),
-            new_line: Some(line),
+            side,
+            old_line,
+            new_line,
             line_range: None,
             selected_text: selected_text.to_string(),
             before_context: Vec::new(),
@@ -390,5 +534,44 @@ mod tests {
             head_rev: None,
         });
         comment
+    }
+
+    fn diff_file_with_lines(path: &str, lines: Vec<DiffLine>) -> DiffFile {
+        DiffFile {
+            path: path.to_string(),
+            header_lines: vec![
+                format!("diff --git a/{path} b/{path}"),
+                format!("--- a/{path}"),
+                format!("+++ b/{path}"),
+            ],
+            hunks: vec![DiffHunk {
+                header: "@@ -1,3 +1,3 @@".to_string(),
+                old_start: 1,
+                old_count: 3,
+                new_start: 1,
+                new_count: 3,
+                lines,
+            }],
+        }
+    }
+
+    fn diff_context_line(old_line: u32, new_line: u32, code: &str) -> DiffLine {
+        DiffLine {
+            kind: DiffLineKind::Context,
+            old_line: Some(old_line),
+            new_line: Some(new_line),
+            raw: format!(" {code}"),
+            code: code.to_string(),
+        }
+    }
+
+    fn diff_removed_line(old_line: u32, code: &str) -> DiffLine {
+        DiffLine {
+            kind: DiffLineKind::Removed,
+            old_line: Some(old_line),
+            new_line: None,
+            raw: format!("-{code}"),
+            code: code.to_string(),
+        }
     }
 }
