@@ -1,15 +1,17 @@
-use std::{
-    collections::{HashMap, HashSet, VecDeque},
-    io,
-    path::PathBuf,
-    time::{Duration, Instant},
-};
+use std::collections::{HashMap, HashSet, VecDeque};
+use std::io;
+use std::path::PathBuf;
+use std::time::{Duration, Instant};
 
 use anyhow::{Context, Result};
-use crossterm::event::{self, Event};
-use ratatui::{Terminal, backend::CrosstermBackend, layout::Rect};
+use crossterm::event;
+use crossterm::event::Event;
+use ratatui::Terminal;
+use ratatui::backend::CrosstermBackend;
+use ratatui::layout::Rect;
 use tokio::sync::mpsc::UnboundedReceiver;
-use tokio::task::{self, JoinHandle};
+use tokio::task;
+use tokio::task::JoinHandle;
 
 use crate::domain::ai::{AiProvider, AiSessionMode};
 use crate::domain::config::{AgentTransport, AppConfig, default_user_name};
