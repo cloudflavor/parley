@@ -400,23 +400,29 @@ mod tests {
     };
     use anyhow::Result;
 
+    fn user_comment(new_line: u32, body: &str) -> NewLineComment {
+        NewLineComment {
+            file_path: "src/lib.rs".into(),
+            old_line: None,
+            new_line: Some(new_line),
+            line_range: None,
+            side: DiffSide::Right,
+            line_anchor: None,
+            original_anchor: None,
+            body: body.into(),
+            author: Author::User,
+        }
+    }
+
+    fn session_with_user_comment() -> (ReviewSession, u64) {
+        let mut session = ReviewSession::new("r1".into(), 1);
+        let comment_id = session.add_comment(user_comment(1, "needs refactor"), 2);
+        (session, comment_id)
+    }
+
     #[test]
     fn add_reply_from_ai_should_set_pending_and_under_review() -> Result<()> {
-        let mut session = ReviewSession::new("r1".into(), 1);
-        let comment_id = session.add_comment(
-            NewLineComment {
-                file_path: "src/lib.rs".into(),
-                old_line: None,
-                new_line: Some(1),
-                line_range: None,
-                side: DiffSide::Right,
-                line_anchor: None,
-                original_anchor: None,
-                body: "needs refactor".into(),
-                author: Author::User,
-            },
-            2,
-        );
+        let (mut session, comment_id) = session_with_user_comment();
 
         session.add_reply(comment_id, Author::Ai, "fixed".into(), 3)?;
 
@@ -456,21 +462,7 @@ mod tests {
 
     #[test]
     fn add_reply_from_original_commenter_should_reopen_thread() -> Result<()> {
-        let mut session = ReviewSession::new("r1".into(), 1);
-        let comment_id = session.add_comment(
-            NewLineComment {
-                file_path: "src/lib.rs".into(),
-                old_line: None,
-                new_line: Some(1),
-                line_range: None,
-                side: DiffSide::Right,
-                line_anchor: None,
-                original_anchor: None,
-                body: "needs refactor".into(),
-                author: Author::User,
-            },
-            2,
-        );
+        let (mut session, comment_id) = session_with_user_comment();
         session.add_reply(comment_id, Author::Ai, "proposal".into(), 3)?;
 
         session.add_reply(comment_id, Author::User, "please revise".into(), 4)?;
@@ -482,44 +474,32 @@ mod tests {
 
     #[test]
     fn set_comment_status_should_require_original_commenter() {
-        let mut session = ReviewSession::new("r1".into(), 1);
-        let comment_id = session.add_comment(
-            NewLineComment {
-                file_path: "src/lib.rs".into(),
-                old_line: None,
-                new_line: Some(1),
-                line_range: None,
-                side: DiffSide::Right,
-                line_anchor: None,
-                original_anchor: None,
-                body: "needs refactor".into(),
-                author: Author::User,
-            },
-            2,
-        );
+        let (mut session, comment_id) = session_with_user_comment();
 
-        let result =
-            session.set_comment_status(comment_id, CommentStatus::Addressed, Author::Ai, 3);
-        assert!(result.is_err());
+        let error = session
+            .set_comment_status(comment_id, CommentStatus::Addressed, Author::Ai, 3)
+            .expect_err("non-original commenter should not address comment");
+
+        assert_eq!(error, ReviewMutationError::OnlyOriginalCommenterCanAddress);
+    }
+
+    #[test]
+    fn set_comment_status_should_reject_non_author_status_changes() {
+        let (mut session, comment_id) = session_with_user_comment();
+
+        let error = session
+            .set_comment_status(comment_id, CommentStatus::Pending, Author::Ai, 3)
+            .expect_err("non-original commenter should not change thread status");
+
+        assert_eq!(
+            error,
+            ReviewMutationError::OnlyOriginalCommenterCanChangeStatus
+        );
     }
 
     #[test]
     fn set_comment_status_force_should_bypass_original_commenter_check() -> Result<()> {
-        let mut session = ReviewSession::new("r1".into(), 1);
-        let comment_id = session.add_comment(
-            NewLineComment {
-                file_path: "src/lib.rs".into(),
-                old_line: None,
-                new_line: Some(1),
-                line_range: None,
-                side: DiffSide::Right,
-                line_anchor: None,
-                original_anchor: None,
-                body: "needs refactor".into(),
-                author: Author::User,
-            },
-            2,
-        );
+        let (mut session, comment_id) = session_with_user_comment();
 
         session.set_comment_status_force(comment_id, CommentStatus::Addressed, 3)?;
         assert_eq!(session.comments[0].status, CommentStatus::Addressed);
@@ -528,21 +508,7 @@ mod tests {
 
     #[test]
     fn all_addressed_should_reconcile_to_under_review() -> Result<()> {
-        let mut session = ReviewSession::new("r1".into(), 1);
-        let comment_id = session.add_comment(
-            NewLineComment {
-                file_path: "src/lib.rs".into(),
-                old_line: None,
-                new_line: Some(1),
-                line_range: None,
-                side: DiffSide::Right,
-                line_anchor: None,
-                original_anchor: None,
-                body: "needs refactor".into(),
-                author: Author::User,
-            },
-            2,
-        );
+        let (mut session, comment_id) = session_with_user_comment();
         session.set_comment_status(comment_id, CommentStatus::Addressed, Author::User, 3)?;
 
         assert_eq!(session.state, ReviewState::UnderReview);
@@ -582,20 +548,9 @@ mod tests {
             head_rev: Some("head".into()),
         };
 
-        session.add_comment(
-            NewLineComment {
-                file_path: "src/lib.rs".into(),
-                old_line: None,
-                new_line: Some(7),
-                line_range: None,
-                side: DiffSide::Right,
-                line_anchor: None,
-                original_anchor: Some(original_anchor.clone()),
-                body: "anchor".into(),
-                author: Author::User,
-            },
-            2,
-        );
+        let mut comment = user_comment(7, "anchor");
+        comment.original_anchor = Some(original_anchor.clone());
+        session.add_comment(comment, 2);
 
         assert_eq!(session.comments[0].original_anchor, Some(original_anchor));
     }
