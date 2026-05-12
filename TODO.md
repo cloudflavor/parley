@@ -6,6 +6,11 @@ Primary goal: remove lines and simplify control flow without losing functionalit
 
 Implementation rule: each cleanup slice should preserve current behavior first, then remove dead/duplicated code in the same slice. Keep tests focused on behavior that must not regress.
 
+### Completed Review Follow-Up
+
+- [x] Address review `new`: merge `src/services/ai_session.rs` local module imports into the main import group.
+- [x] Address review `new`: split `run_ai_session_inner` into result construction, target selection, target iteration, and single-target processing helpers.
+
 ### Start Here
 
 Start with units 1-4. They are mostly deletion/renaming work, have small blast radius, and make later provider cleanup easier to review.

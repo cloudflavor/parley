@@ -1,6 +1,10 @@
+use self::progress::emit_progress;
+use self::prompt::{build_thread_prompt, load_task_prompt_override};
+use self::provider::{format_ai_reply_body, invoke_provider};
 use crate::domain::ai::{AiProvider, AiSessionMode};
-use crate::domain::config::AgentTransport;
-use crate::domain::review::{Author, CommentStatus};
+use crate::domain::config::{AgentTransport, AiProviderConfig, AppConfig};
+use crate::domain::diff::DiffDocument;
+use crate::domain::review::{Author, CommentStatus, ReviewSession};
 use crate::git::diff::{DiffSource, load_git_diff};
 use crate::services::review_service::{AddReplyInput, ReviewService};
 use crate::utils::time::now_ms;
@@ -15,10 +19,6 @@ mod provider;
 
 #[cfg(test)]
 mod tests;
-
-use progress::emit_progress;
-use prompt::{build_thread_prompt, load_task_prompt_override};
-use provider::{format_ai_reply_body, invoke_provider};
 
 #[derive(Debug, Clone)]
 pub struct RunAiSessionInput {
@@ -52,6 +52,47 @@ pub struct AiSessionItemResult {
     pub comment_id: u64,
     pub status: String,
     pub message: String,
+}
+
+impl AiSessionResult {
+    fn new(input: &RunAiSessionInput, provider_cfg: &AiProviderConfig, now_ms: u64) -> Self {
+        Self {
+            review_name: input.review_name.clone(),
+            provider: input.provider.as_str().to_string(),
+            mode: input.mode.as_str().to_string(),
+            transport: provider_cfg.transport.as_str().to_string(),
+            client: provider_cfg.client.clone(),
+            model: provider_cfg.model.clone(),
+            session_id: format!("{}-{}-{now_ms}", input.review_name, input.provider.as_str()),
+            processed: 0,
+            skipped: 0,
+            failed: 0,
+            items: Vec::new(),
+        }
+    }
+
+    fn push_processed(&mut self, comment_id: u64, message: impl Into<String>) {
+        self.processed += 1;
+        self.push_item(comment_id, "processed", message);
+    }
+
+    fn push_skipped(&mut self, comment_id: u64, message: impl Into<String>) {
+        self.skipped += 1;
+        self.push_item(comment_id, "skipped", message);
+    }
+
+    fn push_failed(&mut self, comment_id: u64, message: impl Into<String>) {
+        self.failed += 1;
+        self.push_item(comment_id, "failed", message);
+    }
+
+    fn push_item(&mut self, comment_id: u64, status: &str, message: impl Into<String>) {
+        self.items.push(AiSessionItemResult {
+            comment_id,
+            status: status.to_string(),
+            message: message.into(),
+        });
+    }
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -120,41 +161,12 @@ async fn run_ai_session_inner(
     let provider_cfg = config
         .ai
         .provider_config_for_transport(input.provider, effective_transport);
-    let mut result = AiSessionResult {
-        review_name: input.review_name.clone(),
-        provider: input.provider.as_str().to_string(),
-        mode: input.mode.as_str().to_string(),
-        transport: provider_cfg.transport.as_str().to_string(),
-        client: provider_cfg.client.clone(),
-        model: provider_cfg.model.clone(),
-        session_id: format!("{}-{}-{now_ms}", input.review_name, input.provider.as_str()),
-        processed: 0,
-        skipped: 0,
-        failed: 0,
-        items: Vec::new(),
-    };
+    let mut result = AiSessionResult::new(&input, &provider_cfg, now_ms);
 
-    let target_ids: Vec<u64> = if input.comment_ids.is_empty() {
-        review
-            .comments
-            .iter()
-            .filter(|comment| comment_is_targetable(comment.status.clone(), input.mode))
-            .map(|comment| comment.id)
-            .collect()
-    } else {
-        input.comment_ids.clone()
-    };
+    let target_ids = ai_session_target_ids(&review, &input.comment_ids, input.mode);
     let total_targets = target_ids.len();
     if total_targets == 0 {
-        result.items.push(AiSessionItemResult {
-            comment_id: 0,
-            status: "skipped".to_string(),
-            message: match input.mode {
-                AiSessionMode::Reply => "no replyable threads to process".to_string(),
-                AiSessionMode::Refactor => "no open threads to process".to_string(),
-            },
-        });
-        result.skipped = 1;
+        result.push_skipped(0, no_targets_message(input.mode));
         emit_progress(
             progress_sender.as_ref(),
             input.provider,
@@ -165,207 +177,15 @@ async fn run_ai_session_inner(
     }
 
     let task_prompt_override = load_task_prompt_override(&config, input.mode).await?;
-    for (step_index, comment_id) in target_ids.into_iter().enumerate() {
-        emit_progress(
-            progress_sender.as_ref(),
-            input.provider,
-            "system",
-            format!(
-                "thread #{comment_id}: start ({}/{})",
-                step_index + 1,
-                total_targets
-            ),
-        );
-        debug!(
-            review = %input.review_name,
-            provider = %input.provider.as_str(),
-            comment_id,
-            "processing ai thread"
-        );
-        let maybe_comment = review
-            .comments
-            .iter()
-            .find(|comment| comment.id == comment_id);
-        let Some(comment) = maybe_comment else {
-            warn!(
-                review = %input.review_name,
-                provider = %input.provider.as_str(),
-                comment_id,
-                "ai session target comment not found"
-            );
-            result.failed += 1;
-            result.items.push(AiSessionItemResult {
-                comment_id,
-                status: "failed".to_string(),
-                message: "comment not found in review".to_string(),
-            });
-            emit_progress(
-                progress_sender.as_ref(),
-                input.provider,
-                "system",
-                format!("thread #{comment_id}: failed (comment not found)"),
-            );
-            continue;
-        };
-
-        if !comment_is_targetable(comment.status.clone(), input.mode) {
-            debug!(
-                review = %input.review_name,
-                provider = %input.provider.as_str(),
-                comment_id,
-                status = ?comment.status,
-                "skipping non-targetable comment for selected mode"
-            );
-            result.skipped += 1;
-            result.items.push(AiSessionItemResult {
-                comment_id,
-                status: "skipped".to_string(),
-                message: format!(
-                    "comment status {:?} is not targetable for {} mode",
-                    comment.status,
-                    input.mode.as_str()
-                ),
-            });
-            emit_progress(
-                progress_sender.as_ref(),
-                input.provider,
-                "system",
-                format!(
-                    "thread #{comment_id}: skipped (status={:?})",
-                    comment.status
-                ),
-            );
-            continue;
-        }
-
-        let prompt = build_thread_prompt(
-            &input.review_name,
-            comment_id,
-            &review,
-            diff_document.as_ref(),
-            input.mode,
-            task_prompt_override.as_deref(),
-        )
-        .await?;
-        let provider_reply = match invoke_provider(
-            &config,
-            input.provider,
-            input.transport,
-            input.mode,
-            &prompt,
-            progress_sender.clone(),
-        )
-        .await
-        {
-            Ok(reply) => reply,
-            Err(error) => {
-                error!(
-                    review = %input.review_name,
-                    provider = %input.provider.as_str(),
-                    comment_id,
-                    error = %error,
-                    "provider invocation failed"
-                );
-                result.failed += 1;
-                result.items.push(AiSessionItemResult {
-                    comment_id,
-                    status: "failed".to_string(),
-                    message: format!("provider failed: {error}"),
-                });
-                emit_progress(
-                    progress_sender.as_ref(),
-                    input.provider,
-                    "system",
-                    format!("thread #{comment_id}: failed ({error})"),
-                );
-                continue;
-            }
-        };
-        let parsed_reply = match parse_ai_thread_reply_json(&provider_reply.reply, comment_id) {
-            Ok(parsed_reply) => parsed_reply,
-            Err(error) => {
-                result.failed += 1;
-                result.items.push(AiSessionItemResult {
-                    comment_id,
-                    status: "failed".to_string(),
-                    message: format!("invalid AI reply JSON: {error}"),
-                });
-                emit_progress(
-                    progress_sender.as_ref(),
-                    input.provider,
-                    "system",
-                    format!("thread #{comment_id}: failed (invalid AI reply JSON: {error})"),
-                );
-                continue;
-            }
-        };
-        let reply_body = format_ai_reply_body(provider_reply.model.as_deref(), &parsed_reply.reply);
-
-        let updated = match service
-            .add_reply(
-                &input.review_name,
-                AddReplyInput {
-                    comment_id: parsed_reply.thread_id,
-                    author: Author::Ai,
-                    body: reply_body,
-                },
-            )
-            .await
-        {
-            Ok(value) => value,
-            Err(error) => {
-                error!(
-                    review = %input.review_name,
-                    provider = %input.provider.as_str(),
-                    comment_id,
-                    error = %error,
-                    "failed to persist ai reply"
-                );
-                result.failed += 1;
-                result.items.push(AiSessionItemResult {
-                    comment_id,
-                    status: "failed".to_string(),
-                    message: format!("failed to persist ai reply: {error}"),
-                });
-                emit_progress(
-                    progress_sender.as_ref(),
-                    input.provider,
-                    "system",
-                    format!("thread #{comment_id}: failed (persist reply: {error})"),
-                );
-                continue;
-            }
-        };
-
-        review = updated;
-        result.processed += 1;
-        info!(
-            review = %input.review_name,
-            provider = %input.provider.as_str(),
-            comment_id,
-            "ai reply persisted"
-        );
-        result.items.push(AiSessionItemResult {
-            comment_id,
-            status: "processed".to_string(),
-            message: match input.mode {
-                AiSessionMode::Reply => "ai reply added".to_string(),
-                AiSessionMode::Refactor => {
-                    "ai reply added; thread status moved to pending_human".to_string()
-                }
-            },
-        });
-        emit_progress(
-            progress_sender.as_ref(),
-            input.provider,
-            "system",
-            format!(
-                "thread #{comment_id}: reply persisted; status pending_human ({}/{})",
-                step_index + 1,
-                total_targets
-            ),
-        );
-    }
+    let context = AiSessionExecutionContext {
+        service,
+        config: &config,
+        input: &input,
+        diff_document: diff_document.as_ref(),
+        task_prompt_override: task_prompt_override.as_deref(),
+        progress_sender,
+    };
+    process_ai_session_targets(&context, &mut review, &mut result, target_ids).await?;
 
     info!(
         review = %input.review_name,
@@ -376,6 +196,245 @@ async fn run_ai_session_inner(
         "ai session completed"
     );
     Ok(result)
+}
+
+struct AiSessionExecutionContext<'a> {
+    service: &'a ReviewService,
+    config: &'a AppConfig,
+    input: &'a RunAiSessionInput,
+    diff_document: Option<&'a DiffDocument>,
+    task_prompt_override: Option<&'a str>,
+    progress_sender: Option<mpsc::UnboundedSender<AiProgressEvent>>,
+}
+
+async fn process_ai_session_targets(
+    context: &AiSessionExecutionContext<'_>,
+    review: &mut ReviewSession,
+    result: &mut AiSessionResult,
+    target_ids: Vec<u64>,
+) -> Result<()> {
+    let total_targets = target_ids.len();
+    for (step_index, comment_id) in target_ids.into_iter().enumerate() {
+        let step_number = step_index + 1;
+        emit_progress(
+            context.progress_sender.as_ref(),
+            context.input.provider,
+            "system",
+            format!(
+                "thread #{comment_id}: start ({}/{})",
+                step_number, total_targets
+            ),
+        );
+        debug!(
+            review = %context.input.review_name,
+            provider = %context.input.provider.as_str(),
+            comment_id,
+            "processing ai thread"
+        );
+        process_ai_session_target(
+            context,
+            review,
+            result,
+            comment_id,
+            step_number,
+            total_targets,
+        )
+        .await?;
+    }
+
+    Ok(())
+}
+
+async fn process_ai_session_target(
+    context: &AiSessionExecutionContext<'_>,
+    review: &mut ReviewSession,
+    result: &mut AiSessionResult,
+    comment_id: u64,
+    step_number: usize,
+    total_targets: usize,
+) -> Result<()> {
+    let Some(comment_status) = comment_status(review, comment_id) else {
+        warn!(
+            review = %context.input.review_name,
+            provider = %context.input.provider.as_str(),
+            comment_id,
+            "ai session target comment not found"
+        );
+        result.push_failed(comment_id, "comment not found in review");
+        emit_progress(
+            context.progress_sender.as_ref(),
+            context.input.provider,
+            "system",
+            format!("thread #{comment_id}: failed (comment not found)"),
+        );
+        return Ok(());
+    };
+
+    if !comment_is_targetable(comment_status.clone(), context.input.mode) {
+        debug!(
+            review = %context.input.review_name,
+            provider = %context.input.provider.as_str(),
+            comment_id,
+            status = ?comment_status,
+            "skipping non-targetable comment for selected mode"
+        );
+        result.push_skipped(
+            comment_id,
+            format!(
+                "comment status {:?} is not targetable for {} mode",
+                comment_status,
+                context.input.mode.as_str()
+            ),
+        );
+        emit_progress(
+            context.progress_sender.as_ref(),
+            context.input.provider,
+            "system",
+            format!("thread #{comment_id}: skipped (status={comment_status:?})"),
+        );
+        return Ok(());
+    }
+
+    let prompt = build_thread_prompt(
+        &context.input.review_name,
+        comment_id,
+        review,
+        context.diff_document,
+        context.input.mode,
+        context.task_prompt_override,
+    )
+    .await?;
+    let provider_reply = match invoke_provider(
+        context.config,
+        context.input.provider,
+        context.input.transport,
+        context.input.mode,
+        &prompt,
+        context.progress_sender.clone(),
+    )
+    .await
+    {
+        Ok(reply) => reply,
+        Err(error) => {
+            error!(
+                review = %context.input.review_name,
+                provider = %context.input.provider.as_str(),
+                comment_id,
+                error = %error,
+                "provider invocation failed"
+            );
+            result.push_failed(comment_id, format!("provider failed: {error}"));
+            emit_progress(
+                context.progress_sender.as_ref(),
+                context.input.provider,
+                "system",
+                format!("thread #{comment_id}: failed ({error})"),
+            );
+            return Ok(());
+        }
+    };
+    let parsed_reply = match parse_ai_thread_reply_json(&provider_reply.reply, comment_id) {
+        Ok(parsed_reply) => parsed_reply,
+        Err(error) => {
+            result.push_failed(comment_id, format!("invalid AI reply JSON: {error}"));
+            emit_progress(
+                context.progress_sender.as_ref(),
+                context.input.provider,
+                "system",
+                format!("thread #{comment_id}: failed (invalid AI reply JSON: {error})"),
+            );
+            return Ok(());
+        }
+    };
+    let reply_body = format_ai_reply_body(provider_reply.model.as_deref(), &parsed_reply.reply);
+
+    *review = match context
+        .service
+        .add_reply(
+            &context.input.review_name,
+            AddReplyInput {
+                comment_id: parsed_reply.thread_id,
+                author: Author::Ai,
+                body: reply_body,
+            },
+        )
+        .await
+    {
+        Ok(updated) => updated,
+        Err(error) => {
+            error!(
+                review = %context.input.review_name,
+                provider = %context.input.provider.as_str(),
+                comment_id,
+                error = %error,
+                "failed to persist ai reply"
+            );
+            result.push_failed(comment_id, format!("failed to persist ai reply: {error}"));
+            emit_progress(
+                context.progress_sender.as_ref(),
+                context.input.provider,
+                "system",
+                format!("thread #{comment_id}: failed (persist reply: {error})"),
+            );
+            return Ok(());
+        }
+    };
+
+    info!(
+        review = %context.input.review_name,
+        provider = %context.input.provider.as_str(),
+        comment_id,
+        "ai reply persisted"
+    );
+    result.push_processed(comment_id, processed_target_message(context.input.mode));
+    emit_progress(
+        context.progress_sender.as_ref(),
+        context.input.provider,
+        "system",
+        format!(
+            "thread #{comment_id}: reply persisted; status pending_human ({step_number}/{total_targets})"
+        ),
+    );
+    Ok(())
+}
+
+fn ai_session_target_ids(
+    review: &ReviewSession,
+    comment_ids: &[u64],
+    mode: AiSessionMode,
+) -> Vec<u64> {
+    if !comment_ids.is_empty() {
+        return comment_ids.to_vec();
+    }
+
+    review
+        .comments
+        .iter()
+        .filter(|comment| comment_is_targetable(comment.status.clone(), mode))
+        .map(|comment| comment.id)
+        .collect()
+}
+
+fn comment_status(review: &ReviewSession, comment_id: u64) -> Option<CommentStatus> {
+    review
+        .comments
+        .iter()
+        .find(|comment| comment.id == comment_id)
+        .map(|comment| comment.status.clone())
+}
+
+fn no_targets_message(mode: AiSessionMode) -> &'static str {
+    match mode {
+        AiSessionMode::Reply => "no replyable threads to process",
+        AiSessionMode::Refactor => "no open threads to process",
+    }
+}
+
+fn processed_target_message(mode: AiSessionMode) -> &'static str {
+    match mode {
+        AiSessionMode::Reply => "ai reply added",
+        AiSessionMode::Refactor => "ai reply added; thread status moved to pending_human",
+    }
 }
 
 #[derive(Debug)]
