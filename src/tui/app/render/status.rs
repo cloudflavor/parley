@@ -1,19 +1,16 @@
-use std::time::Instant;
-
+use super::super::super::theme::ThemeColors;
+use super::super::helpers::format_comment_reference;
+use super::TuiApp;
+use crate::domain::review::{CommentStatus, ReviewState};
+use crate::tui::app::render::helpers::fit_spans_to_width;
+use crate::utils::cast::usize_to_u16_saturating;
 use ratatui::{
     layout::Rect,
     style::{Modifier, Style},
     text::{Line, Span},
     widgets::{Block, Borders, Paragraph},
 };
-
-use crate::domain::review::{CommentStatus, ReviewState};
-use crate::tui::app::render::helpers::fit_spans_to_width;
-use crate::utils::cast::usize_to_u16_saturating;
-
-use super::super::super::theme::ThemeColors;
-use super::super::helpers::format_comment_reference;
-use super::TuiApp;
+use std::time::Instant;
 
 pub(super) fn compute_status_height(total_height: u16) -> u16 {
     if total_height >= 12 { 4 } else { 3 }

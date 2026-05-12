@@ -1,7 +1,3 @@
-use std::path::PathBuf;
-
-use anyhow::{Context, Result, anyhow};
-
 use crate::domain::config::AppConfig;
 use crate::domain::review::{
     Author, CommentLineRange, CommentStatus, DiffSide, LineAnchorSnapshot, NewLineComment,
@@ -9,6 +5,8 @@ use crate::domain::review::{
 };
 use crate::persistence::store::{Store, StoreError};
 use crate::utils::time::now_ms;
+use anyhow::{Context, Result, anyhow};
+use std::path::PathBuf;
 
 #[derive(Debug, Clone)]
 pub struct ReviewService {

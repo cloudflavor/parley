@@ -209,9 +209,10 @@ Mode-specific paths take precedence over `prompt_path`. Relative paths are resol
 ### Search and jump
 
 - `:<line>`: go to line
-- `/` or `Ctrl+g`: open codebase search popup
-- Code search uses `rg` when available and falls back to `grep`
-- Search respects gitignore rules and updates results while you type
+- `/<text>`: search within the current file
+- `Ctrl+g`: open codebase search popup
+- File and codebase search use `rg` when available and fall back to `grep`
+- Codebase search respects gitignore rules and updates results while you type
 - `Enter` or mouse click on a result opens the matched file and line
 - `n/p`: next or previous search hit
 

@@ -1,17 +1,3 @@
-use anyhow::{Context, Result};
-use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
-use std::time::{Duration, Instant};
-
-use crate::domain::{
-    ai::AiSessionMode,
-    config::DiffViewMode,
-    diff::DiffLineKind,
-    review::{Author, DiffSide, LineComment, ReviewState},
-};
-use crate::services::review_service::{
-    AddCommentInput, AddReplyInput, ReanchorCommentInput, ReviewService,
-};
-
 use super::{
     CodeSearchResult, CodeSearchState, CommandPaletteAction, CommandPaletteItem,
     CommandPaletteState, CommandPromptMode, CommentLineRange, CommentTarget, DiffPane, DisplayRow,
@@ -22,6 +8,18 @@ use super::{
     comment_matches_display_row, format_comment_reference, format_line_range_reference,
     format_line_reference, insert_char_at, point_in_rect, remove_char_at,
 };
+use crate::domain::{
+    ai::AiSessionMode,
+    config::DiffViewMode,
+    diff::DiffLineKind,
+    review::{Author, DiffSide, LineComment, ReviewState},
+};
+use crate::services::review_service::{
+    AddCommentInput, AddReplyInput, ReanchorCommentInput, ReviewService,
+};
+use anyhow::{Context, Result};
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
+use std::time::{Duration, Instant};
 
 mod code_search;
 mod command_actions;
@@ -95,7 +93,7 @@ impl TuiApp {
             return self.handle_inline_comment_key(key, service).await;
         }
         if self.command_prompt.is_some() {
-            return self.handle_command_prompt_key(key);
+            return self.handle_command_prompt_key(key).await;
         }
         if self.file_search.focused {
             return self.handle_file_search_key(key);
@@ -112,8 +110,7 @@ fn is_code_search_shortcut(key: KeyEvent) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use std::path::PathBuf;
-
+    use super::*;
     use crate::domain::{
         config::AppConfig,
         diff::{DiffDocument, DiffFile, DiffHunk, DiffLine, DiffLineKind},
@@ -126,9 +123,8 @@ mod tests {
     use crate::utils::cast::usize_to_u32_saturating;
     use anyhow::{Result, anyhow};
     use ratatui::layout::Rect;
+    use std::path::PathBuf;
     use tempfile::tempdir;
-
-    use super::*;
 
     #[test]
     fn opening_command_palette_hides_ai_progress_popup() -> Result<()> {
@@ -546,6 +542,26 @@ mod tests {
 
         assert!(app.code_search.is_some());
         assert_eq!(app.status_line, "code search opened");
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn slash_opens_current_file_search_prompt_not_code_search() -> Result<()> {
+        let mut app = make_test_app(vec!["src/a.rs"])?;
+        let service = make_test_service()?;
+
+        app.handle_key(
+            KeyEvent::new(KeyCode::Char('/'), KeyModifiers::NONE),
+            &service,
+        )
+        .await?;
+
+        assert!(app.code_search.is_none());
+        assert!(matches!(
+            app.command_prompt.as_ref().map(|prompt| &prompt.mode),
+            Some(CommandPromptMode::SearchCurrentFile)
+        ));
+        assert_eq!(app.status_line, "file search prompt");
         Ok(())
     }
 

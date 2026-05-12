@@ -1,9 +1,4 @@
-use std::hint::black_box;
-use std::time::{Duration, Instant};
-
-use anyhow::Result;
-use ratatui::{Terminal, backend::TestBackend};
-
+use super::{AppConfig, DiffDocument, TuiApp, TuiAppInit, render};
 use crate::domain::diff::{DiffFile, DiffHunk, DiffLine, DiffLineKind};
 use crate::domain::review::{
     Author, CommentStatus, DiffSide, LineAnchorSnapshot, LineComment, ReviewSession, ReviewState,
@@ -12,8 +7,10 @@ use crate::git::diff::DiffSource;
 use crate::persistence::store::Store;
 use crate::services::review_service::ReviewService;
 use crate::tui::theme::{default_theme_name, load_themes, resolve_theme_index};
-
-use super::{AppConfig, DiffDocument, TuiApp, TuiAppInit, render};
+use anyhow::Result;
+use ratatui::{Terminal, backend::TestBackend};
+use std::hint::black_box;
+use std::time::{Duration, Instant};
 
 const PERF_DRAW_FILES: usize = 120;
 const PERF_DRAW_LINES_PER_FILE: usize = 160;

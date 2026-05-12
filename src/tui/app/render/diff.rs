@@ -1,33 +1,11 @@
-use std::collections::{HashMap, HashSet};
-
-use ratatui::{
-    Frame,
-    layout::Rect,
-    style::{Color, Modifier, Style},
-    text::{Line, Span},
-    widgets::{Block, Borders, Clear, Paragraph, Wrap},
-};
-
-use crate::domain::diff::DiffLineKind;
-use crate::domain::review::LineComment;
-use crate::git::diff::DiffSource;
-use crate::tui::theme::ThemeColors;
-use crate::utils::cast::usize_to_u16_saturating;
-
-use super::helpers::{
-    apply_search_highlighting, blank_line, fit_spans_to_width, pad_line_to_width,
-    styled_segments_line, wrap_styled_line, wrapped_content_lines,
-};
-use super::{
-    DiffPane, DiffRenderCacheEntry, DiffRenderCacheKey, DisplayRow,
-    INLINE_FILE_MENTION_MAX_VISIBLE_ROWS, InlineDraftMode, InlineFileMentionState,
-    InlineFileReferencePickerState, TuiApp,
-};
-
 use super::super::helpers::{
     comment_line_range_contains_display_row, comment_matches_display_row,
     comment_reference_matches_display_row, format_comment_reference, format_line_range_reference,
     format_timestamp_utc,
+};
+use super::helpers::{
+    apply_search_highlighting, blank_line, fit_spans_to_width, pad_line_to_width,
+    styled_segments_line, wrap_styled_line, wrapped_content_lines,
 };
 use super::helpers::{
     compact_preview, compute_compact_thread_content_width, compute_thread_inner_width,
@@ -36,6 +14,24 @@ use super::status::{
     comment_status_label, comment_status_style, review_state_label, spinner_frame,
 };
 use super::threads::{RenderCommentThreadSpec, render_comment_thread};
+use super::{
+    DiffPane, DiffRenderCacheEntry, DiffRenderCacheKey, DisplayRow,
+    INLINE_FILE_MENTION_MAX_VISIBLE_ROWS, InlineDraftMode, InlineFileMentionState,
+    InlineFileReferencePickerState, TuiApp,
+};
+use crate::domain::diff::DiffLineKind;
+use crate::domain::review::LineComment;
+use crate::git::diff::DiffSource;
+use crate::tui::theme::ThemeColors;
+use crate::utils::cast::usize_to_u16_saturating;
+use ratatui::{
+    Frame,
+    layout::Rect,
+    style::{Color, Modifier, Style},
+    text::{Line, Span},
+    widgets::{Block, Borders, Clear, Paragraph, Wrap},
+};
+use std::collections::{HashMap, HashSet};
 
 pub(super) fn draw_diff_view_for_pane(
     frame: &mut Frame<'_>,
@@ -126,6 +122,7 @@ pub(super) fn draw_diff_view_for_pane(
         selected_row_range,
         selected_comment_id,
         expanded_thread_ids: app.expanded_thread_ids_for_file(&file_path),
+        collapsed_thread_ids: app.collapsed_thread_ids_for_file(&file_path),
         review_state_code: app.review_state_code(),
         is_active,
     };
@@ -254,9 +251,7 @@ pub(super) fn draw_diff_view_for_pane(
                 anchor_state,
                 format_comment_reference(comment)
             );
-            if matches!(app.thread_density_mode, super::ThreadDensityMode::Compact)
-                && !app.is_thread_expanded(comment.id, selected_comment_id)
-            {
+            if !app.is_thread_expanded(comment.id, selected_comment_id) {
                 super::helpers::push_compact_thread_row(
                     &mut lines,
                     &mut row_map,

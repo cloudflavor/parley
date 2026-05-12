@@ -1,11 +1,3 @@
-use ratatui::{
-    Frame,
-    layout::{Constraint, Direction, Layout, Rect},
-    style::{Color, Modifier, Style},
-    text::{Line, Span},
-    widgets::{Block, Borders, Clear, Paragraph, Wrap},
-};
-
 use super::super::helpers::{format_comment_reference, format_timestamp_utc, slice_chars};
 use super::helpers::{compute_scroll, fit_to_width, wrap_markdown_lines};
 use super::status::spinner_frame;
@@ -17,6 +9,13 @@ use crate::git::history::FileHeatmapEntry;
 use crate::tui::app::help_docs::HELP_DOCS;
 use crate::tui::theme::ThemeColors;
 use crate::utils::cast::{i32_to_u16_saturating, usize_to_u16_saturating};
+use ratatui::{
+    Frame,
+    layout::{Constraint, Direction, Layout, Rect},
+    style::{Color, Modifier, Style},
+    text::{Line, Span},
+    widgets::{Block, Borders, Clear, Paragraph, Wrap},
+};
 
 pub(super) fn draw_thread_navigator_overlay(frame: &mut Frame<'_>, app: &mut TuiApp) {
     let colors = app.theme().colors.clone();
@@ -912,6 +911,11 @@ pub(super) fn draw_command_prompt(frame: &mut Frame<'_>, app: &TuiApp) {
 
     let prefix = match prompt.mode {
         CommandPromptMode::GotoLine => ":",
+        CommandPromptMode::SearchCurrentFile => "/",
+    };
+    let title = match prompt.mode {
+        CommandPromptMode::GotoLine => "Command",
+        CommandPromptMode::SearchCurrentFile => "Search Current File",
     };
 
     let inner_width = usize::from(area.width.saturating_sub(4)).max(1);
@@ -925,7 +929,7 @@ pub(super) fn draw_command_prompt(frame: &mut Frame<'_>, app: &TuiApp) {
     frame.render_widget(
         Paragraph::new(content).block(
             Block::default()
-                .title("Command")
+                .title(title)
                 .borders(Borders::ALL)
                 .border_style(Style::default().fg(colors.thread_border))
                 .title_style(

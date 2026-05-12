@@ -132,7 +132,7 @@ Root-directory review mode lazy-loads file content for startup performance. The 
 
 ## 11. Searching and hotspot review
 
-Use `/`, `Ctrl+g`, or command palette `Search Codebase` to search the repository from inside the TUI. Parley uses `rg` when available and falls back to `grep`. Results update while typing and `Enter` or mouse click opens the selected file and line.
+Use `/` to search within the current file. Use `Ctrl+g` or command palette `Search Codebase` to search the repository from inside the TUI. Parley uses `rg` when available and falls back to `grep`; codebase results update while typing and `Enter` or mouse click opens the selected file and line.
 
 Use `M` or command palette `Show Git File Heatmap` to scan git history on demand. The heatmap ranks files by the selected metric and colors each file cell from the active sort value.
 

@@ -1,26 +1,23 @@
+use super::{ProviderInvocation, detect_model_from_text};
+use crate::domain::ai::{AiProvider, AiSessionMode};
+use crate::domain::config::AiProviderConfig;
+use crate::services::ai_session::AiProgressEvent;
+use crate::services::ai_session::progress::emit_progress;
+use crate::utils::time::now_ms;
+use anyhow::{Context, Result, anyhow};
+use serde_json::{Value, json};
 use std::collections::HashMap;
 use std::io::ErrorKind;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
-
-use anyhow::{Context, Result, anyhow};
-use serde_json::{Value, json};
 use tokio::fs;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, ChildStdin, Command};
 use tokio::sync::{Mutex, OnceCell, mpsc};
 use tokio::time::timeout;
 use tracing::{info, warn};
-
-use crate::domain::ai::{AiProvider, AiSessionMode};
-use crate::domain::config::AiProviderConfig;
-use crate::utils::time::now_ms;
-
-use super::{ProviderInvocation, detect_model_from_text};
-use crate::services::ai_session::AiProgressEvent;
-use crate::services::ai_session::progress::emit_progress;
 
 type SharedAcpClient = Arc<Mutex<AcpClient>>;
 
@@ -793,9 +790,8 @@ fn session_name(provider: AiProvider) -> Result<String> {
 
 #[cfg(test)]
 mod tests {
-    use serde_json::json;
-
     use super::{absolute_client_path, compact_json_for_log, extract_text, slice_text_lines};
+    use serde_json::json;
 
     #[test]
     fn extracts_text_from_acp_content_chunk() {

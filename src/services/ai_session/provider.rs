@@ -1,8 +1,12 @@
-use std::process::Stdio;
-use std::time::Duration;
-
+use super::AiProgressEvent;
+use super::progress::emit_progress;
+use crate::domain::ai::{AiProvider, AiSessionMode};
+use crate::domain::config::{AgentTransport, AppConfig, PromptTransport};
+use crate::utils::time::now_ms;
 use anyhow::{Context, Result, anyhow};
 use serde_json::Value;
+use std::process::Stdio;
+use std::time::Duration;
 use tokio::fs;
 use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWriteExt, BufReader};
 use tokio::process::Command;
@@ -10,13 +14,6 @@ use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 use tokio::time::timeout;
 use tracing::{debug, info, warn};
-
-use crate::domain::ai::{AiProvider, AiSessionMode};
-use crate::domain::config::{AgentTransport, AppConfig, PromptTransport};
-use crate::utils::time::now_ms;
-
-use super::AiProgressEvent;
-use super::progress::emit_progress;
 
 mod acp;
 mod pi_rpc;
@@ -539,9 +536,8 @@ fn effective_timeout_seconds(config: &AppConfig, mode: AiSessionMode) -> u64 {
 
 #[cfg(test)]
 mod tests {
-    use crate::domain::config::AiProviderConfig;
-
     use super::*;
+    use crate::domain::config::AiProviderConfig;
 
     #[test]
     fn acp_validation_rejects_known_legacy_cli_commands() {

@@ -3,7 +3,6 @@
 //! Handles scroll positions, row caches, and diff render caches.
 
 use super::*;
-
 use crate::domain::diff::{DiffFile, DiffLineKind};
 use crate::tui::theme::ThemeColors;
 use ansi_to_tui::IntoText;

@@ -310,9 +310,8 @@ impl ReviewSession {
 
 #[cfg(test)]
 mod tests {
-    use anyhow::Result;
-
     use super::{Author, CommentStatus, DiffSide, NewLineComment, ReviewSession, ReviewState};
+    use anyhow::Result;
 
     #[test]
     fn add_reply_from_ai_should_set_pending_and_under_review() -> Result<()> {

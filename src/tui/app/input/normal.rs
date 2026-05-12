@@ -1,5 +1,4 @@
 use super::*;
-
 use crate::domain::review::CommentStatus;
 
 impl TuiApp {
@@ -179,7 +178,7 @@ impl TuiApp {
             }
             KeyCode::Char(':') => self.open_command_prompt(CommandPromptMode::GotoLine),
             KeyCode::Char('/') => {
-                self.open_code_search().await?;
+                self.open_command_prompt(CommandPromptMode::SearchCurrentFile);
             }
             KeyCode::Char('n') => {
                 self.ensure_row_cache();

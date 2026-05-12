@@ -2,10 +2,9 @@
 //!
 //! Provides shared timestamp utilities used across the codebase.
 
+use crate::utils::cast::u128_to_u64_saturating;
 use anyhow::{Context, Result};
 use std::time::{SystemTime, UNIX_EPOCH};
-
-use crate::utils::cast::u128_to_u64_saturating;
 
 /// Returns the current Unix timestamp in milliseconds.
 ///

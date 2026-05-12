@@ -1,11 +1,10 @@
+use anyhow::{Context, Result};
 use std::fs::File;
 use std::io;
 use std::io::Write;
 use std::path::Path;
 use std::sync::Arc;
 use std::sync::Mutex;
-
-use anyhow::{Context, Result};
 use tokio::fs::OpenOptions;
 use tokio::fs::create_dir_all;
 use tracing_subscriber::Layer;
@@ -110,11 +109,9 @@ fn parse_level_filter(level: &str) -> LevelFilter {
 
 #[cfg(test)]
 mod tests {
-    use std::io::Write;
-
-    use anyhow::Result;
-
     use super::open_log_file;
+    use anyhow::Result;
+    use std::io::Write;
 
     #[tokio::test]
     async fn open_log_file_creates_parent_and_appends() -> Result<()> {

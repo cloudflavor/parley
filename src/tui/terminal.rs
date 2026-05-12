@@ -1,5 +1,3 @@
-use std::io::{self, IsTerminal};
-
 use anyhow::{Context, Result, bail};
 use crossterm::event::{DisableMouseCapture, EnableMouseCapture};
 use crossterm::execute;
@@ -7,6 +5,7 @@ use crossterm::terminal::{
     EnterAlternateScreen, LeaveAlternateScreen, disable_raw_mode, enable_raw_mode,
 };
 use ratatui::{Terminal, backend::CrosstermBackend};
+use std::io::{self, IsTerminal};
 
 pub(super) struct TerminalSession {
     terminal: Terminal<CrosstermBackend<io::Stdout>>,

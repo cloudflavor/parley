@@ -1,3 +1,8 @@
+use super::super::helpers::slice_chars;
+use super::helpers::fit_to_width;
+use super::status::{review_state_label, theme_family_label, theme_variant_label};
+use super::{SettingsEditorKind, TuiApp};
+use crate::utils::cast::usize_to_u16_saturating;
 use ratatui::{
     Frame,
     layout::{Constraint, Direction, Layout, Rect},
@@ -5,12 +10,6 @@ use ratatui::{
     text::{Line, Span},
     widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragraph},
 };
-
-use super::super::helpers::slice_chars;
-use super::helpers::fit_to_width;
-use super::status::{review_state_label, theme_family_label, theme_variant_label};
-use super::{SettingsEditorKind, TuiApp};
-use crate::utils::cast::usize_to_u16_saturating;
 
 pub(super) fn draw_settings_editor(frame: &mut Frame<'_>, app: &TuiApp) {
     let Some(editor) = app.settings_editor.as_ref() else {

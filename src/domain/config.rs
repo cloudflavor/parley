@@ -1,8 +1,6 @@
-use std::path::Path;
-
-use serde::{Deserialize, Serialize};
-
 use crate::domain::ai::{AiProvider, AiSessionMode};
+use serde::{Deserialize, Serialize};
+use std::path::Path;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(default)]
@@ -317,10 +315,9 @@ fn default_cli_provider_config(provider: AiProvider) -> Option<AiProviderConfig>
 
 #[cfg(test)]
 mod tests {
+    use super::{AgentTransport, AiConfig, AppConfig};
     use crate::domain::ai::AiSessionMode;
     use anyhow::Result;
-
-    use super::{AgentTransport, AiConfig, AppConfig};
 
     #[test]
     fn default_config_ignores_parley_dir() {

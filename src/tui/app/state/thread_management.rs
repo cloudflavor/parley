@@ -3,7 +3,6 @@
 //! Handles comment thread selection, expansion, and status tracking.
 
 use super::*;
-
 use crate::utils::time::now_ms;
 use anyhow::anyhow;
 
@@ -114,15 +113,29 @@ impl TuiApp {
         ids
     }
 
+    pub(crate) fn collapsed_thread_ids_for_file(&self, file_path: &str) -> Vec<u64> {
+        let mut ids = self
+            .comments_for_file(file_path)
+            .into_iter()
+            .filter_map(|comment| {
+                self.collapsed_threads
+                    .contains(&comment.id)
+                    .then_some(comment.id)
+            })
+            .collect::<Vec<_>>();
+        ids.sort_unstable();
+        ids
+    }
+
     pub(crate) fn is_thread_expanded(
         &self,
         comment_id: u64,
         selected_comment_id: Option<u64>,
     ) -> bool {
-        matches!(self.thread_density_mode, ThreadDensityMode::Expanded)
-            || (!self.collapsed_threads.contains(&comment_id)
-                && selected_comment_id == Some(comment_id))
-            || self.expanded_threads.contains(&comment_id)
+        !self.collapsed_threads.contains(&comment_id)
+            && (matches!(self.thread_density_mode, ThreadDensityMode::Expanded)
+                || selected_comment_id == Some(comment_id)
+                || self.expanded_threads.contains(&comment_id))
     }
 
     pub(crate) fn toggle_selected_thread_expansion(&mut self) {
@@ -277,6 +290,50 @@ mod tests {
         );
         assert!(app.expanded_threads.contains(&1));
         assert!(app.expanded_threads.contains(&2));
+        Ok(())
+    }
+
+    #[test]
+    fn collapsed_thread_overrides_expanded_density_mode() -> Result<()> {
+        let mut app = make_test_app(
+            vec!["src/a.rs"],
+            vec![
+                make_comment_with_anchor(1, "src/a.rs", CommentStatus::Open, 1, 1),
+                make_comment_with_anchor(2, "src/a.rs", CommentStatus::Open, 2, 2),
+            ],
+        )?;
+        app.thread_density_mode = ThreadDensityMode::Expanded;
+        app.collapsed_threads.insert(1);
+
+        assert!(!app.is_thread_expanded(1, Some(1)));
+        assert!(app.is_thread_expanded(2, None));
+        Ok(())
+    }
+
+    #[test]
+    fn toggle_selected_thread_collapses_only_selected_thread() -> Result<()> {
+        let mut app = make_test_app(
+            vec!["src/a.rs"],
+            vec![
+                make_comment_with_anchor(1, "src/a.rs", CommentStatus::Open, 1, 1),
+                make_comment_with_anchor(2, "src/a.rs", CommentStatus::Open, 2, 2),
+            ],
+        )?;
+        app.thread_density_mode = ThreadDensityMode::Expanded;
+        app.selected_comment = 0;
+
+        app.toggle_selected_thread_expansion();
+
+        assert!(app.collapsed_threads.contains(&1));
+        assert!(!app.collapsed_threads.contains(&2));
+        assert!(!app.is_thread_expanded(1, Some(1)));
+        assert!(app.is_thread_expanded(2, None));
+
+        app.toggle_selected_thread_expansion();
+
+        assert!(!app.collapsed_threads.contains(&1));
+        assert!(app.expanded_threads.contains(&1));
+        assert!(app.is_thread_expanded(1, Some(1)));
         Ok(())
     }
 

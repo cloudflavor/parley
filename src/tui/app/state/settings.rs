@@ -22,6 +22,7 @@ impl TuiApp {
         self.dismiss_ai_progress_popup();
         let (value, cursor_col, status_line) = match mode {
             CommandPromptMode::GotoLine => (String::new(), 0, "goto line prompt"),
+            CommandPromptMode::SearchCurrentFile => (String::new(), 0, "file search prompt"),
         };
         self.command_prompt = Some(CommandPromptState {
             mode,
