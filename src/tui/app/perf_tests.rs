@@ -8,7 +8,8 @@ use crate::persistence::store::Store;
 use crate::services::review_service::ReviewService;
 use crate::tui::theme::{default_theme_name, load_themes, resolve_theme_index};
 use anyhow::Result;
-use ratatui::{Terminal, backend::TestBackend};
+use ratatui::Terminal;
+use ratatui::backend::TestBackend;
 use std::hint::black_box;
 use std::time::{Duration, Instant};
 

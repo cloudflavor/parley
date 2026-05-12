@@ -21,10 +21,8 @@ use crossterm::event;
 use crossterm::event::Event;
 use helpers::{
     MOUSE_WHEEL_FILE_SCROLL_FILES, MOUSE_WHEEL_SCROLL_LINES, apply_single_line_edit_key,
-    comment_line_range_contains_display_row, comment_matches_display_row,
-    comment_reference_matches_display_row, format_comment_reference, format_line_range_reference,
-    format_line_reference, insert_char_at, open_file_in_pager, point_in_rect, remove_char_at,
-    suspend_tui_process,
+    format_comment_reference, format_line_range_reference, format_line_reference, insert_char_at,
+    open_file_in_pager, point_in_rect, remove_char_at, suspend_tui_process,
 };
 use ratatui::Terminal;
 use ratatui::backend::CrosstermBackend;
@@ -275,6 +273,16 @@ struct CommentTarget {
     file_path: String,
     line_anchor: LineAnchorSnapshot,
     original_anchor: Box<StoredAnchorSnapshot>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct AnchorProjection {
+    file_path: String,
+    side: DiffSide,
+    old_line: Option<u32>,
+    new_line: Option<u32>,
+    line_range: Option<CommentLineRange>,
+    row_index: usize,
 }
 
 #[derive(Debug, Clone)]
@@ -653,6 +661,7 @@ struct TuiApp {
     review: ReviewSession,
     comment_indices_by_file: HashMap<String, Vec<usize>>,
     comment_stats_by_file: HashMap<String, FileCommentStats>,
+    comment_anchor_projections: HashMap<u64, AnchorProjection>,
     diff_source: DiffSource,
     config: AppConfig,
     themes: Vec<UiTheme>,

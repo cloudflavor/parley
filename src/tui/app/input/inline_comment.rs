@@ -370,8 +370,8 @@ impl TuiApp {
             .into_iter()
             .enumerate()
             .filter(|(_, comment)| {
-                comment_matches_display_row(comment, row)
-                    || comment_line_range_contains_display_row(comment, row)
+                self.comment_matches_current_projection(comment, row)
+                    || self.comment_line_range_contains_current_projection(comment, row)
             })
             .collect();
         if matches.is_empty() {

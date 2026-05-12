@@ -5,9 +5,8 @@ use super::{
     InlineDraftMode, InlineFileMentionState, MOUSE_WHEEL_FILE_SCROLL_FILES,
     MOUSE_WHEEL_SCROLL_LINES, PendingUiAction, ReplyTarget, SettingsEditorKind,
     SettingsEditorState, TextBuffer, ThreadAnchor, TuiApp, apply_single_line_edit_key,
-    comment_line_range_contains_display_row, comment_matches_display_row, format_comment_reference,
-    format_line_range_reference, format_line_reference, insert_char_at, point_in_rect,
-    remove_char_at,
+    format_comment_reference, format_line_range_reference, format_line_reference, insert_char_at,
+    point_in_rect, remove_char_at,
 };
 use crate::domain::ai::AiSessionMode;
 use crate::domain::config::DiffViewMode;

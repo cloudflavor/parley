@@ -1,6 +1,7 @@
 use super::theme::ThemeColors;
 use ratatui::style::{Color, Modifier, Style};
-use std::{path::Path, sync::LazyLock};
+use std::path::Path;
+use std::sync::LazyLock;
 use syntect::easy::HighlightLines;
 use syntect::highlighting::{FontStyle, Theme, ThemeSet};
 use syntect::parsing::{SyntaxReference, SyntaxSet};

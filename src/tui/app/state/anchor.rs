@@ -1,29 +1,6 @@
 use super::*;
-use crate::domain::diff::DiffFile;
-use crate::domain::diff::DiffHunk;
-use crate::domain::review::DiffAnchorSnapshot;
-use crate::domain::review::SourceAnchorSnapshot;
-
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub(super) struct ResolvedLineAnchor {
-    pub(super) side: DiffSide,
-    pub(super) old_line: Option<u32>,
-    pub(super) new_line: Option<u32>,
-    pub(super) line_anchor: LineAnchorSnapshot,
-}
-
-impl ResolvedLineAnchor {
-    pub(crate) fn from_row(rows: &[DisplayRow], row_index: usize) -> Self {
-        let row = &rows[row_index];
-        let (side, old_line, new_line) = row_to_comment_anchor(row);
-        Self {
-            side,
-            old_line,
-            new_line,
-            line_anchor: build_line_anchor_snapshot(rows, row_index),
-        }
-    }
-}
+use crate::domain::diff::{DiffFile, DiffHunk};
+use crate::domain::review::{CommentLineRange, DiffAnchorSnapshot, SourceAnchorSnapshot};
 
 impl TuiApp {
     pub(crate) fn stored_anchor_snapshot_for_row_range(
@@ -68,6 +45,107 @@ impl TuiApp {
             head_rev,
         })
     }
+
+    pub(crate) fn refresh_comment_anchor_projections(&mut self) {
+        self.comment_anchor_projections.clear();
+        let comments = self.review.comments.clone();
+        for comment in comments {
+            if let Some(projection) = self.exact_anchor_projection_for_comment(&comment) {
+                self.comment_anchor_projections
+                    .insert(comment.id, projection);
+            }
+        }
+    }
+
+    pub(crate) fn comment_matches_current_projection(
+        &self,
+        comment: &LineComment,
+        row: &DisplayRow,
+    ) -> bool {
+        let Some(projection) = self.comment_anchor_projection(comment) else {
+            return false;
+        };
+        projection_matches_row(projection, row)
+    }
+
+    pub(crate) fn comment_line_range_contains_current_projection(
+        &self,
+        comment: &LineComment,
+        row: &DisplayRow,
+    ) -> bool {
+        let Some(projection) = self.comment_anchor_projection(comment) else {
+            return false;
+        };
+        let Some(range) = projection.line_range.as_ref() else {
+            return false;
+        };
+        line_in_projection_range(row.old_line, range.start_old_line, range.end_old_line)
+            || line_in_projection_range(row.new_line, range.start_new_line, range.end_new_line)
+    }
+
+    pub(crate) fn projected_comment_reference(&self, comment: &LineComment) -> String {
+        self.comment_anchor_projection(comment).map_or_else(
+            || format_comment_reference(comment),
+            |projection| {
+                projection.line_range.as_ref().map_or_else(
+                    || format_line_reference(projection.old_line, projection.new_line),
+                    format_line_range_reference,
+                )
+            },
+        )
+    }
+
+    fn comment_anchor_projection(&self, comment: &LineComment) -> Option<&AnchorProjection> {
+        self.comment_anchor_projections.get(&comment.id)
+    }
+
+    fn exact_anchor_projection_for_comment(
+        &mut self,
+        comment: &LineComment,
+    ) -> Option<AnchorProjection> {
+        let file_path = comment
+            .original_anchor
+            .as_ref()
+            .map_or(comment.file_path.as_str(), |anchor| {
+                anchor.file_path.as_str()
+            });
+        let file_index = self
+            .diff
+            .files
+            .iter()
+            .position(|file| file.path == file_path)?;
+        self.ensure_row_cache_for_file(file_index);
+        let rows = self.row_cache.get(&file_index)?.rows.as_slice();
+        let target = projection_target(comment);
+        let row_index = if let Some(range) = target.line_range.as_ref() {
+            exact_row_range_projection(rows, range, target.selected_text.as_deref())?
+        } else {
+            exact_single_row_projection(
+                rows,
+                target.old_line,
+                target.new_line,
+                target.side.clone(),
+                target.selected_text.as_deref(),
+            )?
+        };
+        Some(AnchorProjection {
+            file_path: file_path.to_string(),
+            side: target.side,
+            old_line: target.old_line,
+            new_line: target.new_line,
+            line_range: target.line_range,
+            row_index,
+        })
+    }
+}
+
+#[derive(Debug)]
+struct ProjectionTarget {
+    side: DiffSide,
+    old_line: Option<u32>,
+    new_line: Option<u32>,
+    line_range: Option<CommentLineRange>,
+    selected_text: Option<String>,
 }
 
 pub(crate) fn build_line_anchor_snapshot(
@@ -81,66 +159,6 @@ pub(crate) fn build_line_anchor_snapshot(
         before_context,
         after_context,
     }
-}
-
-pub(crate) fn row_matches_exact_anchor(comment: &LineComment, row: &DisplayRow) -> bool {
-    match (comment.old_line, comment.new_line) {
-        (Some(old), Some(new)) => row.old_line == Some(old) && row.new_line == Some(new),
-        (Some(old), None) => row.old_line == Some(old),
-        (None, Some(new)) => row.new_line == Some(new),
-        (None, None) => false,
-    }
-}
-
-pub(crate) fn score_anchor_candidate(
-    preferred_side: DiffSide,
-    snapshot: &LineAnchorSnapshot,
-    rows: &[DisplayRow],
-    row_index: usize,
-    row: &DisplayRow,
-) -> i32 {
-    let row_text = normalize_anchor_text(&row.code);
-    let target_text = normalize_anchor_text(&snapshot.target_code);
-    if row_text.is_empty() || target_text.is_empty() {
-        return i32::MIN;
-    }
-
-    let mut score = 0;
-    if row_text == target_text {
-        score += 100;
-    } else if normalize_ws(&row_text) == normalize_ws(&target_text) {
-        score += 80;
-    } else if row_text.contains(&target_text) || target_text.contains(&row_text) {
-        score += 40;
-    }
-
-    let (before_context, after_context) = row_context_windows(rows, row_index, 2);
-    score += score_context_side(&snapshot.before_context, &before_context);
-    score += score_context_side(&snapshot.after_context, &after_context);
-
-    if (matches!(preferred_side, DiffSide::Left) && row.old_line.is_some())
-        || (matches!(preferred_side, DiffSide::Right) && row.new_line.is_some())
-    {
-        score += 5;
-    }
-
-    score
-}
-
-fn score_context_side(expected: &[String], actual: &[String]) -> i32 {
-    expected
-        .iter()
-        .zip(actual.iter())
-        .map(|(left, right)| {
-            if left == right {
-                25
-            } else if normalize_ws(left) == normalize_ws(right) {
-                10
-            } else {
-                0
-            }
-        })
-        .sum()
 }
 
 fn row_context_windows(
@@ -202,6 +220,141 @@ fn row_range_context_windows(
     }
 
     (before, after)
+}
+
+fn projection_target(comment: &LineComment) -> ProjectionTarget {
+    if let Some(anchor) = comment.original_anchor.as_ref() {
+        return ProjectionTarget {
+            side: anchor.side.clone(),
+            old_line: anchor.old_line,
+            new_line: anchor.new_line,
+            line_range: anchor.line_range.clone(),
+            selected_text: (!anchor.selected_text.is_empty()).then(|| anchor.selected_text.clone()),
+        };
+    }
+
+    ProjectionTarget {
+        side: comment.side.clone(),
+        old_line: comment.old_line,
+        new_line: comment.new_line,
+        line_range: comment.line_range.clone(),
+        selected_text: None,
+    }
+}
+
+fn exact_single_row_projection(
+    rows: &[DisplayRow],
+    old_line: Option<u32>,
+    new_line: Option<u32>,
+    side: DiffSide,
+    selected_text: Option<&str>,
+) -> Option<usize> {
+    rows.iter()
+        .enumerate()
+        .find(|(_, row)| {
+            row_matches_projection_reference(row, side.clone(), old_line, new_line)
+                && selected_text_matches_row(row, selected_text)
+        })
+        .map(|(index, _)| index)
+}
+
+fn exact_row_range_projection(
+    rows: &[DisplayRow],
+    range: &CommentLineRange,
+    selected_text: Option<&str>,
+) -> Option<usize> {
+    let indices = rows
+        .iter()
+        .enumerate()
+        .filter_map(|(index, row)| row_in_projection_range(row, range).then_some(index))
+        .collect::<Vec<_>>();
+    let row_index = *indices.last()?;
+    let projected_text = indices
+        .iter()
+        .filter_map(|index| rows.get(*index))
+        .map(|row| normalize_anchor_text(&row.code))
+        .collect::<Vec<_>>()
+        .join("\n");
+    if selected_text.is_some_and(|text| normalize_anchor_text(text) != projected_text) {
+        return None;
+    }
+    Some(row_index)
+}
+
+fn projection_matches_row(projection: &AnchorProjection, row: &DisplayRow) -> bool {
+    if !is_commentable_row(row) {
+        return false;
+    }
+    if let Some(range) = projection.line_range.as_ref() {
+        return comment_line_range_end_matches_projection_row(range, row);
+    }
+    row_matches_projection_reference(
+        row,
+        projection.side.clone(),
+        projection.old_line,
+        projection.new_line,
+    )
+}
+
+fn row_matches_projection_reference(
+    row: &DisplayRow,
+    side: DiffSide,
+    old_line: Option<u32>,
+    new_line: Option<u32>,
+) -> bool {
+    if !is_commentable_row(row) {
+        return false;
+    }
+    match (old_line, new_line) {
+        (Some(old), Some(new)) => row.old_line == Some(old) && row.new_line == Some(new),
+        (Some(old), None) => {
+            if matches!(side, DiffSide::Right) {
+                false
+            } else {
+                row.old_line == Some(old)
+            }
+        }
+        (None, Some(new)) => {
+            if matches!(side, DiffSide::Left) {
+                false
+            } else {
+                row.new_line == Some(new)
+            }
+        }
+        (None, None) => false,
+    }
+}
+
+fn selected_text_matches_row(row: &DisplayRow, selected_text: Option<&str>) -> bool {
+    selected_text.is_none_or(|text| normalize_anchor_text(text) == normalize_anchor_text(&row.code))
+}
+
+fn row_in_projection_range(row: &DisplayRow, range: &CommentLineRange) -> bool {
+    line_in_projection_range(row.old_line, range.start_old_line, range.end_old_line)
+        || line_in_projection_range(row.new_line, range.start_new_line, range.end_new_line)
+}
+
+fn comment_line_range_end_matches_projection_row(
+    range: &CommentLineRange,
+    row: &DisplayRow,
+) -> bool {
+    range
+        .end_old_line
+        .is_some_and(|line| row.old_line == Some(line))
+        || range
+            .end_new_line
+            .is_some_and(|line| row.new_line == Some(line))
+}
+
+fn line_in_projection_range(line: Option<u32>, start: Option<u32>, end: Option<u32>) -> bool {
+    let Some(line) = line else {
+        return false;
+    };
+    let Some(start) = start else {
+        return false;
+    };
+    let end = end.unwrap_or(start);
+    line >= start.min(end) && line <= start.max(end)
 }
 
 fn first_commentable_row_index(
@@ -274,24 +427,9 @@ fn normalize_anchor_text(value: &str) -> String {
     value.trim().to_string()
 }
 
-fn normalize_ws(value: &str) -> String {
-    value.split_whitespace().collect::<Vec<_>>().join(" ")
-}
-
 pub(crate) fn is_commentable_row(row: &DisplayRow) -> bool {
     matches!(
         row.kind,
         DiffLineKind::Added | DiffLineKind::Removed | DiffLineKind::Context
     )
 }
-
-pub(crate) fn row_to_comment_anchor(row: &DisplayRow) -> (DiffSide, Option<u32>, Option<u32>) {
-    match row.kind {
-        DiffLineKind::Added => (DiffSide::Right, None, row.new_line),
-        DiffLineKind::Removed => (DiffSide::Left, row.old_line, None),
-        DiffLineKind::Context => (DiffSide::Right, row.old_line, row.new_line),
-        _ => (DiffSide::Right, None, None),
-    }
-}
-
-pub(crate) use crate::utils::time::now_ms_utc;

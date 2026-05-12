@@ -110,7 +110,7 @@ impl TuiApp {
             .filter_map(|(comment_index, comment)| {
                 self.current_rows()
                     .iter()
-                    .position(|row| comment_matches_display_row(comment, row))
+                    .position(|row| self.comment_matches_current_projection(comment, row))
                     .map(|row_index| ThreadAnchor {
                         comment_index,
                         row_index,

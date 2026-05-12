@@ -4,19 +4,11 @@
 
 use super::*;
 use crate::utils::cast::{i16_to_u16_saturating, u16_to_i16_saturating};
-use std::collections::{HashMap, HashSet};
-
-#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
-enum ExactAnchorKey {
-    OldNew(u32, u32),
-    Old(u32),
-    New(u32),
-}
 
 impl TuiApp {
     pub(crate) async fn poll_root_directory_diff_load(
         &mut self,
-        service: &ReviewService,
+        _service: &ReviewService,
     ) -> Result<bool> {
         let Some(task) = self.root_diff_load_task.as_ref() else {
             return Ok(false);
@@ -50,9 +42,7 @@ impl TuiApp {
         self.row_cache.clear();
         self.root_hydrated_files.clear();
         self.clear_diff_render_cache();
-        if self.remap_comment_anchors() {
-            service.save_review(&self.review).await?;
-        }
+        self.refresh_comment_anchor_projections();
 
         self.selected_file = previous_primary_path
             .and_then(|path| self.diff.files.iter().position(|f| f.path == path))
@@ -104,6 +94,7 @@ impl TuiApp {
             *slot = file;
             self.row_cache.remove(&file_index);
             self.clear_diff_render_cache_for_file(file_index);
+            self.refresh_comment_anchor_projections();
         }
         self.start_root_file_hydration_if_needed(self.active_file_index());
         Ok(true)
@@ -219,6 +210,7 @@ impl TuiApp {
         let selected_comment_id = self.selected_comment_id();
         self.review = service.load_review(&self.review_name).await?;
         self.rebuild_comment_index();
+        self.refresh_comment_anchor_projections();
         self.expanded_threads
             .retain(|id| self.review.comments.iter().any(|comment| comment.id == *id));
         self.collapsed_threads
@@ -255,9 +247,7 @@ impl TuiApp {
         self.row_cache.clear();
         self.root_hydrated_files.clear();
         self.clear_diff_render_cache();
-        if self.remap_comment_anchors() {
-            service.save_review(&self.review).await?;
-        }
+        self.refresh_comment_anchor_projections();
 
         self.selected_file = previous_primary_path
             .and_then(|path| self.diff.files.iter().position(|f| f.path == path))
@@ -278,170 +268,6 @@ impl TuiApp {
         }
         Ok(())
     }
-
-    fn remap_comment_anchors(&mut self) -> bool {
-        let mut changed = false;
-        let remap_timestamp = anchor::now_ms_utc();
-        let file_indices_by_path = self.file_indices_by_path();
-        let exact_rows_by_file = self.exact_anchor_rows_by_file(&file_indices_by_path);
-        let resolved_anchors = self
-            .review
-            .comments
-            .iter()
-            .map(|comment| {
-                self.resolve_comment_anchor_with_index(
-                    comment,
-                    &file_indices_by_path,
-                    &exact_rows_by_file,
-                )
-            })
-            .collect::<Vec<_>>();
-
-        for (comment, resolved) in self.review.comments.iter_mut().zip(resolved_anchors) {
-            match resolved {
-                Some(target) => {
-                    let needs_update = comment.side != target.side
-                        || comment.old_line != target.old_line
-                        || comment.new_line != target.new_line
-                        || comment.detached
-                        || comment.line_anchor.as_ref() != Some(&target.line_anchor);
-                    if needs_update {
-                        comment.side = target.side;
-                        comment.old_line = target.old_line;
-                        comment.new_line = target.new_line;
-                        comment.detached = false;
-                        comment.line_anchor = Some(target.line_anchor);
-                        comment.updated_at_ms = remap_timestamp;
-                        changed = true;
-                    }
-                }
-                None => {
-                    if !comment.detached {
-                        comment.detached = true;
-                        comment.updated_at_ms = remap_timestamp;
-                        changed = true;
-                    }
-                }
-            }
-        }
-
-        if changed {
-            self.review.updated_at_ms = remap_timestamp;
-        }
-        changed
-    }
-
-    fn file_indices_by_path(&self) -> HashMap<String, usize> {
-        self.diff
-            .files
-            .iter()
-            .enumerate()
-            .map(|(index, file)| (file.path.clone(), index))
-            .collect()
-    }
-
-    fn exact_anchor_rows_by_file(
-        &mut self,
-        file_indices_by_path: &HashMap<String, usize>,
-    ) -> HashMap<usize, HashMap<ExactAnchorKey, usize>> {
-        let mut file_indices = HashSet::new();
-        for comment in &self.review.comments {
-            if let Some(file_index) = file_indices_by_path.get(&comment.file_path) {
-                file_indices.insert(*file_index);
-            }
-        }
-
-        file_indices
-            .into_iter()
-            .filter_map(|file_index| {
-                self.ensure_row_cache_for_file(file_index);
-                let rows = self.row_cache.get(&file_index)?.rows.as_slice();
-                Some((file_index, exact_anchor_row_index(rows)))
-            })
-            .collect()
-    }
-
-    fn resolve_comment_anchor_with_index(
-        &self,
-        comment: &LineComment,
-        file_indices_by_path: &HashMap<String, usize>,
-        exact_rows_by_file: &HashMap<usize, HashMap<ExactAnchorKey, usize>>,
-    ) -> Option<anchor::ResolvedLineAnchor> {
-        let file_index = *file_indices_by_path.get(&comment.file_path)?;
-        let rows = self.row_cache.get(&file_index)?.rows.as_slice();
-
-        if let Some(row_index) = comment_exact_anchor_key(comment).and_then(|key| {
-            exact_rows_by_file
-                .get(&file_index)
-                .and_then(|rows_by_anchor| rows_by_anchor.get(&key))
-                .copied()
-        }) {
-            return Some(anchor::ResolvedLineAnchor::from_row(rows, row_index));
-        }
-
-        let snapshot = comment.line_anchor.as_ref()?;
-        if snapshot.target_code.trim().is_empty() {
-            return None;
-        }
-
-        let mut best_match: Option<(i32, usize)> = None;
-        for (row_index, row) in rows.iter().enumerate() {
-            if !anchor::is_commentable_row(row) {
-                continue;
-            }
-            let score = anchor::score_anchor_candidate(
-                comment.side.clone(),
-                snapshot,
-                rows,
-                row_index,
-                row,
-            );
-            if let Some((best_score, _)) = best_match
-                && score <= best_score
-            {
-                continue;
-            }
-            best_match = Some((score, row_index));
-        }
-
-        let (score, row_index) = best_match?;
-        (score >= 90).then(|| anchor::ResolvedLineAnchor::from_row(rows, row_index))
-    }
-}
-
-fn exact_anchor_row_index(rows: &[DisplayRow]) -> HashMap<ExactAnchorKey, usize> {
-    let mut index = HashMap::new();
-    for (row_index, row) in rows.iter().enumerate() {
-        if !anchor::is_commentable_row(row) {
-            continue;
-        }
-        for key in row_exact_anchor_keys(row) {
-            index.entry(key).or_insert(row_index);
-        }
-    }
-    index
-}
-
-fn row_exact_anchor_keys(row: &DisplayRow) -> Vec<ExactAnchorKey> {
-    match (row.old_line, row.new_line) {
-        (Some(old), Some(new)) => vec![
-            ExactAnchorKey::OldNew(old, new),
-            ExactAnchorKey::Old(old),
-            ExactAnchorKey::New(new),
-        ],
-        (Some(old), None) => vec![ExactAnchorKey::Old(old)],
-        (None, Some(new)) => vec![ExactAnchorKey::New(new)],
-        (None, None) => Vec::new(),
-    }
-}
-
-fn comment_exact_anchor_key(comment: &LineComment) -> Option<ExactAnchorKey> {
-    match (comment.old_line, comment.new_line) {
-        (Some(old), Some(new)) => Some(ExactAnchorKey::OldNew(old, new)),
-        (Some(old), None) => Some(ExactAnchorKey::Old(old)),
-        (None, Some(new)) => Some(ExactAnchorKey::New(new)),
-        (None, None) => None,
-    }
 }
 
 #[cfg(test)]
@@ -449,7 +275,11 @@ mod tests {
     use super::*;
     use crate::persistence::store::Store;
     use crate::services::review_service::ReviewService;
-    use crate::tui::app::state::tests::{make_comment_with_anchor, make_test_app};
+    use crate::tui::app::state::tests::{
+        diff_file_with_context_lines, make_comment_with_anchor, make_test_app,
+        make_test_app_with_files_and_comments,
+    };
+    use anyhow::anyhow;
     use tempfile::tempdir;
 
     #[tokio::test]
@@ -493,32 +323,72 @@ mod tests {
     }
 
     #[test]
-    fn exact_anchor_row_index_maps_context_and_one_sided_rows() {
-        let rows = vec![
-            display_row(DiffLineKind::Meta, None, None),
-            display_row(DiffLineKind::Context, Some(10), Some(20)),
-            display_row(DiffLineKind::Removed, Some(11), None),
-            display_row(DiffLineKind::Added, None, Some(21)),
-        ];
+    fn exact_anchor_projection_matches_original_snapshot_text() -> Result<()> {
+        let comment = comment_with_original_anchor(1, "src/a.rs", 2, "fn target() {}");
+        let app = make_test_app_with_files_and_comments(
+            vec![diff_file_with_context_lines(
+                "src/a.rs",
+                &[(1, "fn before() {}"), (2, "fn target() {}")],
+            )],
+            vec![comment],
+        )?;
+        let row = app
+            .current_rows()
+            .iter()
+            .find(|row| row.new_line == Some(2))
+            .ok_or_else(|| anyhow!("projected row should exist"))?;
 
-        let index = exact_anchor_row_index(&rows);
-
-        assert_eq!(index.get(&ExactAnchorKey::OldNew(10, 20)), Some(&1));
-        assert_eq!(index.get(&ExactAnchorKey::Old(10)), Some(&1));
-        assert_eq!(index.get(&ExactAnchorKey::New(20)), Some(&1));
-        assert_eq!(index.get(&ExactAnchorKey::Old(11)), Some(&2));
-        assert_eq!(index.get(&ExactAnchorKey::New(21)), Some(&3));
-        assert!(!index.contains_key(&ExactAnchorKey::Old(99)));
+        assert!(app.comment_matches_current_projection(&app.review.comments[0], row));
+        Ok(())
     }
 
-    fn display_row(kind: DiffLineKind, old_line: Option<u32>, new_line: Option<u32>) -> DisplayRow {
-        DisplayRow {
-            kind,
-            old_line,
-            new_line,
-            raw: String::new(),
-            code: String::new(),
-            rendered: None,
-        }
+    #[test]
+    fn exact_anchor_projection_rejects_changed_original_text_without_mutating_comment() -> Result<()>
+    {
+        let comment = comment_with_original_anchor(1, "src/a.rs", 2, "fn target() {}");
+        let app = make_test_app_with_files_and_comments(
+            vec![diff_file_with_context_lines(
+                "src/a.rs",
+                &[(1, "fn before() {}"), (2, "fn changed() {}")],
+            )],
+            vec![comment],
+        )?;
+        let row = app
+            .current_rows()
+            .iter()
+            .find(|row| row.new_line == Some(2))
+            .ok_or_else(|| anyhow!("candidate row should exist"))?;
+        let stored = &app.review.comments[0];
+
+        assert!(!app.comment_matches_current_projection(stored, row));
+        assert_eq!(stored.old_line, Some(2));
+        assert_eq!(stored.new_line, Some(2));
+        assert!(!stored.detached);
+        Ok(())
+    }
+
+    fn comment_with_original_anchor(
+        id: u64,
+        file_path: &str,
+        line: u32,
+        selected_text: &str,
+    ) -> LineComment {
+        let mut comment = make_comment_with_anchor(id, file_path, CommentStatus::Open, line, line);
+        comment.line_anchor = None;
+        comment.original_anchor = Some(StoredAnchorSnapshot {
+            file_path: file_path.to_string(),
+            side: DiffSide::Right,
+            old_line: Some(line),
+            new_line: Some(line),
+            line_range: None,
+            selected_text: selected_text.to_string(),
+            before_context: Vec::new(),
+            after_context: Vec::new(),
+            diff: None,
+            source: None,
+            base_rev: None,
+            head_rev: None,
+        });
+        comment
     }
 }
