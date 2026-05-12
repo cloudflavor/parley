@@ -4,6 +4,14 @@
 
 use super::*;
 use crate::utils::cast::{i16_to_u16_saturating, u16_to_i16_saturating};
+use std::collections::{HashMap, HashSet};
+
+#[derive(Clone, Copy, Debug, Eq, Hash, PartialEq)]
+enum ExactAnchorKey {
+    OldNew(u32, u32),
+    Old(u32),
+    New(u32),
+}
 
 impl TuiApp {
     pub(crate) async fn poll_root_directory_diff_load(
@@ -272,12 +280,22 @@ impl TuiApp {
     fn remap_comment_anchors(&mut self) -> bool {
         let mut changed = false;
         let remap_timestamp = anchor::now_ms_utc();
+        let file_indices_by_path = self.file_indices_by_path();
+        let exact_rows_by_file = self.exact_anchor_rows_by_file(&file_indices_by_path);
+        let resolved_anchors = self
+            .review
+            .comments
+            .iter()
+            .map(|comment| {
+                self.resolve_comment_anchor_with_index(
+                    comment,
+                    &file_indices_by_path,
+                    &exact_rows_by_file,
+                )
+            })
+            .collect::<Vec<_>>();
 
-        for index in 0..self.review.comments.len() {
-            let snapshot = self.review.comments[index].clone();
-            let resolved = self.resolve_comment_anchor(&snapshot);
-            let comment = &mut self.review.comments[index];
-
+        for (comment, resolved) in self.review.comments.iter_mut().zip(resolved_anchors) {
             match resolved {
                 Some(target) => {
                     let needs_update = comment.side != target.side
@@ -311,20 +329,50 @@ impl TuiApp {
         changed
     }
 
-    fn resolve_comment_anchor(
-        &mut self,
-        comment: &LineComment,
-    ) -> Option<anchor::ResolvedLineAnchor> {
-        let file_index = self
-            .diff
+    fn file_indices_by_path(&self) -> HashMap<String, usize> {
+        self.diff
             .files
             .iter()
-            .position(|file| file.path == comment.file_path)?;
-        self.ensure_row_cache_for_file(file_index);
+            .enumerate()
+            .map(|(index, file)| (file.path.clone(), index))
+            .collect()
+    }
+
+    fn exact_anchor_rows_by_file(
+        &mut self,
+        file_indices_by_path: &HashMap<String, usize>,
+    ) -> HashMap<usize, HashMap<ExactAnchorKey, usize>> {
+        let mut file_indices = HashSet::new();
+        for comment in &self.review.comments {
+            if let Some(file_index) = file_indices_by_path.get(&comment.file_path) {
+                file_indices.insert(*file_index);
+            }
+        }
+
+        file_indices
+            .into_iter()
+            .filter_map(|file_index| {
+                self.ensure_row_cache_for_file(file_index);
+                let rows = self.row_cache.get(&file_index)?.rows.as_slice();
+                Some((file_index, exact_anchor_row_index(rows)))
+            })
+            .collect()
+    }
+
+    fn resolve_comment_anchor_with_index(
+        &self,
+        comment: &LineComment,
+        file_indices_by_path: &HashMap<String, usize>,
+        exact_rows_by_file: &HashMap<usize, HashMap<ExactAnchorKey, usize>>,
+    ) -> Option<anchor::ResolvedLineAnchor> {
+        let file_index = *file_indices_by_path.get(&comment.file_path)?;
         let rows = self.row_cache.get(&file_index)?.rows.as_slice();
 
-        if let Some((row_index, _)) = rows.iter().enumerate().find(|(_, row)| {
-            anchor::is_commentable_row(row) && anchor::row_matches_exact_anchor(comment, row)
+        if let Some(row_index) = comment_exact_anchor_key(comment).and_then(|key| {
+            exact_rows_by_file
+                .get(&file_index)
+                .and_then(|rows_by_anchor| rows_by_anchor.get(&key))
+                .copied()
         }) {
             return Some(anchor::ResolvedLineAnchor::from_row(rows, row_index));
         }
@@ -356,6 +404,41 @@ impl TuiApp {
 
         let (score, row_index) = best_match?;
         (score >= 90).then(|| anchor::ResolvedLineAnchor::from_row(rows, row_index))
+    }
+}
+
+fn exact_anchor_row_index(rows: &[DisplayRow]) -> HashMap<ExactAnchorKey, usize> {
+    let mut index = HashMap::new();
+    for (row_index, row) in rows.iter().enumerate() {
+        if !anchor::is_commentable_row(row) {
+            continue;
+        }
+        for key in row_exact_anchor_keys(row) {
+            index.entry(key).or_insert(row_index);
+        }
+    }
+    index
+}
+
+fn row_exact_anchor_keys(row: &DisplayRow) -> Vec<ExactAnchorKey> {
+    match (row.old_line, row.new_line) {
+        (Some(old), Some(new)) => vec![
+            ExactAnchorKey::OldNew(old, new),
+            ExactAnchorKey::Old(old),
+            ExactAnchorKey::New(new),
+        ],
+        (Some(old), None) => vec![ExactAnchorKey::Old(old)],
+        (None, Some(new)) => vec![ExactAnchorKey::New(new)],
+        (None, None) => Vec::new(),
+    }
+}
+
+fn comment_exact_anchor_key(comment: &LineComment) -> Option<ExactAnchorKey> {
+    match (comment.old_line, comment.new_line) {
+        (Some(old), Some(new)) => Some(ExactAnchorKey::OldNew(old, new)),
+        (Some(old), None) => Some(ExactAnchorKey::Old(old)),
+        (None, Some(new)) => Some(ExactAnchorKey::New(new)),
+        (None, None) => None,
     }
 }
 
@@ -405,5 +488,35 @@ mod tests {
 
         assert_eq!(app.computed_file_pane_width(120), 28);
         Ok(())
+    }
+
+    #[test]
+    fn exact_anchor_row_index_maps_context_and_one_sided_rows() {
+        let rows = vec![
+            display_row(DiffLineKind::Meta, None, None),
+            display_row(DiffLineKind::Context, Some(10), Some(20)),
+            display_row(DiffLineKind::Removed, Some(11), None),
+            display_row(DiffLineKind::Added, None, Some(21)),
+        ];
+
+        let index = exact_anchor_row_index(&rows);
+
+        assert_eq!(index.get(&ExactAnchorKey::OldNew(10, 20)), Some(&1));
+        assert_eq!(index.get(&ExactAnchorKey::Old(10)), Some(&1));
+        assert_eq!(index.get(&ExactAnchorKey::New(20)), Some(&1));
+        assert_eq!(index.get(&ExactAnchorKey::Old(11)), Some(&2));
+        assert_eq!(index.get(&ExactAnchorKey::New(21)), Some(&3));
+        assert!(!index.contains_key(&ExactAnchorKey::Old(99)));
+    }
+
+    fn display_row(kind: DiffLineKind, old_line: Option<u32>, new_line: Option<u32>) -> DisplayRow {
+        DisplayRow {
+            kind,
+            old_line,
+            new_line,
+            raw: String::new(),
+            code: String::new(),
+            rendered: None,
+        }
     }
 }
