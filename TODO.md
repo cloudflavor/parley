@@ -424,8 +424,8 @@ Completed items from that worktree:
 
 Pending items:
 
-1. Migrate CLI parsing from `structopt` to `clap` 4 derive APIs.
-2. Replace stringly CLI parse errors with a typed error enum.
-3. Review MCP runtime JSON-RPC optional field handling for clearer default/null behavior.
+1. [x] Migrate CLI parsing from `structopt` to `clap` 4 derive APIs.
+2. [x] Replace stringly CLI parse errors with a typed error enum.
+3. [x] Review MCP runtime JSON-RPC optional field handling for clearer default/null behavior.
 4. Consider a project error hierarchy if `anyhow` contexts stop being sufficient at service boundaries.
 5. Extract reusable async filesystem and validation helpers only where repeated call sites justify it.

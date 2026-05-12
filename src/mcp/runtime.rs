@@ -285,13 +285,12 @@ fn initialize_result(params: Option<&Value>) -> Result<Value> {
 }
 
 fn initialize_protocol_version(params: Option<&Value>) -> Result<String> {
-    params
-        .ok_or_else(|| anyhow!("missing initialize params"))?
-        .get("protocolVersion")
-        .and_then(Value::as_str)
-        .map(|value| value.trim().to_string())
+    let params = required_object_param(params, "initialize params")?;
+    let protocol_version = optional_string(params, "protocolVersion")?
+        .map(str::trim)
         .filter(|value| !value.is_empty())
-        .ok_or_else(|| anyhow!("missing initialize params.protocolVersion"))
+        .ok_or_else(|| anyhow!("missing initialize params.protocolVersion"))?;
+    Ok(protocol_version.to_string())
 }
 
 fn list_documentation_resources() -> Value {
@@ -314,7 +313,8 @@ fn documentation_resource_metadata(doc: &ParleyDoc) -> Value {
 }
 
 fn read_documentation_resource(params: Value) -> Result<Value> {
-    let uri = required_string(&params, "uri")?;
+    let params = required_object_value(&params, "resources/read params")?;
+    let uri = required_string(params, "uri")?;
     let doc = find_doc(uri).ok_or_else(|| anyhow!("documentation resource not found: {uri}"))?;
 
     Ok(json!({
@@ -329,26 +329,23 @@ fn read_documentation_resource(params: Value) -> Result<Value> {
 }
 
 async fn handle_tools_call(service: &ReviewService, params: Value) -> Result<Value> {
-    let tool = params
-        .get("name")
-        .and_then(Value::as_str)
+    let params = required_object_value(&params, "tools/call params")?;
+    let tool = optional_string(params, "name")?
         .ok_or_else(|| anyhow!("missing tools/call params.name"))?;
 
-    let arguments = params
-        .get("arguments")
-        .cloned()
-        .unwrap_or_else(|| json!({}));
+    let empty_arguments = Value::Object(serde_json::Map::new());
+    let arguments = optional_object_field(params, "arguments")?.unwrap_or(&empty_arguments);
 
     let output = match tool {
         "list_reviews" => json!({ "reviews": service.list_reviews().await? }),
-        "get_documentation" => get_documentation_tool_output(&arguments)?,
+        "get_documentation" => get_documentation_tool_output(arguments)?,
         "get_review" => {
-            let review_name = resolve_review_name(&arguments)?;
+            let review_name = resolve_review_name(arguments)?;
             let review = service.load_review(&review_name).await?;
             serde_json::to_value(review)?
         }
         "list_open_comments" => {
-            let review_name = resolve_review_name(&arguments)?;
+            let review_name = resolve_review_name(arguments)?;
             let review = service.load_review(&review_name).await?;
             let comments: Vec<_> = review
                 .comments
@@ -358,10 +355,10 @@ async fn handle_tools_call(service: &ReviewService, params: Value) -> Result<Val
             json!({ "comments": comments })
         }
         "add_reply" => {
-            let review_name = resolve_review_name(&arguments)?;
-            let comment_id = required_u64(&arguments, "comment_id")?;
-            let body = required_string(&arguments, "body")?.to_string();
-            let author = parse_author_with_default(&arguments, "author", Author::Ai)?;
+            let review_name = resolve_review_name(arguments)?;
+            let comment_id = required_u64(arguments, "comment_id")?;
+            let body = required_string(arguments, "body")?.to_string();
+            let author = parse_author_with_default(arguments, "author", Author::Ai)?;
             let updated = service
                 .add_reply(
                     &review_name,
@@ -375,31 +372,29 @@ async fn handle_tools_call(service: &ReviewService, params: Value) -> Result<Val
             serde_json::to_value(updated)?
         }
         "mark_comment_addressed" => {
-            let review_name = resolve_review_name(&arguments)?;
-            let comment_id = required_u64(&arguments, "comment_id")?;
-            let author = parse_author_with_default(&arguments, "author", Author::User)?;
+            let review_name = resolve_review_name(arguments)?;
+            let comment_id = required_u64(arguments, "comment_id")?;
+            let author = parse_author_with_default(arguments, "author", Author::User)?;
             let updated = service
                 .mark_addressed(&review_name, comment_id, author)
                 .await?;
             serde_json::to_value(updated)?
         }
         "mark_comment_open" => {
-            let review_name = resolve_review_name(&arguments)?;
-            let comment_id = required_u64(&arguments, "comment_id")?;
-            let author = parse_author_with_default(&arguments, "author", Author::User)?;
+            let review_name = resolve_review_name(arguments)?;
+            let comment_id = required_u64(arguments, "comment_id")?;
+            let author = parse_author_with_default(arguments, "author", Author::User)?;
             let updated = service.mark_open(&review_name, comment_id, author).await?;
             serde_json::to_value(updated)?
         }
         "run_ai_session" => {
-            let review_name = resolve_review_name(&arguments)?;
-            let provider_value = required_string(&arguments, "provider")?;
+            let review_name = resolve_review_name(arguments)?;
+            let provider_value = required_string(arguments, "provider")?;
             let provider = provider_value
                 .parse::<AiProvider>()
                 .map_err(|error| anyhow!(error))?;
-            let comment_ids = required_u64_list(&arguments, "comment_ids")?;
-            let mode = arguments
-                .get("mode")
-                .and_then(Value::as_str)
+            let comment_ids = required_u64_list(arguments, "comment_ids")?;
+            let mode = optional_string(arguments, "mode")?
                 .map(str::parse::<AiSessionMode>)
                 .transpose()
                 .map_err(|error| anyhow!(error))?
@@ -419,8 +414,8 @@ async fn handle_tools_call(service: &ReviewService, params: Value) -> Result<Val
             serde_json::to_value(output)?
         }
         "set_review_state" => {
-            let review_name = resolve_review_name(&arguments)?;
-            let state_value = required_string(&arguments, "state")?;
+            let review_name = resolve_review_name(arguments)?;
+            let state_value = required_string(arguments, "state")?;
             let next_state = parse_state(state_value)?;
             let updated = service.set_state(&review_name, next_state).await?;
             serde_json::to_value(updated)?
@@ -437,7 +432,7 @@ async fn handle_tools_call(service: &ReviewService, params: Value) -> Result<Val
 }
 
 fn get_documentation_tool_output(arguments: &Value) -> Result<Value> {
-    let Some(doc_value) = arguments.get("doc").and_then(Value::as_str) else {
+    let Some(doc_value) = optional_string(arguments, "doc")? else {
         return Ok(json!({
             "docs": PARLEY_DOCS
                 .iter()
@@ -465,23 +460,26 @@ fn resolve_review_name(arguments: &Value) -> Result<String> {
 }
 
 fn required_string<'a>(value: &'a Value, key: &str) -> Result<&'a str> {
-    value
-        .get(key)
-        .and_then(Value::as_str)
-        .ok_or_else(|| anyhow!("missing required string field: {key}"))
+    optional_string(value, key)?.ok_or_else(|| anyhow!("missing required string field: {key}"))
 }
 
 fn required_u64(value: &Value, key: &str) -> Result<u64> {
-    value
-        .get(key)
-        .and_then(Value::as_u64)
-        .ok_or_else(|| anyhow!("missing required integer field: {key}"))
+    match value.get(key) {
+        Some(Value::Number(raw)) => raw
+            .as_u64()
+            .ok_or_else(|| anyhow!("field {key} must be an unsigned integer")),
+        Some(Value::Null) | None => Err(anyhow!("missing required integer field: {key}")),
+        Some(_) => Err(anyhow!("field {key} must be an unsigned integer")),
+    }
 }
 
 fn required_u64_list(value: &Value, key: &str) -> Result<Vec<u64>> {
     let Some(raw) = value.get(key) else {
         return Ok(Vec::new());
     };
+    if raw.is_null() {
+        return Ok(Vec::new());
+    }
 
     let Some(items) = raw.as_array() else {
         return Err(anyhow!("field {key} must be an array of integers"));
@@ -498,7 +496,7 @@ fn required_u64_list(value: &Value, key: &str) -> Result<Vec<u64>> {
 }
 
 fn parse_author_with_default(value: &Value, key: &str, default: Author) -> Result<Author> {
-    match value.get(key).and_then(Value::as_str) {
+    match optional_string(value, key)? {
         None => Ok(default),
         Some(other) => other
             .parse::<Author>()
@@ -510,6 +508,37 @@ fn parse_state(value: &str) -> Result<ReviewState> {
     value
         .parse::<ReviewState>()
         .map_err(|_| anyhow!("invalid state value: {value}"))
+}
+
+fn required_object_param<'a>(value: Option<&'a Value>, context: &str) -> Result<&'a Value> {
+    match value {
+        Some(value) => required_object_value(value, context),
+        None => Err(anyhow!("missing {context}")),
+    }
+}
+
+fn required_object_value<'a>(value: &'a Value, context: &str) -> Result<&'a Value> {
+    match value {
+        Value::Object(_) => Ok(value),
+        Value::Null => Err(anyhow!("missing {context}")),
+        _ => Err(anyhow!("{context} must be an object")),
+    }
+}
+
+fn optional_object_field<'a>(value: &'a Value, key: &str) -> Result<Option<&'a Value>> {
+    match value.get(key) {
+        Some(raw @ Value::Object(_)) => Ok(Some(raw)),
+        Some(Value::Null) | None => Ok(None),
+        Some(_) => Err(anyhow!("field {key} must be an object")),
+    }
+}
+
+fn optional_string<'a>(value: &'a Value, key: &str) -> Result<Option<&'a str>> {
+    match value.get(key) {
+        Some(Value::String(raw)) => Ok(Some(raw)),
+        Some(Value::Null) | None => Ok(None),
+        Some(_) => Err(anyhow!("field {key} must be a string")),
+    }
 }
 
 #[cfg(test)]
@@ -540,6 +569,16 @@ mod tests {
     #[test]
     fn initialize_requires_protocol_version() {
         let missing = initialize_result(None);
+
+        assert_eq!(
+            missing.unwrap_err().to_string(),
+            "missing initialize params"
+        );
+    }
+
+    #[test]
+    fn initialize_treats_null_params_as_missing() {
+        let missing = initialize_result(Some(&Value::Null));
 
         assert_eq!(
             missing.unwrap_err().to_string(),
@@ -639,6 +678,52 @@ mod tests {
                 .ok_or_else(|| anyhow!("body should be a string"))?
                 .contains("# MCP Integration")
         );
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn tools_call_treats_null_arguments_as_empty_object() -> Result<()> {
+        let tempdir = tempdir()?;
+        let service = ReviewService::new(Store::from_project_root(tempdir.path()));
+        let response = handle_tools_call(
+            &service,
+            json!({
+                "name": "get_documentation",
+                "arguments": null
+            }),
+        )
+        .await?;
+
+        let docs = response["structuredContent"]["docs"]
+            .as_array()
+            .ok_or_else(|| anyhow!("docs should be an array"))?;
+        assert!(!docs.is_empty());
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn tools_call_rejects_non_object_arguments() -> Result<()> {
+        let tempdir = tempdir()?;
+        let service = ReviewService::new(Store::from_project_root(tempdir.path()));
+        let error = handle_tools_call(
+            &service,
+            json!({
+                "name": "get_documentation",
+                "arguments": "mcp"
+            }),
+        )
+        .await
+        .expect_err("arguments should reject non-object values");
+
+        assert_eq!(error.to_string(), "field arguments must be an object");
+        Ok(())
+    }
+
+    #[test]
+    fn required_u64_list_treats_null_as_empty_list() -> Result<()> {
+        let arguments = json!({"comment_ids": null});
+
+        assert!(required_u64_list(&arguments, "comment_ids")?.is_empty());
         Ok(())
     }
 
