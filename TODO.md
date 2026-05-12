@@ -152,9 +152,9 @@ Success criteria:
 
 ### Unit 7: Isolate Or Remove Old Storage Compatibility
 
-- [ ] Decide whether flat `.parley/reviews/<name>.json` and `.parley/config.json` reads are still required.
-- [ ] If not required, delete legacy path helpers and tests.
-- [ ] If still required, isolate compatibility reads in a small migration/helper section so normal load/list paths stay direct.
+- [x] Decide whether flat `.parley/reviews/<name>.json` and `.parley/config.json` reads are still required.
+- [x] Kept flat review compatibility because tests cover it; removed legacy `.parley/config.json` reads.
+- [x] If still required, isolate compatibility reads in a small migration/helper section so normal load/list paths stay direct.
 
 Files:
 - `src/persistence/store.rs`

@@ -75,19 +75,16 @@ impl Store {
     /// cannot be read or deserialized.
     pub async fn load_review(&self, name: &str) -> StoreResult<ReviewSession> {
         validate_review_name(name)?;
-        match fs::read(self.review_path(name)?).await {
-            Ok(bytes) => Ok(serde_json::from_slice(&bytes)?),
-            Err(error) if error.kind() == ErrorKind::NotFound => {
-                match fs::read(self.legacy_review_path(name)?).await {
-                    Ok(bytes) => Ok(serde_json::from_slice(&bytes)?),
-                    Err(error) if error.kind() == ErrorKind::NotFound => {
-                        Err(StoreError::ReviewNotFound(name.to_string()))
-                    }
-                    Err(error) => Err(StoreError::Io(error)),
-                }
-            }
-            Err(error) => Err(StoreError::Io(error)),
+        let review_path = self.review_path(name)?;
+        if let Some(review) = read_review_file(&review_path).await? {
+            return Ok(review);
         }
+
+        if let Some(review) = self.load_legacy_review(name).await? {
+            return Ok(review);
+        }
+
+        Err(StoreError::ReviewNotFound(name.to_string()))
     }
 
     /// # Errors
@@ -104,22 +101,10 @@ impl Store {
             let file_type = entry.file_type().await?;
             if file_type.is_dir() {
                 let review_path = path.join("review.json");
-                match fs::read(review_path).await {
-                    Ok(bytes) => {
-                        let review: ReviewSession = serde_json::from_slice(&bytes)?;
-                        result.push(review.name);
-                    }
-                    Err(error) if error.kind() == ErrorKind::NotFound => {}
-                    Err(error) => return Err(StoreError::Io(error)),
+                if let Some(review) = read_review_file(&review_path).await? {
+                    result.push(review.name);
                 }
-            } else if path.extension().and_then(|value| value.to_str()) == Some("json")
-                && let Some(stem) = path.file_stem().and_then(|value| value.to_str())
-            {
-                let name = stem.to_string();
-                let normalized_path = self.review_path(&name)?;
-                if fs::try_exists(normalized_path).await? {
-                    continue;
-                }
+            } else if let Some(name) = self.legacy_review_name(&path).await? {
                 result.push(name);
             }
         }
@@ -139,11 +124,6 @@ impl Store {
 
     fn review_path(&self, name: &str) -> StoreResult<PathBuf> {
         Ok(self.review_dir(name)?.join("review.json"))
-    }
-
-    fn legacy_review_path(&self, name: &str) -> StoreResult<PathBuf> {
-        validate_review_name(name)?;
-        Ok(self.reviews_dir().join(format!("{name}.json")))
     }
 
     fn review_dir(&self, name: &str) -> StoreResult<PathBuf> {
@@ -173,9 +153,7 @@ impl Store {
                 })?;
                 Ok(toml::from_str(&text)?)
             }
-            Err(error) if error.kind() == ErrorKind::NotFound => {
-                self.load_legacy_json_config().await
-            }
+            Err(error) if error.kind() == ErrorKind::NotFound => Ok(AppConfig::default()),
             Err(error) => Err(StoreError::Io(error)),
         }
     }
@@ -195,16 +173,40 @@ impl Store {
         self.root.join("config.toml")
     }
 
-    fn legacy_config_path(&self) -> PathBuf {
-        self.root.join("config.json")
+    // Legacy compatibility for flat review files that predate per-review directories.
+    async fn load_legacy_review(&self, name: &str) -> StoreResult<Option<ReviewSession>> {
+        let legacy_path = self.legacy_review_path(name)?;
+        read_review_file(&legacy_path).await
     }
 
-    async fn load_legacy_json_config(&self) -> StoreResult<AppConfig> {
-        match fs::read(self.legacy_config_path()).await {
-            Ok(bytes) => Ok(serde_json::from_slice(&bytes)?),
-            Err(error) if error.kind() == ErrorKind::NotFound => Ok(AppConfig::default()),
-            Err(error) => Err(StoreError::Io(error)),
+    async fn legacy_review_name(&self, path: &Path) -> StoreResult<Option<String>> {
+        if path.extension().and_then(|value| value.to_str()) != Some("json") {
+            return Ok(None);
         }
+
+        let Some(stem) = path.file_stem().and_then(|value| value.to_str()) else {
+            return Ok(None);
+        };
+
+        let normalized_path = self.review_path(stem)?;
+        if fs::try_exists(normalized_path).await? {
+            Ok(None)
+        } else {
+            Ok(Some(stem.to_string()))
+        }
+    }
+
+    fn legacy_review_path(&self, name: &str) -> StoreResult<PathBuf> {
+        validate_review_name(name)?;
+        Ok(self.reviews_dir().join(format!("{name}.json")))
+    }
+}
+
+async fn read_review_file(path: &Path) -> StoreResult<Option<ReviewSession>> {
+    match fs::read(path).await {
+        Ok(bytes) => Ok(Some(serde_json::from_slice(&bytes)?)),
+        Err(error) if error.kind() == ErrorKind::NotFound => Ok(None),
+        Err(error) => Err(StoreError::Io(error)),
     }
 }
 
