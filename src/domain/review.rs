@@ -1,5 +1,6 @@
 use serde::{Deserialize, Serialize};
 use std::str::FromStr;
+use thiserror::Error;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -28,6 +29,16 @@ pub enum CommentStatus {
 pub enum DiffSide {
     Left,
     Right,
+}
+
+#[derive(Debug, Clone, Error, PartialEq, Eq)]
+pub enum ReviewMutationError {
+    #[error("comment_id {comment_id} not found")]
+    CommentNotFound { comment_id: u64 },
+    #[error("only the original commenter can mark a comment addressed")]
+    OnlyOriginalCommenterCanAddress,
+    #[error("only the original commenter can change thread status")]
+    OnlyOriginalCommenterCanChangeStatus,
 }
 
 macro_rules! impl_string_enum {
@@ -202,7 +213,7 @@ impl ReviewSession {
     /// # Errors
     ///
     /// Currently does not fail, but returns `Result` to match other state-transition APIs.
-    pub fn set_state(&mut self, next: ReviewState, now_ms: u64) -> Result<(), String> {
+    pub fn set_state(&mut self, next: ReviewState, now_ms: u64) -> Result<(), ReviewMutationError> {
         self.state = next;
         self.updated_at_ms = now_ms;
         Ok(())
@@ -246,7 +257,7 @@ impl ReviewSession {
         author: Author,
         body: String,
         now_ms: u64,
-    ) -> Result<u64, String> {
+    ) -> Result<u64, ReviewMutationError> {
         let id = self.next_reply_id;
         self.next_reply_id += 1;
 
@@ -254,7 +265,7 @@ impl ReviewSession {
             .comments
             .iter_mut()
             .find(|comment| comment.id == comment_id)
-            .ok_or_else(|| format!("comment_id {comment_id} not found"))?;
+            .ok_or(ReviewMutationError::CommentNotFound { comment_id })?;
 
         comment.replies.push(CommentReply {
             id,
@@ -283,12 +294,12 @@ impl ReviewSession {
         comment_id: u64,
         target: ReanchorLineComment,
         now_ms: u64,
-    ) -> Result<(), String> {
+    ) -> Result<(), ReviewMutationError> {
         let comment = self
             .comments
             .iter_mut()
             .find(|comment| comment.id == comment_id)
-            .ok_or_else(|| format!("comment_id {comment_id} not found"))?;
+            .ok_or(ReviewMutationError::CommentNotFound { comment_id })?;
 
         comment.file_path = target.file_path;
         comment.old_line = target.old_line;
@@ -311,7 +322,7 @@ impl ReviewSession {
         status: CommentStatus,
         actor: Author,
         now_ms: u64,
-    ) -> Result<(), String> {
+    ) -> Result<(), ReviewMutationError> {
         self.set_comment_status_with_actor(comment_id, status, now_ms, Some(actor))
     }
 
@@ -323,7 +334,7 @@ impl ReviewSession {
         comment_id: u64,
         status: CommentStatus,
         now_ms: u64,
-    ) -> Result<(), String> {
+    ) -> Result<(), ReviewMutationError> {
         self.set_comment_status_with_actor(comment_id, status, now_ms, None)
     }
 
@@ -333,27 +344,23 @@ impl ReviewSession {
         status: CommentStatus,
         now_ms: u64,
         actor: Option<Author>,
-    ) -> Result<(), String> {
+    ) -> Result<(), ReviewMutationError> {
         let comment = self
             .comments
             .iter_mut()
             .find(|comment| comment.id == comment_id)
-            .ok_or_else(|| format!("comment_id {comment_id} not found"))?;
+            .ok_or(ReviewMutationError::CommentNotFound { comment_id })?;
 
         if let Some(actor) = actor {
             match status {
                 CommentStatus::Addressed => {
                     if comment.author != actor {
-                        return Err(
-                            "only the original commenter can mark a comment addressed".to_string()
-                        );
+                        return Err(ReviewMutationError::OnlyOriginalCommenterCanAddress);
                     }
                 }
                 CommentStatus::Open | CommentStatus::Pending => {
                     if comment.author != actor {
-                        return Err(
-                            "only the original commenter can change thread status".to_string()
-                        );
+                        return Err(ReviewMutationError::OnlyOriginalCommenterCanChangeStatus);
                     }
                 }
             }
@@ -388,8 +395,8 @@ impl ReviewSession {
 #[cfg(test)]
 mod tests {
     use super::{
-        Author, CommentStatus, DiffSide, NewLineComment, ReviewSession, ReviewState,
-        StoredAnchorSnapshot,
+        Author, CommentStatus, DiffSide, NewLineComment, ReviewMutationError, ReviewSession,
+        ReviewState, StoredAnchorSnapshot,
     };
     use anyhow::Result;
 
@@ -411,9 +418,7 @@ mod tests {
             2,
         );
 
-        session
-            .add_reply(comment_id, Author::Ai, "fixed".into(), 3)
-            .map_err(anyhow::Error::msg)?;
+        session.add_reply(comment_id, Author::Ai, "fixed".into(), 3)?;
 
         assert_eq!(session.comments[0].status, CommentStatus::Pending);
         assert_eq!(session.state, ReviewState::UnderReview);
@@ -466,13 +471,9 @@ mod tests {
             },
             2,
         );
-        session
-            .add_reply(comment_id, Author::Ai, "proposal".into(), 3)
-            .map_err(anyhow::Error::msg)?;
+        session.add_reply(comment_id, Author::Ai, "proposal".into(), 3)?;
 
-        session
-            .add_reply(comment_id, Author::User, "please revise".into(), 4)
-            .map_err(anyhow::Error::msg)?;
+        session.add_reply(comment_id, Author::User, "please revise".into(), 4)?;
 
         assert_eq!(session.comments[0].status, CommentStatus::Open);
         assert_eq!(session.state, ReviewState::Open);
@@ -520,9 +521,7 @@ mod tests {
             2,
         );
 
-        session
-            .set_comment_status_force(comment_id, CommentStatus::Addressed, 3)
-            .map_err(anyhow::Error::msg)?;
+        session.set_comment_status_force(comment_id, CommentStatus::Addressed, 3)?;
         assert_eq!(session.comments[0].status, CommentStatus::Addressed);
         Ok(())
     }
@@ -544,12 +543,25 @@ mod tests {
             },
             2,
         );
-        session
-            .set_comment_status(comment_id, CommentStatus::Addressed, Author::User, 3)
-            .map_err(anyhow::Error::msg)?;
+        session.set_comment_status(comment_id, CommentStatus::Addressed, Author::User, 3)?;
 
         assert_eq!(session.state, ReviewState::UnderReview);
         Ok(())
+    }
+
+    #[test]
+    fn missing_comment_returns_typed_mutation_error() {
+        let mut session = ReviewSession::new("r1".into(), 1);
+
+        let error = session
+            .set_comment_status(7, CommentStatus::Addressed, Author::User, 2)
+            .expect_err("missing comment should return a typed error");
+
+        assert_eq!(
+            error,
+            ReviewMutationError::CommentNotFound { comment_id: 7 }
+        );
+        assert_eq!(error.to_string(), "comment_id 7 not found");
     }
 
     #[test]

@@ -129,7 +129,7 @@ impl ReviewService {
     /// transition is rejected, or the updated review cannot be saved.
     pub async fn set_state(&self, name: &str, next: ReviewState) -> Result<ReviewSession> {
         self.mutate_review(name, "failed to save state change", |session, now_ms| {
-            session.set_state(next, now_ms).map_err(anyhow::Error::msg)
+            session.set_state(next, now_ms).map_err(Into::into)
         })
         .await
     }
@@ -167,7 +167,7 @@ impl ReviewService {
             session
                 .add_reply(input.comment_id, input.author, input.body, now_ms)
                 .map(|_| ())
-                .map_err(anyhow::Error::msg)
+                .map_err(Into::into)
         })
         .await
     }
@@ -211,7 +211,7 @@ impl ReviewService {
             |session, now_ms| {
                 session
                     .set_comment_status_force(comment_id, CommentStatus::Addressed, now_ms)
-                    .map_err(anyhow::Error::msg)
+                    .map_err(Into::into)
             },
         )
         .await
@@ -241,7 +241,7 @@ impl ReviewService {
             |session, now_ms| {
                 session
                     .reanchor_comment(input.comment_id, target, now_ms)
-                    .map_err(anyhow::Error::msg)
+                    .map_err(Into::into)
             },
         )
         .await
@@ -270,7 +270,7 @@ impl ReviewService {
             |session, now_ms| {
                 session
                     .set_comment_status(comment_id, status, actor, now_ms)
-                    .map_err(anyhow::Error::msg)
+                    .map_err(Into::into)
             },
         )
         .await
