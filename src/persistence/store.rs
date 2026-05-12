@@ -48,7 +48,6 @@ impl Store {
     ///
     /// Returns an error when the review name is invalid or the review cannot be written.
     pub async fn create_review(&self, session: &ReviewSession) -> StoreResult<()> {
-        validate_review_name(&session.name)?;
         self.save_review(session).await
     }
 
@@ -57,7 +56,6 @@ impl Store {
     /// Returns an error when the review name is invalid, directories cannot be created, the session
     /// cannot be serialized, or the review file cannot be written.
     pub async fn save_review(&self, session: &ReviewSession) -> StoreResult<()> {
-        validate_review_name(&session.name)?;
         self.ensure_dirs().await?;
 
         let path = self.review_path(&session.name)?;
@@ -74,7 +72,6 @@ impl Store {
     /// Returns an error when the review name is invalid, the review is missing, or review data
     /// cannot be read or deserialized.
     pub async fn load_review(&self, name: &str) -> StoreResult<ReviewSession> {
-        validate_review_name(name)?;
         let review_path = self.review_path(name)?;
         if let Some(review) = read_review_file(&review_path).await? {
             return Ok(review);
@@ -118,7 +115,6 @@ impl Store {
     ///
     /// Returns an error when `review_name` is invalid.
     pub fn review_log_path(&self, review_name: &str) -> StoreResult<PathBuf> {
-        validate_review_name(review_name)?;
         Ok(self.review_dir(review_name)?.join("logs").join("tui.log"))
     }
 
@@ -127,7 +123,6 @@ impl Store {
     }
 
     fn review_dir(&self, name: &str) -> StoreResult<PathBuf> {
-        validate_review_name(name)?;
         Ok(self.reviews_dir().join(normalize_review_name(name)?))
     }
 
@@ -143,19 +138,16 @@ impl Store {
         self.ensure_dirs().await?;
         let path = self.config_path();
 
-        match fs::read(&path).await {
-            Ok(bytes) => {
-                let text = String::from_utf8(bytes).map_err(|error| {
-                    StoreError::Io(Error::new(
-                        ErrorKind::InvalidData,
-                        format!("invalid utf-8 in config.toml: {error}"),
-                    ))
-                })?;
-                Ok(toml::from_str(&text)?)
-            }
-            Err(error) if error.kind() == ErrorKind::NotFound => Ok(AppConfig::default()),
-            Err(error) => Err(StoreError::Io(error)),
-        }
+        let Some(bytes) = read_optional_file(&path).await? else {
+            return Ok(AppConfig::default());
+        };
+        let text = String::from_utf8(bytes).map_err(|error| {
+            StoreError::Io(Error::new(
+                ErrorKind::InvalidData,
+                format!("invalid utf-8 in config.toml: {error}"),
+            ))
+        })?;
+        Ok(toml::from_str(&text)?)
     }
 
     /// # Errors
@@ -203,8 +195,15 @@ impl Store {
 }
 
 async fn read_review_file(path: &Path) -> StoreResult<Option<ReviewSession>> {
+    let Some(bytes) = read_optional_file(path).await? else {
+        return Ok(None);
+    };
+    Ok(Some(serde_json::from_slice(&bytes)?))
+}
+
+async fn read_optional_file(path: &Path) -> StoreResult<Option<Vec<u8>>> {
     match fs::read(path).await {
-        Ok(bytes) => Ok(Some(serde_json::from_slice(&bytes)?)),
+        Ok(bytes) => Ok(Some(bytes)),
         Err(error) if error.kind() == ErrorKind::NotFound => Ok(None),
         Err(error) => Err(StoreError::Io(error)),
     }
