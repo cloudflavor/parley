@@ -3,7 +3,6 @@ use crate::domain::diff::{DiffDocument, DiffFile, DiffHunk, DiffLine, DiffLineKi
 use anyhow::{Context, Result, anyhow};
 use git2::{Commit, DiffFormat, DiffOptions, Repository};
 use std::collections::BTreeSet;
-use std::fs as std_fs;
 use std::path::{Component, Path, PathBuf};
 use tokio::fs;
 use tokio::task::spawn_blocking;
@@ -118,14 +117,15 @@ fn load_git_diff_for_repo(
     config: &AppConfig,
     source: &DiffSource,
 ) -> Result<DiffDocument> {
+    if matches!(source, DiffSource::RootDirectory) {
+        return Err(anyhow!(
+            "root directory reviews must use the async root directory loader"
+        ));
+    }
+
     let text = load_diff_text(repo, source)?;
-    let mut document = if matches!(source, DiffSource::RootDirectory) {
-        load_root_directory_document_sync(repo, config)?
-    } else {
-        parse_unified_diff(&text)?
-    };
-    let ignore_repo =
-        matches!(source, DiffSource::WorkingTree | DiffSource::RootDirectory).then_some(repo);
+    let mut document = parse_unified_diff(&text)?;
+    let ignore_repo = matches!(source, DiffSource::WorkingTree).then_some(repo);
     filter_ignored_files(&mut document, config, ignore_repo)?;
     Ok(document)
 }
@@ -306,115 +306,6 @@ async fn root_directory_file(workdir: &Path, relative_path: &Path) -> Result<Opt
     let bytes = fs::read(&path)
         .await
         .with_context(|| format!("failed to read {}", path.display()))?;
-    if bytes.contains(&0) {
-        return Ok(None);
-    }
-    let content = match String::from_utf8(bytes) {
-        Ok(content) => content,
-        Err(_) => return Ok(None),
-    };
-    if content
-        .lines()
-        .take(MAX_ROOT_FILE_PREVIEW_LINES + 1)
-        .count()
-        > MAX_ROOT_FILE_PREVIEW_LINES
-    {
-        return Ok(Some(root_directory_large_file_preview(
-            &display_path,
-            metadata.len(),
-            "file has too many lines to preview",
-        )));
-    }
-    Ok(Some(diff_file_from_content(&display_path, &content)))
-}
-
-fn load_root_directory_document_sync(
-    repo: &Repository,
-    config: &AppConfig,
-) -> Result<DiffDocument> {
-    let workdir = repo
-        .workdir()
-        .context("root directory reviews require a non-bare git repository")?;
-    let mut paths = tracked_file_paths(repo)?;
-    collect_untracked_file_paths_sync(repo, workdir, workdir, config, &mut paths)?;
-
-    let mut files = Vec::new();
-    for path in paths {
-        if should_ignore_file(path.to_string_lossy().as_ref(), config, Some(repo))? {
-            continue;
-        }
-        if let Some(file) = root_directory_file_sync(workdir, &path)? {
-            files.push(file);
-        }
-    }
-
-    Ok(DiffDocument { files })
-}
-
-fn collect_untracked_file_paths_sync(
-    repo: &Repository,
-    workdir: &Path,
-    dir: &Path,
-    config: &AppConfig,
-    paths: &mut BTreeSet<PathBuf>,
-) -> Result<()> {
-    for entry in
-        std_fs::read_dir(dir).with_context(|| format!("failed to read {}", dir.display()))?
-    {
-        let entry = entry.with_context(|| format!("failed to read entry in {}", dir.display()))?;
-        let path = entry.path();
-        let relative_path = path
-            .strip_prefix(workdir)
-            .with_context(|| format!("failed to relativize {}", path.display()))?;
-
-        if should_skip_root_directory_path(relative_path, config) {
-            continue;
-        }
-
-        let file_type = entry
-            .file_type()
-            .with_context(|| format!("failed to inspect {}", path.display()))?;
-        if file_type.is_dir() {
-            if repo.status_should_ignore(relative_path).with_context(|| {
-                format!("failed to evaluate gitignore rules for {}", path.display())
-            })? {
-                continue;
-            }
-            collect_untracked_file_paths_sync(repo, workdir, &path, config, paths)?;
-            continue;
-        }
-        if !file_type.is_file() {
-            continue;
-        }
-        if repo
-            .status_should_ignore(relative_path)
-            .with_context(|| format!("failed to evaluate gitignore rules for {}", path.display()))?
-        {
-            continue;
-        }
-        paths.insert(relative_path.to_path_buf());
-    }
-    Ok(())
-}
-
-fn root_directory_file_sync(workdir: &Path, relative_path: &Path) -> Result<Option<DiffFile>> {
-    let path = workdir.join(relative_path);
-    if !path.is_file() {
-        return Ok(None);
-    }
-    let display_path = normalize_relative_path(relative_path);
-    let metadata =
-        std_fs::metadata(&path).with_context(|| format!("failed to inspect {}", path.display()))?;
-    if metadata.len() > MAX_ROOT_FILE_PREVIEW_BYTES {
-        return Ok(Some(root_directory_large_file_preview(
-            &display_path,
-            metadata.len(),
-            "file is too large to preview",
-        )));
-    }
-
-    let bytes =
-        std_fs::read(&path).with_context(|| format!("failed to read {}", path.display()))?;
     if bytes.contains(&0) {
         return Ok(None);
     }
@@ -827,11 +718,35 @@ fn parse_diff_path(raw: &str) -> Option<String> {
 }
 
 #[cfg(test)]
+async fn load_root_directory_document_for_repo(
+    repo: &Repository,
+    config: &AppConfig,
+) -> Result<DiffDocument> {
+    let workdir = repo
+        .workdir()
+        .context("root directory reviews require a non-bare git repository")?;
+    let mut paths = tracked_file_paths(repo)?;
+    collect_untracked_file_paths(workdir, workdir, config, &mut paths).await?;
+
+    let mut files = Vec::new();
+    for path in paths {
+        if should_ignore_file(path.to_string_lossy().as_ref(), config, Some(repo))? {
+            continue;
+        }
+        if let Some(file) = root_directory_file(workdir, &path).await? {
+            files.push(file);
+        }
+    }
+
+    Ok(DiffDocument { files })
+}
+
+#[cfg(test)]
 mod tests {
     use super::{
         DiffSource, MAX_ROOT_FILE_PREVIEW_BYTES, filter_ignored_files, load_git_diff_for_repo,
-        parse_unified_diff, root_directory_file_sync, root_directory_placeholder_file,
-        safe_root_relative_path,
+        load_root_directory_document_for_repo, parse_unified_diff, root_directory_file,
+        root_directory_placeholder_file, safe_root_relative_path,
     };
     use crate::domain::config::AppConfig;
     use crate::domain::diff::DiffLineKind;
@@ -1041,8 +956,8 @@ mod tests {
         Ok(())
     }
 
-    #[test]
-    fn load_root_directory_includes_tracked_and_untracked_files() -> Result<()> {
+    #[tokio::test]
+    async fn load_root_directory_includes_tracked_and_untracked_files() -> Result<()> {
         let temp = tempdir()?;
         let repo = Repository::init(temp.path())?;
 
@@ -1062,7 +977,7 @@ mod tests {
             "fn other_worktree() {}\n",
         )?;
 
-        let doc = load_git_diff_for_repo(&repo, &AppConfig::default(), &DiffSource::RootDirectory)?;
+        let doc = load_root_directory_document_for_repo(&repo, &AppConfig::default()).await?;
 
         let paths = doc
             .files
@@ -1095,8 +1010,8 @@ mod tests {
         assert!(file.hunks.is_empty());
     }
 
-    #[test]
-    fn large_root_directory_file_renders_preview_without_content() -> Result<()> {
+    #[tokio::test]
+    async fn large_root_directory_file_renders_preview_without_content() -> Result<()> {
         let temp = tempdir()?;
         let relative_path = std::path::Path::new("large.json");
         let path = temp.path().join(relative_path);
@@ -1105,7 +1020,8 @@ mod tests {
             "x".repeat((MAX_ROOT_FILE_PREVIEW_BYTES + 1) as usize),
         )?;
 
-        let file = root_directory_file_sync(temp.path(), relative_path)?
+        let file = root_directory_file(temp.path(), relative_path)
+            .await?
             .ok_or_else(|| anyhow!("large file preview should be present"))?;
 
         assert_eq!(file.path, "large.json");
