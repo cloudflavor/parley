@@ -4,7 +4,7 @@
 
 use super::*;
 use crate::utils::cast::offset_index;
-use std::collections::{HashMap, HashSet};
+use std::collections::{BTreeMap, HashMap, HashSet};
 
 impl TuiApp {
     pub(crate) fn active_file_index(&self) -> usize {
@@ -89,15 +89,11 @@ impl TuiApp {
     }
 
     fn ordered_file_selection_indices(&self) -> Vec<usize> {
-        let rendered_rows = self
-            .last_file_row_map
-            .iter()
-            .filter_map(|entry| *entry)
-            .collect::<Vec<_>>();
-        if !rendered_rows.is_empty() {
-            return rendered_rows;
-        }
-        self.visible_file_indices()
+        self.ordered_visible_file_groups()
+            .into_iter()
+            .filter(|(group, _, _)| !self.collapsed_file_groups.contains(group))
+            .flat_map(|(_, file_indices, _)| file_indices)
+            .collect()
     }
 
     pub(crate) fn current_file(&self) -> Option<&DiffFile> {
@@ -215,6 +211,70 @@ impl TuiApp {
             }
         });
         indices
+    }
+
+    pub(crate) fn ordered_visible_file_groups(
+        &self,
+    ) -> Vec<(String, Vec<usize>, FileCommentStats)> {
+        let mut grouped: BTreeMap<String, Vec<usize>> = BTreeMap::new();
+        for file_index in self.visible_file_indices() {
+            let group = self.file_group_name_for_index(file_index);
+            grouped.entry(group).or_default().push(file_index);
+        }
+
+        let mut grouped_entries = grouped
+            .into_iter()
+            .map(|(group, mut file_indices)| {
+                file_indices.sort_by(|left, right| self.compare_file_indices(*left, *right));
+                let stats = file_indices.iter().fold(
+                    FileCommentStats::default(),
+                    |mut stats, file_index| {
+                        let file = &self.diff.files[*file_index];
+                        let file_stats = self.comment_stats_for_file(&file.path);
+                        stats.total += file_stats.total;
+                        stats.open += file_stats.open;
+                        stats.pending += file_stats.pending;
+                        stats
+                    },
+                );
+                (group, file_indices, stats)
+            })
+            .collect::<Vec<_>>();
+
+        grouped_entries.sort_by(|left, right| match self.file_sort_mode {
+            FileSortMode::Path => left.0.cmp(&right.0),
+            FileSortMode::OpenCountDesc => right
+                .2
+                .open
+                .cmp(&left.2.open)
+                .then_with(|| right.2.total.cmp(&left.2.total))
+                .then_with(|| left.0.cmp(&right.0)),
+            FileSortMode::TotalCountDesc => right
+                .2
+                .total
+                .cmp(&left.2.total)
+                .then_with(|| right.2.open.cmp(&left.2.open))
+                .then_with(|| left.0.cmp(&right.0)),
+        });
+        grouped_entries
+    }
+
+    fn compare_file_indices(&self, left: usize, right: usize) -> std::cmp::Ordering {
+        let left_file = &self.diff.files[left];
+        let right_file = &self.diff.files[right];
+        let left_stats = self.comment_stats_for_file(&left_file.path);
+        let right_stats = self.comment_stats_for_file(&right_file.path);
+        match self.file_sort_mode {
+            FileSortMode::Path => left_file.path.cmp(&right_file.path),
+            FileSortMode::OpenCountDesc => right_stats
+                .open
+                .cmp(&left_stats.open)
+                .then_with(|| left_file.path.cmp(&right_file.path)),
+            FileSortMode::TotalCountDesc => right_stats
+                .total
+                .cmp(&left_stats.total)
+                .then_with(|| left_file.path.cmp(&right_file.path)),
+        }
     }
 
     pub(crate) fn constrain_active_file_to_visible_list(&mut self) {
@@ -421,6 +481,22 @@ mod tests {
 
         app.move_file_selection(1);
         assert_eq!(app.active_file_index(), 2);
+        Ok(())
+    }
+
+    #[test]
+    fn move_file_selection_uses_all_visible_files_when_sidebar_map_is_viewport_limited()
+    -> Result<()> {
+        let files = (0..20)
+            .map(|index| format!("src/file_{index:02}.rs"))
+            .collect::<Vec<_>>();
+        let mut app = make_test_app(files.iter().map(String::as_str).collect(), Vec::new())?;
+        app.select_file(4);
+        app.last_file_row_map = (0..5).map(Some).collect();
+
+        app.move_file_selection(1);
+
+        assert_eq!(app.active_file_index(), 5);
         Ok(())
     }
 

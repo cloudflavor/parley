@@ -1,16 +1,12 @@
 use super::super::helpers::slice_chars;
 use super::TuiApp;
 use super::helpers::{compute_scroll, search_highlighted_text_spans};
-use crate::tui::app::FileSortMode;
 use crate::utils::cast::usize_to_u16_saturating;
-use ratatui::{
-    Frame,
-    layout::{Constraint, Direction, Layout, Rect},
-    style::{Modifier, Style},
-    text::{Line, Span},
-    widgets::{Block, Borders, List, ListItem, ListState, Paragraph},
-};
-use std::collections::BTreeMap;
+use ratatui::Frame;
+use ratatui::layout::{Constraint, Direction, Layout, Rect};
+use ratatui::style::{Modifier, Style};
+use ratatui::text::{Line, Span};
+use ratatui::widgets::{Block, Borders, List, ListItem, ListState, Paragraph};
 
 pub(super) fn draw_file_sidebar(frame: &mut Frame<'_>, app: &mut TuiApp, area: Rect) {
     app.last_file_row_map.clear();
@@ -43,67 +39,13 @@ pub(super) fn draw_file_sidebar(frame: &mut Frame<'_>, app: &mut TuiApp, area: R
         app.last_file_row_map.push(None);
         app.last_file_group_map.push(None);
     } else {
-        let mut grouped: BTreeMap<String, Vec<usize>> = BTreeMap::new();
-        for file_index in visible_files {
-            let group = app.file_group_name_for_index(file_index);
-            grouped.entry(group).or_default().push(file_index);
-        }
-
-        let mut grouped_entries: Vec<(String, Vec<usize>, usize, usize, usize)> = grouped
-            .into_iter()
-            .map(|(group, file_indices)| {
-                let mut group_total = 0usize;
-                let mut group_open = 0usize;
-                let mut group_pending = 0usize;
-                for file_index in &file_indices {
-                    let file = &app.diff.files[*file_index];
-                    let stats = app.comment_stats_for_file(&file.path);
-                    group_total += stats.total;
-                    group_open += stats.open;
-                    group_pending += stats.pending;
-                }
-                (group, file_indices, group_total, group_open, group_pending)
-            })
-            .collect();
-
-        grouped_entries.sort_by(|left, right| match app.file_sort_mode {
-            FileSortMode::Path => left.0.cmp(&right.0),
-            FileSortMode::OpenCountDesc => right
-                .3
-                .cmp(&left.3)
-                .then_with(|| right.2.cmp(&left.2))
-                .then_with(|| left.0.cmp(&right.0)),
-            FileSortMode::TotalCountDesc => right
-                .2
-                .cmp(&left.2)
-                .then_with(|| right.3.cmp(&left.3))
-                .then_with(|| left.0.cmp(&right.0)),
-        });
-
-        for (group, file_indices, group_total, group_open, group_pending) in grouped_entries {
-            let mut sorted_indices = file_indices;
-            sorted_indices.sort_by(|left, right| {
-                let left_file = &app.diff.files[*left];
-                let right_file = &app.diff.files[*right];
-                let left_stats = app.comment_stats_for_file(&left_file.path);
-                let right_stats = app.comment_stats_for_file(&right_file.path);
-                match app.file_sort_mode {
-                    FileSortMode::Path => left_file.path.cmp(&right_file.path),
-                    FileSortMode::OpenCountDesc => right_stats
-                        .open
-                        .cmp(&left_stats.open)
-                        .then_with(|| left_file.path.cmp(&right_file.path)),
-                    FileSortMode::TotalCountDesc => right_stats
-                        .total
-                        .cmp(&left_stats.total)
-                        .then_with(|| left_file.path.cmp(&right_file.path)),
-                }
-            });
-
+        for (group, sorted_indices, group_stats) in app.ordered_visible_file_groups() {
             let collapsed = app.collapsed_file_groups.contains(&group);
             let twisty = if collapsed { "▸" } else { "▾" };
-            let group_line =
-                format!("{twisty} {group}  o:{group_open} p:{group_pending} t:{group_total}");
+            let group_line = format!(
+                "{twisty} {group}  o:{} p:{} t:{}",
+                group_stats.open, group_stats.pending, group_stats.total
+            );
             items.push(ListItem::new(Line::from(Span::styled(
                 group_line,
                 Style::default()
