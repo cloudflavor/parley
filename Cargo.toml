@@ -30,6 +30,7 @@ tokio = { version = "1.48", features = [
   "sync",
   "time",
 ] }
+tokio-stream = { version = "0.1", features = ["io-util"] }
 ratatui = "0.30.0"
 crossterm = "0.29"
 serde = { version = "1.0", features = ["derive"] }
