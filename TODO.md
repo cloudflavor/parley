@@ -233,12 +233,12 @@ Success criteria:
 
 ### Unit 11: Share AI Process Streaming
 
-- [ ] Extract a shared line-streaming/logging helper around `LinesStream` and `StreamExt`.
-- [ ] Use it for ACP stderr logging.
-- [ ] Use it for Pi RPC stderr logging.
-- [ ] Use it for ACP/Pi JSON stdout parsing with provider/prefix differences as parameters.
-- [ ] Use the same primitive for one-shot CLI provider stdout/stderr collection.
-- [ ] Leave MCP `read_line()` framing alone.
+- [x] Extract a shared line-streaming/logging helper around `LinesStream` and `StreamExt`.
+- [x] Use it for ACP stderr logging.
+- [x] Use it for Pi RPC stderr logging.
+- [x] Use it for ACP/Pi JSON stdout parsing with provider/prefix differences as parameters.
+- [x] Use the same primitive for one-shot CLI provider stdout/stderr collection.
+- [x] Leave MCP `read_line()` framing alone.
 
 Files:
 - `src/services/ai_session/provider.rs`

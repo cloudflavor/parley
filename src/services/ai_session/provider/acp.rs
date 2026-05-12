@@ -1,4 +1,6 @@
-use super::{ProviderInvocation, detect_model_from_text};
+use super::{
+    ProcessLineStreamConfig, ProviderInvocation, detect_model_from_text, spawn_process_line_stream,
+};
 use crate::domain::ai::{AiProvider, AiSessionMode};
 use crate::domain::config::AiProviderConfig;
 use crate::services::ai_session::AiProgressEvent;
@@ -13,13 +15,11 @@ use std::process::Stdio;
 use std::sync::Arc;
 use std::time::{Duration, Instant};
 use tokio::fs;
-use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+use tokio::io::AsyncWriteExt;
 use tokio::process::{Child, ChildStdin, Command};
 use tokio::sync::{Mutex, OnceCell, mpsc};
 use tokio::time::timeout;
-use tokio_stream::StreamExt as AsyncStreamExt;
-use tokio_stream::wrappers::LinesStream;
-use tracing::{info, warn};
+use tracing::warn;
 
 type SharedAcpClient = Arc<Mutex<AcpClient>>;
 
@@ -142,72 +142,39 @@ impl AcpClient {
             .ok_or_else(|| anyhow!("ACP client stdout unavailable"))?;
         if let Some(stderr) = child.stderr.take() {
             let progress_sender = progress_sender.cloned();
-            tokio::spawn(async move {
-                let mut lines = LinesStream::new(BufReader::new(stderr).lines());
-                while let Some(line) = AsyncStreamExt::next(&mut lines).await {
-                    match line {
-                        Ok(line) => {
-                            info!(provider = %provider.as_str(), stream = "stderr", payload = %line, "acp_stream");
-                            emit_progress(progress_sender.as_ref(), provider, "stderr", line);
-                        }
-                        Err(error) => {
-                            warn!(error = %error, "failed to read ACP stderr");
-                            emit_progress(
-                                progress_sender.as_ref(),
-                                provider,
-                                "stderr",
-                                format!("ACP stderr read failed: {error}"),
-                            );
-                            break;
-                        }
-                    }
-                }
-            });
+            spawn_process_line_stream(
+                stderr,
+                ProcessLineStreamConfig::logging(provider, "stderr", "acp", "ACP stderr"),
+                progress_sender,
+                |_| {},
+            );
         }
         let (tx, rx) = mpsc::unbounded_channel();
         let parse_progress_sender = progress_sender.cloned();
-        tokio::spawn(async move {
-            let mut lines = LinesStream::new(BufReader::new(stdout).lines());
-            while let Some(line) = AsyncStreamExt::next(&mut lines).await {
-                match line {
-                    Ok(line) => {
-                        if line.trim().is_empty() {
-                            continue;
-                        }
-                        match serde_json::from_str::<Value>(&line) {
-                            Ok(value) => {
-                                let _ = tx.send(value);
-                            }
-                            Err(error) => {
-                                warn!(error = %error, payload = %line, "failed to parse ACP stdout JSON");
-                                emit_progress(
-                                    parse_progress_sender.as_ref(),
-                                    provider,
-                                    "stderr",
-                                    format!("ACP stdout was not JSON: {line}"),
-                                );
-                            }
-                        }
+        spawn_process_line_stream(
+            stdout,
+            ProcessLineStreamConfig::parsing(provider, "acp", "ACP stdout", "ACP stdout closed"),
+            parse_progress_sender.clone(),
+            move |line| {
+                if line.trim().is_empty() {
+                    return;
+                }
+                match serde_json::from_str::<Value>(&line) {
+                    Ok(value) => {
+                        let _ = tx.send(value);
                     }
                     Err(error) => {
-                        warn!(error = %error, "failed to read ACP stdout");
+                        warn!(error = %error, payload = %line, "failed to parse ACP stdout JSON");
                         emit_progress(
                             parse_progress_sender.as_ref(),
                             provider,
                             "stderr",
-                            format!("ACP stdout read failed: {error}"),
+                            format!("ACP stdout was not JSON: {line}"),
                         );
-                        break;
                     }
                 }
-            }
-            emit_progress(
-                parse_progress_sender.as_ref(),
-                provider,
-                "system",
-                "ACP stdout closed",
-            );
-        });
+            },
+        );
         Ok(Self {
             provider,
             child,

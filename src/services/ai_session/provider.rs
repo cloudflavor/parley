@@ -15,6 +15,8 @@ use tokio::process::Command;
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
 use tokio::time::timeout;
+use tokio_stream::StreamExt as AsyncStreamExt;
+use tokio_stream::wrappers::LinesStream;
 use tracing::{debug, info, warn};
 
 mod acp;
@@ -128,20 +130,20 @@ pub(super) async fn invoke_provider(
     );
 
     let stdout_task = child.stdout.take().map(|stdout| {
-        tokio::spawn(read_stream(
+        spawn_process_line_stream(
             stdout,
-            provider,
-            "stdout",
+            ProcessLineStreamConfig::collecting(provider, "stdout", "provider stdout"),
             progress_sender.clone(),
-        ))
+            |_| {},
+        )
     });
     let stderr_task = child.stderr.take().map(|stderr| {
-        tokio::spawn(read_stream(
+        spawn_process_line_stream(
             stderr,
-            provider,
-            "stderr",
+            ProcessLineStreamConfig::collecting(provider, "stderr", "provider stderr"),
             progress_sender.clone(),
-        ))
+            |_| {},
+        )
     });
 
     let timeout_seconds = effective_timeout_seconds(config, mode);
@@ -430,24 +432,135 @@ async fn read_codex_output_last_message(path: Option<&std::path::Path>) -> Resul
     }
 }
 
-async fn read_stream<R>(
-    reader: R,
+#[derive(Debug, Clone, Copy)]
+pub(super) struct ProcessLineStreamConfig {
     provider: AiProvider,
     stream: &'static str,
+    source: &'static str,
+    read_error_context: &'static str,
+    emit_lines: bool,
+    collect_lines: bool,
+    close_message: Option<&'static str>,
+}
+
+impl ProcessLineStreamConfig {
+    fn collecting(
+        provider: AiProvider,
+        stream: &'static str,
+        read_error_context: &'static str,
+    ) -> Self {
+        Self {
+            provider,
+            stream,
+            source: "provider",
+            read_error_context,
+            emit_lines: true,
+            collect_lines: true,
+            close_message: None,
+        }
+    }
+
+    pub(super) fn logging(
+        provider: AiProvider,
+        stream: &'static str,
+        source: &'static str,
+        read_error_context: &'static str,
+    ) -> Self {
+        Self {
+            provider,
+            stream,
+            source,
+            read_error_context,
+            emit_lines: true,
+            collect_lines: false,
+            close_message: None,
+        }
+    }
+
+    pub(super) fn parsing(
+        provider: AiProvider,
+        source: &'static str,
+        read_error_context: &'static str,
+        close_message: &'static str,
+    ) -> Self {
+        Self {
+            provider,
+            stream: "stdout",
+            source,
+            read_error_context,
+            emit_lines: false,
+            collect_lines: false,
+            close_message: Some(close_message),
+        }
+    }
+}
+
+pub(super) fn spawn_process_line_stream<R, F>(
+    reader: R,
+    config: ProcessLineStreamConfig,
     progress_sender: Option<mpsc::UnboundedSender<AiProgressEvent>>,
-) -> String
+    mut on_line: F,
+) -> JoinHandle<String>
 where
     R: AsyncRead + Unpin + Send + 'static,
+    F: FnMut(String) + Send + 'static,
 {
-    let mut lines = BufReader::new(reader).lines();
-    let mut out = String::new();
-    while let Ok(Some(line)) = lines.next_line().await {
-        info!(provider = %provider.as_str(), stream, payload = %line, "provider_stream");
-        emit_progress(progress_sender.as_ref(), provider, stream, line.as_str());
-        out.push_str(&line);
-        out.push('\n');
-    }
-    out
+    tokio::spawn(async move {
+        let mut lines = LinesStream::new(BufReader::new(reader).lines());
+        let mut out = String::new();
+        while let Some(line) = AsyncStreamExt::next(&mut lines).await {
+            match line {
+                Ok(line) => {
+                    info!(
+                        provider = %config.provider.as_str(),
+                        stream = config.stream,
+                        source = config.source,
+                        payload = %line,
+                        "ai_process_stream"
+                    );
+                    if config.emit_lines {
+                        emit_progress(
+                            progress_sender.as_ref(),
+                            config.provider,
+                            config.stream,
+                            line.as_str(),
+                        );
+                    }
+                    if config.collect_lines {
+                        out.push_str(&line);
+                        out.push('\n');
+                    }
+                    on_line(line);
+                }
+                Err(error) => {
+                    let message = format!("{} read failed: {error}", config.read_error_context);
+                    warn!(
+                        error = %error,
+                        provider = %config.provider.as_str(),
+                        stream = config.stream,
+                        source = config.source,
+                        "failed to read provider process stream"
+                    );
+                    emit_progress(
+                        progress_sender.as_ref(),
+                        config.provider,
+                        "stderr",
+                        message.as_str(),
+                    );
+                    if config.collect_lines {
+                        out.push('<');
+                        out.push_str(&message);
+                        out.push_str(">\n");
+                    }
+                    break;
+                }
+            }
+        }
+        if let Some(message) = config.close_message {
+            emit_progress(progress_sender.as_ref(), config.provider, "system", message);
+        }
+        out
+    })
 }
 
 async fn collect_stream_output(task: Option<JoinHandle<String>>) -> String {
