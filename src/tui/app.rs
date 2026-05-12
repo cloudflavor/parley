@@ -19,16 +19,6 @@ use crate::services::review_service::ReviewService;
 use anyhow::{Context, Result};
 use crossterm::event;
 use crossterm::event::Event;
-use ratatui::Terminal;
-use ratatui::backend::CrosstermBackend;
-use ratatui::layout::Rect;
-use std::collections::{HashMap, HashSet, VecDeque};
-use std::io;
-use std::path::PathBuf;
-use std::time::{Duration, Instant};
-use tokio::sync::mpsc::UnboundedReceiver;
-use tokio::task;
-use tokio::task::JoinHandle;
 use helpers::{
     MOUSE_WHEEL_FILE_SCROLL_FILES, MOUSE_WHEEL_SCROLL_LINES,
     comment_line_range_contains_display_row, comment_matches_display_row,
@@ -36,10 +26,20 @@ use helpers::{
     format_line_reference, insert_char_at, open_file_in_pager, point_in_rect, remove_char_at,
     suspend_tui_process,
 };
+use ratatui::Terminal;
+use ratatui::backend::CrosstermBackend;
+use ratatui::layout::Rect;
 use render::draw;
 pub(super) use render::{
     DiffRenderCacheEntry, DiffRenderCacheKey, DisplayRow, FileReferenceHit, HighlightParts,
 };
+use std::collections::{HashMap, HashSet, VecDeque};
+use std::io;
+use std::path::PathBuf;
+use std::time::{Duration, Instant};
+use tokio::sync::mpsc::UnboundedReceiver;
+use tokio::task;
+use tokio::task::JoinHandle;
 
 mod help_docs;
 mod helpers;
