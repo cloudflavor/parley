@@ -24,13 +24,12 @@ impl FromStr for StateArg {
     type Err = CliArgError;
 
     fn from_str(input: &str) -> Result<Self, Self::Err> {
-        match input {
-            "open" => Ok(Self(ReviewState::Open)),
-            "under_review" => Ok(Self(ReviewState::UnderReview)),
-            _ => Err(CliArgError::InvalidState {
+        input
+            .parse::<ReviewState>()
+            .map(Self)
+            .map_err(|_| CliArgError::InvalidState {
                 value: input.to_string(),
-            }),
-        }
+            })
     }
 }
 
@@ -41,13 +40,12 @@ impl FromStr for SideArg {
     type Err = CliArgError;
 
     fn from_str(input: &str) -> Result<Self, Self::Err> {
-        match input {
-            "left" => Ok(Self(DiffSide::Left)),
-            "right" => Ok(Self(DiffSide::Right)),
-            _ => Err(CliArgError::InvalidSide {
+        input
+            .parse::<DiffSide>()
+            .map(Self)
+            .map_err(|_| CliArgError::InvalidSide {
                 value: input.to_string(),
-            }),
-        }
+            })
     }
 }
 
@@ -58,13 +56,12 @@ impl FromStr for AuthorArg {
     type Err = CliArgError;
 
     fn from_str(input: &str) -> Result<Self, Self::Err> {
-        match input {
-            "user" => Ok(Self(Author::User)),
-            "ai" => Ok(Self(Author::Ai)),
-            _ => Err(CliArgError::InvalidAuthor {
+        input
+            .parse::<Author>()
+            .map(Self)
+            .map_err(|_| CliArgError::InvalidAuthor {
                 value: input.to_string(),
-            }),
-        }
+            })
     }
 }
 

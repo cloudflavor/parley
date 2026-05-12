@@ -295,10 +295,7 @@ pub(super) fn comment_status_style(status: &CommentStatus, colors: &ThemeColors)
 }
 
 pub(super) fn review_state_label(state: &ReviewState) -> &'static str {
-    match state {
-        ReviewState::Open => "open",
-        ReviewState::UnderReview => "under_review",
-    }
+    state.as_str()
 }
 
 fn build_right_tag_line(

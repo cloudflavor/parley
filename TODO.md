@@ -106,10 +106,10 @@ Success criteria:
 
 ### Unit 5: Centralize Domain String Parsing And Formatting
 
-- [ ] Add `as_str` and/or `FromStr` implementations for `ReviewState`, `Author`, `DiffSide`, and `CommentStatus` where useful.
-- [ ] Replace CLI wrapper parsing literals with domain parsing.
-- [ ] Replace MCP parsing literals with domain parsing.
-- [ ] Replace inline CLI status display mapping with domain formatting.
+- [x] Add `as_str` and/or `FromStr` implementations for `ReviewState`, `Author`, `DiffSide`, and `CommentStatus` where useful.
+- [x] Replace CLI wrapper parsing literals with domain parsing.
+- [x] Replace MCP parsing literals with domain parsing.
+- [x] Replace inline CLI status display mapping with domain formatting.
 
 Files:
 - `src/domain/review.rs`

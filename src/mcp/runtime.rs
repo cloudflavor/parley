@@ -500,18 +500,16 @@ fn required_u64_list(value: &Value, key: &str) -> Result<Vec<u64>> {
 fn parse_author_with_default(value: &Value, key: &str, default: Author) -> Result<Author> {
     match value.get(key).and_then(Value::as_str) {
         None => Ok(default),
-        Some("user") => Ok(Author::User),
-        Some("ai") => Ok(Author::Ai),
-        Some(other) => Err(anyhow!("invalid author value: {other}")),
+        Some(other) => other
+            .parse::<Author>()
+            .map_err(|_| anyhow!("invalid author value: {other}")),
     }
 }
 
 fn parse_state(value: &str) -> Result<ReviewState> {
-    match value {
-        "open" => Ok(ReviewState::Open),
-        "under_review" => Ok(ReviewState::UnderReview),
-        _ => Err(anyhow!("invalid state value: {value}")),
-    }
+    value
+        .parse::<ReviewState>()
+        .map_err(|_| anyhow!("invalid state value: {value}"))
 }
 
 #[cfg(test)]

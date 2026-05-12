@@ -1,4 +1,5 @@
 use serde::{Deserialize, Serialize};
+use std::str::FromStr;
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
@@ -28,6 +29,40 @@ pub enum DiffSide {
     Left,
     Right,
 }
+
+macro_rules! impl_string_enum {
+    ($name:ty, $($variant:ident => $value:literal),+ $(,)?) => {
+        impl $name {
+            #[must_use]
+            pub fn as_str(&self) -> &'static str {
+                match self {
+                    $(Self::$variant => $value,)+
+                }
+            }
+        }
+
+        impl FromStr for $name {
+            type Err = ();
+
+            fn from_str(value: &str) -> Result<Self, Self::Err> {
+                match value {
+                    $($value => Ok(Self::$variant),)+
+                    _ => Err(()),
+                }
+            }
+        }
+    };
+}
+
+impl_string_enum!(ReviewState, Open => "open", UnderReview => "under_review");
+impl_string_enum!(Author, User => "user", Ai => "ai");
+impl_string_enum!(
+    CommentStatus,
+    Open => "open",
+    Pending => "pending_human",
+    Addressed => "addressed",
+);
+impl_string_enum!(DiffSide, Left => "left", Right => "right");
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 pub struct CommentReply {
@@ -336,6 +371,35 @@ mod tests {
 
         assert_eq!(session.comments[0].status, CommentStatus::Pending);
         assert_eq!(session.state, ReviewState::UnderReview);
+        Ok(())
+    }
+
+    #[test]
+    fn domain_string_representations_round_trip() -> Result<()> {
+        assert_eq!(ReviewState::Open.as_str(), "open");
+        assert_eq!(
+            "under_review"
+                .parse::<ReviewState>()
+                .expect("state should parse"),
+            ReviewState::UnderReview
+        );
+        assert_eq!(Author::Ai.as_str(), "ai");
+        assert_eq!(
+            "user".parse::<Author>().expect("author should parse"),
+            Author::User
+        );
+        assert_eq!(CommentStatus::Pending.as_str(), "pending_human");
+        assert_eq!(
+            "addressed"
+                .parse::<CommentStatus>()
+                .expect("status should parse"),
+            CommentStatus::Addressed
+        );
+        assert_eq!(DiffSide::Right.as_str(), "right");
+        assert_eq!(
+            "left".parse::<DiffSide>().expect("side should parse"),
+            DiffSide::Left
+        );
         Ok(())
     }
 

@@ -124,11 +124,7 @@ async fn handle_review_command(command: ReviewCommand, service: &ReviewService) 
                     println!(
                         "  #{} [{}] {}:{} {}",
                         comment.id,
-                        match comment.status {
-                            crate::domain::review::CommentStatus::Open => "open",
-                            crate::domain::review::CommentStatus::Pending => "pending_human",
-                            crate::domain::review::CommentStatus::Addressed => "addressed",
-                        },
+                        comment.status.as_str(),
                         comment
                             .old_line
                             .map_or_else(|| "_".into(), |value| value.to_string()),

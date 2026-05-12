@@ -235,11 +235,8 @@ impl TuiApp {
                 if needle.is_empty() {
                     return true;
                 }
-                let state = match review.state {
-                    ReviewState::Open => "open",
-                    ReviewState::UnderReview => "under_review",
-                };
-                review.name.to_ascii_lowercase().contains(&needle) || state.contains(&needle)
+                review.name.to_ascii_lowercase().contains(&needle)
+                    || review.state.as_str().contains(&needle)
             })
             .map(|(idx, _)| idx)
             .collect()

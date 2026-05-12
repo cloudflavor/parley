@@ -70,11 +70,7 @@ pub(super) async fn build_thread_prompt(
         thread.push_str("- (none)\n");
     } else {
         for reply in &comment.replies {
-            let author = match reply.author {
-                Author::User => "user",
-                Author::Ai => "ai",
-            };
-            thread.push_str(&format!("- {}: {}\n", author, reply.body));
+            thread.push_str(&format!("- {}: {}\n", reply.author.as_str(), reply.body));
         }
     }
     append_current_human_request(&mut thread, comment);
