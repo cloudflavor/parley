@@ -215,9 +215,9 @@ Success criteria:
 
 ### Unit 10: Replace Pi RPC Line Loops With Tokio Streams
 
-- [ ] Replace Pi RPC `next_line()` loops with `tokio_stream::wrappers::LinesStream` and `StreamExt`.
-- [ ] Preserve logging behavior and stdout JSON parse behavior.
-- [ ] Surface read errors consistently instead of silently dropping them.
+- [x] Replace Pi RPC `next_line()` loops with `tokio_stream::wrappers::LinesStream` and `StreamExt`.
+- [x] Preserve logging behavior and stdout JSON parse behavior.
+- [x] Surface read errors consistently instead of silently dropping them.
 
 Files:
 - `src/services/ai_session/provider/pi_rpc.rs`

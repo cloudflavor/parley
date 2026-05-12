@@ -14,6 +14,8 @@ use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::process::{Child, ChildStdin, Command};
 use tokio::sync::{Mutex, OnceCell, mpsc};
 use tokio::time::timeout;
+use tokio_stream::StreamExt as AsyncStreamExt;
+use tokio_stream::wrappers::LinesStream;
 use tracing::{info, warn};
 
 type SharedPiClient = Arc<Mutex<PiRpcClient>>;
@@ -119,33 +121,61 @@ impl PiRpcClient {
         if let Some(stderr) = child.stderr.take() {
             let progress_sender = progress_sender.cloned();
             tokio::spawn(async move {
-                let mut lines = BufReader::new(stderr).lines();
-                while let Ok(Some(line)) = lines.next_line().await {
-                    info!(provider = "pi", stream = "stderr", payload = %line, "pi_rpc_stream");
-                    emit_progress(progress_sender.as_ref(), AiProvider::Pi, "stderr", line);
+                let mut lines = LinesStream::new(BufReader::new(stderr).lines());
+                while let Some(line) = AsyncStreamExt::next(&mut lines).await {
+                    match line {
+                        Ok(line) => {
+                            info!(provider = "pi", stream = "stderr", payload = %line, "pi_rpc_stream");
+                            emit_progress(progress_sender.as_ref(), AiProvider::Pi, "stderr", line);
+                        }
+                        Err(error) => {
+                            warn!(error = %error, "failed to read Pi RPC stderr");
+                            emit_progress(
+                                progress_sender.as_ref(),
+                                AiProvider::Pi,
+                                "stderr",
+                                format!("Pi RPC stderr read failed: {error}"),
+                            );
+                            break;
+                        }
+                    }
                 }
             });
         }
         let (tx, rx) = mpsc::unbounded_channel();
         let parse_progress_sender = progress_sender.cloned();
         tokio::spawn(async move {
-            let mut lines = BufReader::new(stdout).lines();
-            while let Ok(Some(line)) = lines.next_line().await {
-                if line.trim().is_empty() {
-                    continue;
-                }
-                match serde_json::from_str::<Value>(&line) {
-                    Ok(value) => {
-                        let _ = tx.send(value);
+            let mut lines = LinesStream::new(BufReader::new(stdout).lines());
+            while let Some(line) = AsyncStreamExt::next(&mut lines).await {
+                match line {
+                    Ok(line) => {
+                        if line.trim().is_empty() {
+                            continue;
+                        }
+                        match serde_json::from_str::<Value>(&line) {
+                            Ok(value) => {
+                                let _ = tx.send(value);
+                            }
+                            Err(error) => {
+                                warn!(error = %error, payload = %line, "failed to parse Pi RPC JSON");
+                                emit_progress(
+                                    parse_progress_sender.as_ref(),
+                                    AiProvider::Pi,
+                                    "stderr",
+                                    format!("Pi RPC stdout was not JSON: {line}"),
+                                );
+                            }
+                        }
                     }
                     Err(error) => {
-                        warn!(error = %error, payload = %line, "failed to parse Pi RPC JSON");
+                        warn!(error = %error, "failed to read Pi RPC stdout");
                         emit_progress(
                             parse_progress_sender.as_ref(),
                             AiProvider::Pi,
                             "stderr",
-                            format!("Pi RPC stdout was not JSON: {line}"),
+                            format!("Pi RPC stdout read failed: {error}"),
                         );
+                        break;
                     }
                 }
             }
