@@ -1,3 +1,11 @@
+use crate::cli::{Cli, Command, ReviewCommand};
+use crate::git::diff::DiffSource;
+use crate::services::review_service::ReviewService;
+use anyhow::{Context, Result, anyhow};
+use clap::Parser;
+use std::ffi::OsString;
+use std::io::IsTerminal;
+
 pub mod cli;
 pub mod docs;
 pub mod domain;
@@ -8,13 +16,6 @@ pub mod persistence;
 pub mod services;
 pub mod tui;
 pub mod utils;
-
-use crate::cli::{Cli, Command, ReviewCommand};
-use crate::git::diff::DiffSource;
-use crate::services::review_service::ReviewService;
-use anyhow::{Context, Result, anyhow};
-use clap::Parser;
-use std::{ffi::OsString, io::IsTerminal};
 
 /// # Errors
 ///
