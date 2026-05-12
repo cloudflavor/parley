@@ -306,9 +306,9 @@ Success criteria:
 
 ### Unit 14: Deduplicate Single-Line TUI Editing
 
-- [ ] Reuse one single-line text input helper for file search and command prompts.
-- [ ] Preserve cursor movement, home/end, backspace/delete, and character insertion behavior.
-- [ ] Use existing helper functions or a small focused abstraction; avoid expanding `TextBuffer` unless it removes net code.
+- [x] Reuse one single-line text input helper for file search and command prompts.
+- [x] Preserve cursor movement, home/end, backspace/delete, and character insertion behavior.
+- [x] Use existing helper functions or a small focused abstraction; avoid expanding `TextBuffer` unless it removes net code.
 
 Files:
 - `src/tui/app/input/search.rs`

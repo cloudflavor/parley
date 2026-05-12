@@ -4,9 +4,10 @@ use super::{
     INLINE_FILE_MENTION_MAX_CANDIDATES, INLINE_FILE_MENTION_MAX_VISIBLE_ROWS, InlineCommentState,
     InlineDraftMode, InlineFileMentionState, MOUSE_WHEEL_FILE_SCROLL_FILES,
     MOUSE_WHEEL_SCROLL_LINES, PendingUiAction, ReplyTarget, SettingsEditorKind,
-    SettingsEditorState, TextBuffer, ThreadAnchor, TuiApp, comment_line_range_contains_display_row,
-    comment_matches_display_row, format_comment_reference, format_line_range_reference,
-    format_line_reference, insert_char_at, point_in_rect, remove_char_at,
+    SettingsEditorState, TextBuffer, ThreadAnchor, TuiApp, apply_single_line_edit_key,
+    comment_line_range_contains_display_row, comment_matches_display_row, format_comment_reference,
+    format_line_range_reference, format_line_reference, insert_char_at, point_in_rect,
+    remove_char_at,
 };
 use crate::domain::{
     ai::AiSessionMode,
@@ -562,6 +563,55 @@ mod tests {
             Some(CommandPromptMode::SearchCurrentFile)
         ));
         assert_eq!(app.status_line, "file search prompt");
+        Ok(())
+    }
+
+    #[test]
+    fn file_search_edits_single_line_with_cursor_keys() -> Result<()> {
+        let mut app = make_test_app(vec!["src/a.rs"])?;
+        app.file_search.focused = true;
+
+        app.handle_file_search_key(KeyEvent::new(KeyCode::Char('a'), KeyModifiers::NONE))?;
+        app.handle_file_search_key(KeyEvent::new(KeyCode::Char('b'), KeyModifiers::NONE))?;
+        app.handle_file_search_key(KeyEvent::new(KeyCode::Left, KeyModifiers::NONE))?;
+        app.handle_file_search_key(KeyEvent::new(KeyCode::Char('X'), KeyModifiers::SHIFT))?;
+        app.handle_file_search_key(KeyEvent::new(KeyCode::Delete, KeyModifiers::NONE))?;
+
+        assert_eq!(app.file_search.query, "aX");
+        assert_eq!(app.file_search.cursor_col, 2);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn command_prompt_edits_single_line_with_cursor_keys() -> Result<()> {
+        let mut app = make_test_app(vec!["src/a.rs"])?;
+        let service = make_test_service()?;
+        app.open_command_prompt(CommandPromptMode::GotoLine);
+
+        app.handle_key(
+            KeyEvent::new(KeyCode::Char('1'), KeyModifiers::NONE),
+            &service,
+        )
+        .await?;
+        app.handle_key(
+            KeyEvent::new(KeyCode::Char('3'), KeyModifiers::NONE),
+            &service,
+        )
+        .await?;
+        app.handle_key(KeyEvent::new(KeyCode::Left, KeyModifiers::NONE), &service)
+            .await?;
+        app.handle_key(
+            KeyEvent::new(KeyCode::Char('2'), KeyModifiers::NONE),
+            &service,
+        )
+        .await?;
+
+        let prompt = app
+            .command_prompt
+            .as_ref()
+            .ok_or_else(|| anyhow!("command prompt should remain open"))?;
+        assert_eq!(prompt.value, "123");
+        assert_eq!(prompt.cursor_col, 2);
         Ok(())
     }
 

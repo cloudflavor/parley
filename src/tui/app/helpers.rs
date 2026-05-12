@@ -6,6 +6,7 @@ use crate::domain::{
 use anyhow::{Context, Result};
 use crossterm::event::DisableMouseCapture;
 use crossterm::event::EnableMouseCapture;
+use crossterm::event::{KeyCode, KeyEvent, KeyModifiers};
 use crossterm::execute;
 use crossterm::terminal::EnterAlternateScreen;
 use crossterm::terminal::LeaveAlternateScreen;
@@ -331,6 +332,46 @@ pub(super) fn remove_char_at(text: &mut String, char_index: usize) {
     if char_index < chars.len() {
         chars.remove(char_index);
         *text = chars.into_iter().collect();
+    }
+}
+
+pub(super) fn apply_single_line_edit_key(
+    text: &mut String,
+    cursor_col: &mut usize,
+    key: KeyEvent,
+) -> bool {
+    match key.code {
+        KeyCode::Left => {
+            *cursor_col = cursor_col.saturating_sub(1);
+            true
+        }
+        KeyCode::Right => {
+            *cursor_col = (*cursor_col + 1).min(text.chars().count());
+            true
+        }
+        KeyCode::Home => {
+            *cursor_col = 0;
+            true
+        }
+        KeyCode::End => {
+            *cursor_col = text.chars().count();
+            true
+        }
+        KeyCode::Backspace if *cursor_col > 0 => {
+            remove_char_at(text, *cursor_col - 1);
+            *cursor_col -= 1;
+            true
+        }
+        KeyCode::Delete if *cursor_col < text.chars().count() => {
+            remove_char_at(text, *cursor_col);
+            true
+        }
+        KeyCode::Char(ch) if key.modifiers.is_empty() || key.modifiers == KeyModifiers::SHIFT => {
+            insert_char_at(text, *cursor_col, ch);
+            *cursor_col += 1;
+            true
+        }
+        _ => false,
     }
 }
 

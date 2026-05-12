@@ -20,7 +20,7 @@ use anyhow::{Context, Result};
 use crossterm::event;
 use crossterm::event::Event;
 use helpers::{
-    MOUSE_WHEEL_FILE_SCROLL_FILES, MOUSE_WHEEL_SCROLL_LINES,
+    MOUSE_WHEEL_FILE_SCROLL_FILES, MOUSE_WHEEL_SCROLL_LINES, apply_single_line_edit_key,
     comment_line_range_contains_display_row, comment_matches_display_row,
     comment_reference_matches_display_row, format_comment_reference, format_line_range_reference,
     format_line_reference, insert_char_at, open_file_in_pager, point_in_rect, remove_char_at,
