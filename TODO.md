@@ -35,11 +35,11 @@ Success criteria:
 
 ### Unit 2: Delete Ignored Prompt Transport Configuration
 
-- [ ] Confirm all supported providers use argv prompt passing.
-- [ ] Remove `PromptTransport::Stdin`, `PromptTransport`, and `AiProviderConfig::prompt_transport` if stdin is not supported.
-- [ ] Delete `normalized_prompt_transport`.
-- [ ] Delete stdin prompt-writing branches in CLI provider invocation.
-- [ ] Update config tests and defaults.
+- [x] Confirm all supported providers use argv prompt passing.
+- [x] Remove `PromptTransport::Stdin`, `PromptTransport`, and `AiProviderConfig::prompt_transport` if stdin is not supported.
+- [x] Delete `normalized_prompt_transport`.
+- [x] Delete stdin prompt-writing branches in CLI provider invocation.
+- [x] Update config tests and defaults.
 
 Files:
 - `src/domain/config.rs`

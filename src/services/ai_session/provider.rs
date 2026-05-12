@@ -1,14 +1,14 @@
 use super::AiProgressEvent;
 use super::progress::emit_progress;
 use crate::domain::ai::{AiProvider, AiSessionMode};
-use crate::domain::config::{AgentTransport, AppConfig, PromptTransport};
+use crate::domain::config::{AgentTransport, AppConfig};
 use crate::utils::time::now_ms;
 use anyhow::{Context, Result, anyhow};
 use serde_json::Value;
 use std::process::Stdio;
 use std::time::Duration;
 use tokio::fs;
-use tokio::io::{AsyncBufReadExt, AsyncRead, AsyncWriteExt, BufReader};
+use tokio::io::{AsyncBufReadExt, AsyncRead, BufReader};
 use tokio::process::Command;
 use tokio::sync::mpsc;
 use tokio::task::JoinHandle;
@@ -98,18 +98,11 @@ pub(super) async fn invoke_provider(
             }
         }
     }
-    command.stdout(Stdio::piped()).stderr(Stdio::piped());
-
-    let prompt_transport = normalized_prompt_transport(provider, &provider_cfg.prompt_transport);
-    match prompt_transport {
-        PromptTransport::Stdin => {
-            command.stdin(Stdio::piped());
-        }
-        PromptTransport::Argv => {
-            command.arg(prompt);
-            command.stdin(Stdio::null());
-        }
-    }
+    command
+        .arg(prompt)
+        .stdin(Stdio::null())
+        .stdout(Stdio::piped())
+        .stderr(Stdio::piped());
 
     let mut child = command
         .spawn()
@@ -128,22 +121,9 @@ pub(super) async fn invoke_provider(
             "spawned {} (mode={}, transport={})",
             provider_cfg.client,
             mode.as_str(),
-            match prompt_transport {
-                PromptTransport::Stdin => "stdin",
-                PromptTransport::Argv => "argv",
-            }
+            "argv"
         ),
     );
-
-    if matches!(prompt_transport, PromptTransport::Stdin)
-        && let Some(mut stdin) = child.stdin.take()
-    {
-        stdin
-            .write_all(prompt.as_bytes())
-            .await
-            .context("failed to send prompt to provider stdin")?;
-        stdin.flush().await.ok();
-    }
 
     let stdout_task = child.stdout.take().map(|stdout| {
         tokio::spawn(read_stream(
@@ -509,19 +489,6 @@ async fn collect_stream_output(task: Option<JoinHandle<String>>) -> String {
     match task.await {
         Ok(content) => content,
         Err(error) => format!("<stream task join failed: {error}>"),
-    }
-}
-
-fn normalized_prompt_transport(
-    provider: AiProvider,
-    configured: &PromptTransport,
-) -> PromptTransport {
-    let _ = configured;
-    match provider {
-        // Prefer explicit prompt argv for deterministic headless execution.
-        AiProvider::Codex | AiProvider::Claude | AiProvider::Opencode | AiProvider::Pi => {
-            PromptTransport::Argv
-        }
     }
 }
 

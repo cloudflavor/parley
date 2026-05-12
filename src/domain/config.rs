@@ -32,15 +32,6 @@ impl DiffViewMode {
     }
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
-#[serde(rename_all = "snake_case")]
-#[derive(Default)]
-pub enum PromptTransport {
-    #[default]
-    Stdin,
-    Argv,
-}
-
 #[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 #[derive(Default)]
@@ -71,7 +62,6 @@ pub struct AiProviderConfig {
     pub model: Option<String>,
     pub model_arg: Option<String>,
     pub args: Vec<String>,
-    pub prompt_transport: PromptTransport,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -130,7 +120,6 @@ impl Default for AiProviderConfig {
             model: None,
             model_arg: Some("--model".to_string()),
             args: Vec::new(),
-            prompt_transport: PromptTransport::Stdin,
         }
     }
 }
@@ -150,16 +139,13 @@ impl Default for AiConfig {
     fn default() -> Self {
         let mut codex = AiProviderConfig::with_client("codex-acp");
         codex.args = Vec::new();
-        codex.prompt_transport = PromptTransport::Argv;
 
         let mut claude = AiProviderConfig::with_client("claude-agent-acp");
         claude.args = Vec::new();
-        claude.prompt_transport = PromptTransport::Argv;
 
         let mut opencode = AiProviderConfig::with_client("opencode");
         opencode.args = vec!["acp".to_string()];
         opencode.model_arg = Some("-m".to_string());
-        opencode.prompt_transport = PromptTransport::Argv;
 
         let mut pi = AiProviderConfig::with_client("pi");
         pi.transport = AgentTransport::PiRpc;
@@ -168,7 +154,6 @@ impl Default for AiConfig {
             "rpc".to_string(),
             "--no-session".to_string(),
         ];
-        pi.prompt_transport = PromptTransport::Argv;
         Self {
             timeout_seconds: 120,
             default_provider: AiProvider::Opencode,
@@ -255,20 +240,17 @@ fn default_acp_provider_config(provider: AiProvider) -> AiProviderConfig {
         AiProvider::Codex => {
             let mut config = AiProviderConfig::with_client("codex-acp");
             config.args = Vec::new();
-            config.prompt_transport = PromptTransport::Argv;
             config
         }
         AiProvider::Claude => {
             let mut config = AiProviderConfig::with_client("claude-agent-acp");
             config.args = Vec::new();
-            config.prompt_transport = PromptTransport::Argv;
             config
         }
         AiProvider::Opencode => {
             let mut config = AiProviderConfig::with_client("opencode");
             config.args = vec!["acp".to_string()];
             config.model_arg = Some("-m".to_string());
-            config.prompt_transport = PromptTransport::Argv;
             config
         }
         AiProvider::Pi => {
@@ -279,7 +261,6 @@ fn default_acp_provider_config(provider: AiProvider) -> AiProviderConfig {
                 "rpc".to_string(),
                 "--no-session".to_string(),
             ];
-            config.prompt_transport = PromptTransport::Argv;
             config
         }
     }
@@ -291,14 +272,12 @@ fn default_cli_provider_config(provider: AiProvider) -> Option<AiProviderConfig>
             let mut config = AiProviderConfig::with_client("codex");
             config.transport = AgentTransport::Cli;
             config.args = vec!["exec".to_string()];
-            config.prompt_transport = PromptTransport::Argv;
             Some(config)
         }
         AiProvider::Claude => {
             let mut config = AiProviderConfig::with_client("claude");
             config.transport = AgentTransport::Cli;
             config.args = vec!["-p".to_string()];
-            config.prompt_transport = PromptTransport::Argv;
             Some(config)
         }
         AiProvider::Opencode => {
@@ -306,7 +285,6 @@ fn default_cli_provider_config(provider: AiProvider) -> Option<AiProviderConfig>
             config.transport = AgentTransport::Cli;
             config.args = vec!["run".to_string()];
             config.model_arg = Some("-m".to_string());
-            config.prompt_transport = PromptTransport::Argv;
             Some(config)
         }
         AiProvider::Pi => None,
