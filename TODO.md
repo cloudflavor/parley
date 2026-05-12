@@ -14,9 +14,9 @@ Do not start with shared provider streaming until the low-risk dead branches and
 
 ### Unit 1: Remove Misleading "Legacy CLI" Naming
 
-- [ ] Rename `is_legacy_non_acp_command` to describe the actual invalid state: ACP transport configured with a CLI command shape.
-- [ ] Rename tests that call CLI provider commands "legacy".
-- [ ] Keep behavior unchanged.
+- [x] Rename `is_legacy_non_acp_command` to describe the actual invalid state: ACP transport configured with a CLI command shape.
+- [x] Rename tests that call CLI provider commands "legacy".
+- [x] Keep behavior unchanged.
 
 Files:
 - `src/domain/config.rs`

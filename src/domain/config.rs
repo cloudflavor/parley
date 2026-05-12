@@ -205,7 +205,7 @@ impl AiConfig {
         match transport {
             Some(AgentTransport::Acp)
                 if configured.transport != AgentTransport::Acp
-                    || is_legacy_non_acp_command(provider, configured) =>
+                    || is_cli_command_for_acp_transport(provider, configured) =>
             {
                 default_acp_provider_config(provider)
             }
@@ -232,7 +232,7 @@ impl AiConfig {
     }
 }
 
-fn is_legacy_non_acp_command(provider: AiProvider, config: &AiProviderConfig) -> bool {
+fn is_cli_command_for_acp_transport(provider: AiProvider, config: &AiProviderConfig) -> bool {
     if config.transport != AgentTransport::Acp {
         return false;
     }
@@ -380,7 +380,7 @@ mod tests {
     }
 
     #[test]
-    fn provider_config_for_transport_repairs_legacy_opencode_acp_command() {
+    fn provider_config_for_transport_repairs_cli_command_for_acp_transport() {
         let mut config = AiConfig::default();
         config.opencode.transport = AgentTransport::Acp;
         config.opencode.client = "opencode".to_string();

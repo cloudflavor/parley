@@ -540,7 +540,7 @@ mod tests {
     use crate::domain::config::AiProviderConfig;
 
     #[test]
-    fn acp_validation_rejects_known_legacy_cli_commands() {
+    fn acp_validation_rejects_cli_commands_for_acp_transport() {
         let mut codex = AiProviderConfig::with_client("codex");
         codex.args = vec!["exec".to_string()];
 
