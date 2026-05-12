@@ -6,7 +6,7 @@ use crate::domain::config::{AgentTransport, AppConfig, ProviderTransport, defaul
 use crate::domain::diff::{DiffDocument, DiffFile, DiffLineKind};
 use crate::domain::review::{
     Author, CommentLineRange, CommentStatus, DiffSide, LineAnchorSnapshot, LineComment,
-    ReviewSession, ReviewState,
+    ReviewSession, ReviewState, StoredAnchorSnapshot,
 };
 use crate::git::diff::{
     DiffSource, load_git_diff, load_root_directory_file, load_root_directory_file_list,
@@ -274,6 +274,7 @@ struct CommentTarget {
     line_range: Option<CommentLineRange>,
     file_path: String,
     line_anchor: LineAnchorSnapshot,
+    original_anchor: Box<StoredAnchorSnapshot>,
 }
 
 #[derive(Debug, Clone)]

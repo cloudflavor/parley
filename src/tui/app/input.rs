@@ -112,7 +112,9 @@ mod tests {
     use super::*;
     use crate::domain::config::AppConfig;
     use crate::domain::diff::{DiffDocument, DiffFile, DiffHunk, DiffLine, DiffLineKind};
-    use crate::domain::review::{LineAnchorSnapshot, ReviewSession, ReviewState};
+    use crate::domain::review::{
+        LineAnchorSnapshot, ReviewSession, ReviewState, StoredAnchorSnapshot,
+    };
     use crate::git::diff::DiffSource;
     use crate::persistence::store::Store;
     use crate::tui::app::{InlineFileReferencePickerState, TuiAppInit};
@@ -153,6 +155,7 @@ mod tests {
                 line_range: None,
                 file_path: "src/a.rs".into(),
                 line_anchor: LineAnchorSnapshot::default(),
+                original_anchor: Box::new(test_original_anchor("src/a.rs")),
             }),
             buffer: text_buffer_with_line("@src/target.rs"),
             preview_mode: false,
@@ -203,6 +206,7 @@ mod tests {
                 line_range: None,
                 file_path: "src/target.rs".into(),
                 line_anchor: LineAnchorSnapshot::default(),
+                original_anchor: Box::new(test_original_anchor("src/target.rs")),
             }),
             buffer: text_buffer_with_line("@src/target.rs"),
             preview_mode: false,
@@ -243,6 +247,7 @@ mod tests {
                 line_range: None,
                 file_path: "src/a.rs".into(),
                 line_anchor: LineAnchorSnapshot::default(),
+                original_anchor: Box::new(test_original_anchor("src/a.rs")),
             }),
             buffer: text_buffer_with_line("alpha  beta"),
             preview_mode: false,
@@ -464,6 +469,7 @@ mod tests {
                 line_range: None,
                 file_path: "src/a.rs".into(),
                 line_anchor: LineAnchorSnapshot::default(),
+                original_anchor: Box::new(test_original_anchor("src/a.rs")),
             }),
             buffer: TextBuffer {
                 lines: vec!["alpha".into(), "beta gamma".into()],
@@ -729,6 +735,122 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn saving_comment_in_diff_mode_persists_original_hunk_snapshot() -> Result<()> {
+        let tempdir = tempdir()?;
+        let service = ReviewService::new(Store::from_project_root(tempdir.path()));
+        service.create_review("test-review").await?;
+        let review = service.load_review("test-review").await?;
+        let mut app = make_test_app_with_review_and_files(
+            review,
+            vec![diff_file_with_lines(
+                "src/a.rs",
+                &[(1, "fn one() {}"), (2, "fn two() {}"), (3, "fn three() {}")],
+            )],
+        )?;
+        app.diff_source = DiffSource::Range {
+            base: "base-ref".into(),
+            head: "head-ref".into(),
+        };
+        app.ensure_row_cache();
+        app.set_active_line_index(2);
+
+        app.handle_key(
+            KeyEvent::new(KeyCode::Char('c'), KeyModifiers::NONE),
+            &service,
+        )
+        .await?;
+        let inline = app
+            .inline_comment
+            .as_mut()
+            .ok_or_else(|| anyhow!("inline comment should exist"))?;
+        inline.buffer = text_buffer_with_line("persist anchor");
+
+        app.handle_inline_comment_key(
+            KeyEvent::new(KeyCode::Char('s'), KeyModifiers::CONTROL),
+            &service,
+        )
+        .await?;
+
+        let updated = service.load_review("test-review").await?;
+        let comment = updated
+            .comments
+            .first()
+            .ok_or_else(|| anyhow!("saved comment should exist"))?;
+        let original_anchor = comment
+            .original_anchor
+            .as_ref()
+            .ok_or_else(|| anyhow!("original anchor should exist"))?;
+        let diff = original_anchor
+            .diff
+            .as_ref()
+            .ok_or_else(|| anyhow!("diff snapshot should exist"))?;
+
+        assert_eq!(original_anchor.selected_text, "fn two() {}");
+        assert_eq!(original_anchor.before_context, vec!["fn one() {}"]);
+        assert_eq!(original_anchor.after_context, vec!["fn three() {}"]);
+        assert_eq!(diff.hunk_header, "@@ -1,1 +1,1 @@");
+        assert!(diff.hunk_lines.contains(&" fn two() {}".to_string()));
+        assert_eq!(original_anchor.base_rev.as_deref(), Some("base-ref"));
+        assert_eq!(original_anchor.head_rev.as_deref(), Some("head-ref"));
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn saving_comment_in_root_mode_persists_source_hash_snapshot() -> Result<()> {
+        let tempdir = tempdir()?;
+        let service = ReviewService::new(Store::from_project_root(tempdir.path()));
+        service.create_review("test-review").await?;
+        let review = service.load_review("test-review").await?;
+        let mut app = make_test_app_with_review_and_files(
+            review,
+            vec![root_file_with_lines(
+                "src/a.rs",
+                &[(1, "fn one() {}"), (2, "fn two() {}")],
+            )],
+        )?;
+        app.diff_source = DiffSource::RootDirectory;
+        app.ensure_row_cache();
+        app.set_active_line_index(2);
+
+        app.handle_key(
+            KeyEvent::new(KeyCode::Char('c'), KeyModifiers::NONE),
+            &service,
+        )
+        .await?;
+        let inline = app
+            .inline_comment
+            .as_mut()
+            .ok_or_else(|| anyhow!("inline comment should exist"))?;
+        inline.buffer = text_buffer_with_line("persist source anchor");
+
+        app.handle_inline_comment_key(
+            KeyEvent::new(KeyCode::Char('s'), KeyModifiers::CONTROL),
+            &service,
+        )
+        .await?;
+
+        let updated = service.load_review("test-review").await?;
+        let comment = updated
+            .comments
+            .first()
+            .ok_or_else(|| anyhow!("saved comment should exist"))?;
+        let original_anchor = comment
+            .original_anchor
+            .as_ref()
+            .ok_or_else(|| anyhow!("original anchor should exist"))?;
+        let source = original_anchor
+            .source
+            .as_ref()
+            .ok_or_else(|| anyhow!("source snapshot should exist"))?;
+
+        assert_eq!(original_anchor.selected_text, "fn two() {}");
+        assert!(original_anchor.diff.is_none());
+        assert!(source.file_content_hash.is_some());
+        assert!(source.selected_text_hash.is_some());
+        Ok(())
+    }
+
+    #[tokio::test]
     async fn pressing_u_reanchors_selected_thread_and_persists_review() -> Result<()> {
         let tempdir = tempdir()?;
         let service = ReviewService::new(Store::from_project_root(tempdir.path()));
@@ -821,6 +943,7 @@ mod tests {
                 line_range: None,
                 file_path: "src/a.rs".into(),
                 line_anchor: LineAnchorSnapshot::default(),
+                original_anchor: Box::new(test_original_anchor("src/a.rs")),
             }),
             buffer: text_buffer_with_line("second"),
             preview_mode: false,
@@ -987,11 +1110,57 @@ mod tests {
         }
     }
 
+    fn root_file_with_lines(path: &str, lines: &[(u32, &str)]) -> DiffFile {
+        let mut hunk_lines = vec![DiffLine {
+            kind: DiffLineKind::HunkHeader,
+            old_line: None,
+            new_line: None,
+            raw: "@@ -1,1 +1,1 @@".into(),
+            code: "@@ -1,1 +1,1 @@".into(),
+        }];
+        hunk_lines.extend(lines.iter().map(|(line, code)| DiffLine {
+            kind: DiffLineKind::Context,
+            old_line: None,
+            new_line: Some(*line),
+            raw: format!(" {code}"),
+            code: (*code).to_string(),
+        }));
+        DiffFile {
+            path: path.to_string(),
+            header_lines: Vec::new(),
+            hunks: vec![DiffHunk {
+                old_start: 1,
+                old_count: 0,
+                new_start: lines.first().map_or(1, |(line, _)| *line),
+                new_count: usize_to_u32_saturating(lines.len()),
+                header: "@@ -1,1 +1,1 @@".into(),
+                lines: hunk_lines,
+            }],
+        }
+    }
+
     fn text_buffer_with_line(line: &str) -> TextBuffer {
         TextBuffer {
             lines: vec![line.to_string()],
             cursor_line: 0,
             cursor_col: line.chars().count(),
+        }
+    }
+
+    fn test_original_anchor(file_path: &str) -> StoredAnchorSnapshot {
+        StoredAnchorSnapshot {
+            file_path: file_path.to_string(),
+            side: DiffSide::Right,
+            old_line: None,
+            new_line: Some(1),
+            line_range: None,
+            selected_text: String::new(),
+            before_context: Vec::new(),
+            after_context: Vec::new(),
+            diff: None,
+            source: None,
+            base_rev: None,
+            head_rev: None,
         }
     }
 

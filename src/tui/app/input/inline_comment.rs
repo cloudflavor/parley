@@ -195,6 +195,14 @@ impl TuiApp {
             DiffLineKind::Context => (DiffSide::Right, row.old_line, row.new_line),
             _ => return None,
         };
+        let original_anchor = self.stored_anchor_snapshot_for_row_range(
+            row_index,
+            row_index,
+            side.clone(),
+            old_line,
+            new_line,
+            None,
+        )?;
 
         Some(CommentTarget {
             side,
@@ -203,6 +211,7 @@ impl TuiApp {
             line_range: None,
             file_path: file.path.clone(),
             line_anchor,
+            original_anchor: Box::new(original_anchor),
         })
     }
 
@@ -285,18 +294,28 @@ impl TuiApp {
 
         let (anchor_row, side, old_line, new_line) = first_target?;
         let line_anchor = self.line_anchor_snapshot_for_row(anchor_row)?;
+        let line_range = Some(CommentLineRange {
+            start_old_line: old_lines.iter().min().copied(),
+            start_new_line: new_lines.iter().min().copied(),
+            end_old_line: old_lines.iter().max().copied(),
+            end_new_line: new_lines.iter().max().copied(),
+        });
+        let original_anchor = self.stored_anchor_snapshot_for_row_range(
+            range_start,
+            range_end,
+            side.clone(),
+            old_line,
+            new_line,
+            line_range.clone(),
+        )?;
         Some(CommentTarget {
             side,
             old_line,
             new_line,
-            line_range: Some(CommentLineRange {
-                start_old_line: old_lines.iter().min().copied(),
-                start_new_line: new_lines.iter().min().copied(),
-                end_old_line: old_lines.iter().max().copied(),
-                end_new_line: new_lines.iter().max().copied(),
-            }),
+            line_range,
             file_path: file.path.clone(),
             line_anchor,
+            original_anchor: Box::new(original_anchor),
         })
     }
 
@@ -413,7 +432,7 @@ impl TuiApp {
                             line_range: target.line_range,
                             side: target.side,
                             line_anchor: Some(target.line_anchor),
-                            original_anchor: None,
+                            original_anchor: Some(*target.original_anchor),
                             body,
                             author: Author::User,
                         },

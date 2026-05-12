@@ -406,7 +406,7 @@ Root mode specifics:
 Implementation slices:
 
 1. [x] Add stored anchor snapshot fields and migration/default handling for existing reviews.
-2. [ ] Capture snapshots when creating comments in root mode and diff mode.
+2. [x] Capture snapshots when creating comments in root mode and diff mode.
 3. [ ] Add exact projection computation that never mutates the original anchor.
 4. [ ] Render detached/outdated thread context when projection is missing.
 5. [ ] Update AI prompt context to include anchor status and original/current projection data.

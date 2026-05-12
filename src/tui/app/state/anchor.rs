@@ -1,4 +1,8 @@
 use super::*;
+use crate::domain::diff::DiffFile;
+use crate::domain::diff::DiffHunk;
+use crate::domain::review::DiffAnchorSnapshot;
+use crate::domain::review::SourceAnchorSnapshot;
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub(super) struct ResolvedLineAnchor {
@@ -18,6 +22,51 @@ impl ResolvedLineAnchor {
             new_line,
             line_anchor: build_line_anchor_snapshot(rows, row_index),
         }
+    }
+}
+
+impl TuiApp {
+    pub(crate) fn stored_anchor_snapshot_for_row_range(
+        &self,
+        start_row: usize,
+        end_row: usize,
+        side: DiffSide,
+        old_line: Option<u32>,
+        new_line: Option<u32>,
+        line_range: Option<CommentLineRange>,
+    ) -> Option<StoredAnchorSnapshot> {
+        let file = self.current_file()?;
+        let rows = self.current_rows();
+        let range_start = start_row.min(end_row);
+        let range_end = start_row.max(end_row);
+        let anchor_row_index = first_commentable_row_index(rows, range_start, range_end)?;
+        let anchor_row = rows.get(anchor_row_index)?;
+        let selected_text = selected_text_for_rows(rows, range_start, range_end);
+        let (before_context, after_context) =
+            row_range_context_windows(rows, range_start, range_end, 2);
+        let (base_rev, head_rev) = revisions_for_diff_source(&self.diff_source);
+
+        Some(StoredAnchorSnapshot {
+            file_path: file.path.clone(),
+            side,
+            old_line,
+            new_line,
+            line_range,
+            selected_text: selected_text.clone(),
+            before_context,
+            after_context,
+            diff: (!matches!(self.diff_source, DiffSource::RootDirectory))
+                .then(|| diff_anchor_snapshot_for_row(file, anchor_row))
+                .flatten(),
+            source: matches!(self.diff_source, DiffSource::RootDirectory).then(|| {
+                SourceAnchorSnapshot {
+                    file_content_hash: Some(stable_text_hash(&file_content_text(rows))),
+                    selected_text_hash: Some(stable_text_hash(&selected_text)),
+                }
+            }),
+            base_rev,
+            head_rev,
+        })
     }
 }
 
@@ -122,6 +171,103 @@ fn row_context_windows(
     }
 
     (before, after)
+}
+
+fn row_range_context_windows(
+    rows: &[DisplayRow],
+    range_start: usize,
+    range_end: usize,
+    max_lines: usize,
+) -> (Vec<String>, Vec<String>) {
+    let mut before = Vec::new();
+    let mut cursor = range_start;
+    while cursor > 0 && before.len() < max_lines {
+        cursor -= 1;
+        let row = &rows[cursor];
+        if !is_commentable_row(row) {
+            continue;
+        }
+        before.push(normalize_anchor_text(&row.code));
+    }
+
+    let mut after = Vec::new();
+    let mut cursor = range_end.saturating_add(1);
+    while cursor < rows.len() && after.len() < max_lines {
+        let row = &rows[cursor];
+        cursor += 1;
+        if !is_commentable_row(row) {
+            continue;
+        }
+        after.push(normalize_anchor_text(&row.code));
+    }
+
+    (before, after)
+}
+
+fn first_commentable_row_index(
+    rows: &[DisplayRow],
+    range_start: usize,
+    range_end: usize,
+) -> Option<usize> {
+    (range_start..=range_end).find(|row_index| rows.get(*row_index).is_some_and(is_commentable_row))
+}
+
+fn selected_text_for_rows(rows: &[DisplayRow], range_start: usize, range_end: usize) -> String {
+    rows.iter()
+        .enumerate()
+        .filter(|(row_index, row)| {
+            *row_index >= range_start && *row_index <= range_end && is_commentable_row(row)
+        })
+        .map(|(_, row)| normalize_anchor_text(&row.code))
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+fn file_content_text(rows: &[DisplayRow]) -> String {
+    rows.iter()
+        .filter(|row| is_commentable_row(row))
+        .map(|row| row.code.as_str())
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+fn diff_anchor_snapshot_for_row(file: &DiffFile, row: &DisplayRow) -> Option<DiffAnchorSnapshot> {
+    let hunk = hunk_for_row(file, row)?;
+    Some(DiffAnchorSnapshot {
+        hunk_header: hunk.header.clone(),
+        hunk_lines: hunk.lines.iter().map(|line| line.raw.clone()).collect(),
+    })
+}
+
+fn hunk_for_row<'file>(file: &'file DiffFile, row: &DisplayRow) -> Option<&'file DiffHunk> {
+    file.hunks.iter().find(|hunk| {
+        hunk.lines.iter().any(|line| {
+            line.kind == row.kind
+                && line.old_line == row.old_line
+                && line.new_line == row.new_line
+                && line.code == row.code
+        })
+    })
+}
+
+fn revisions_for_diff_source(diff_source: &DiffSource) -> (Option<String>, Option<String>) {
+    match diff_source {
+        DiffSource::Range { base, head } => (Some(base.clone()), Some(head.clone())),
+        DiffSource::Commit { rev } => (None, Some(rev.clone())),
+        DiffSource::WorkingTree | DiffSource::RootDirectory => (None, None),
+    }
+}
+
+fn stable_text_hash(value: &str) -> String {
+    const FNV_OFFSET_BASIS: u64 = 0xcbf2_9ce4_8422_2325;
+    const FNV_PRIME: u64 = 0x0000_0100_0000_01b3;
+
+    let mut hash = FNV_OFFSET_BASIS;
+    for byte in value.as_bytes() {
+        hash ^= u64::from(*byte);
+        hash = hash.wrapping_mul(FNV_PRIME);
+    }
+    format!("{hash:016x}")
 }
 
 fn normalize_anchor_text(value: &str) -> String {
