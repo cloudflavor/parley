@@ -2,7 +2,7 @@ use super::super::helpers::{
     comment_reference_matches_display_row, format_line_range_reference, format_timestamp_utc,
 };
 use super::helpers::{
-    apply_search_highlighting, blank_line, fit_spans_to_width, pad_line_to_width,
+    apply_search_highlighting, blank_line, fit_spans_to_width, modal_block, pad_line_to_width,
     styled_segments_line, wrap_styled_line, wrapped_content_lines,
 };
 use super::helpers::{
@@ -988,17 +988,10 @@ pub(super) fn draw_inline_comment_editor(frame: &mut Frame<'_>, app: &TuiApp, ar
     };
 
     frame.render_widget(Clear, editor_area);
-    let block = Block::default()
-        .title(format!(
-            "{title_kind} [{mode}] line {line_ref}{title_suffix}"
-        ))
-        .borders(Borders::ALL)
-        .border_style(Style::default().fg(colors.thread_border))
-        .title_style(
-            Style::default()
-                .fg(colors.accent)
-                .add_modifier(Modifier::BOLD),
-        );
+    let block = modal_block(
+        format!("{title_kind} [{mode}] line {line_ref}{title_suffix}"),
+        colors,
+    );
 
     if inline.preview_mode {
         let mut content = super::markdown::render_markdown(&inline.buffer.to_text(), colors);
@@ -1305,17 +1298,10 @@ fn draw_inline_file_mention_picker(
 
     frame.render_widget(Clear, area);
     frame.render_widget(
-        Paragraph::new(lines).block(
-            Block::default()
-                .title(format!("@ file  {}", mention.path_query))
-                .borders(Borders::ALL)
-                .border_style(Style::default().fg(colors.thread_border))
-                .title_style(
-                    Style::default()
-                        .fg(colors.accent)
-                        .add_modifier(Modifier::BOLD),
-                ),
-        ),
+        Paragraph::new(lines).block(modal_block(
+            format!("@ file  {}", mention.path_query),
+            colors,
+        )),
         area,
     );
 }

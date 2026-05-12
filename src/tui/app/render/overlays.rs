@@ -1,5 +1,7 @@
 use super::super::helpers::{format_comment_reference, format_timestamp_utc, slice_chars};
-use super::helpers::{compute_scroll, fit_to_width, wrap_markdown_lines};
+use super::helpers::{
+    centered_rect, compute_scroll, fit_to_width, modal_block, wrap_markdown_lines,
+};
 use super::status::spinner_frame;
 use super::{
     AiLogEvent, AiLogSessionStatus, CommandPromptMode, FileHeatmapSortMode, ThreadSelectorEntry,
@@ -75,17 +77,7 @@ pub(super) fn draw_thread_navigator_overlay(frame: &mut Frame<'_>, app: &mut Tui
     frame.render_widget(Clear, area);
     frame.render_widget(
         Paragraph::new(lines)
-            .block(
-                Block::default()
-                    .title("Thread Navigator")
-                    .borders(Borders::ALL)
-                    .border_style(Style::default().fg(colors.thread_border))
-                    .title_style(
-                        Style::default()
-                            .fg(colors.accent)
-                            .add_modifier(Modifier::BOLD),
-                    ),
-            )
+            .block(modal_block("Thread Navigator", &colors))
             .scroll((usize_to_u16_saturating(scroll), 0)),
         area,
     );
@@ -100,12 +92,7 @@ pub(super) fn draw_thread_selector(frame: &mut Frame<'_>, app: &mut TuiApp) {
 
     let width = root.width.saturating_sub(4).clamp(72, 140);
     let height = root.height.saturating_sub(4).clamp(12, 28);
-    let area = Rect {
-        x: root.x + root.width.saturating_sub(width) / 2,
-        y: root.y + root.height.saturating_sub(height) / 2,
-        width,
-        height,
-    };
+    let area = centered_rect(root, width, height);
     app.last_thread_selector_area = Some(area);
 
     let inner = Block::default().borders(Borders::ALL).inner(area);
@@ -152,18 +139,7 @@ pub(super) fn draw_thread_selector(frame: &mut Frame<'_>, app: &mut TuiApp) {
     }
 
     frame.render_widget(Clear, area);
-    frame.render_widget(
-        Block::default()
-            .title("Thread Selector")
-            .borders(Borders::ALL)
-            .border_style(Style::default().fg(colors.thread_border))
-            .title_style(
-                Style::default()
-                    .fg(colors.accent)
-                    .add_modifier(Modifier::BOLD),
-            ),
-        area,
-    );
+    frame.render_widget(modal_block("Thread Selector", &colors), area);
 
     frame.render_widget(
         Paragraph::new(vec![Line::from(vec![
@@ -333,17 +309,7 @@ pub(super) fn draw_ai_progress_popup(frame: &mut Frame<'_>, app: &mut TuiApp) {
     frame.render_widget(Clear, area);
     frame.render_widget(
         Paragraph::new(lines)
-            .block(
-                Block::default()
-                    .title(title)
-                    .borders(Borders::ALL)
-                    .border_style(Style::default().fg(colors.thread_border))
-                    .title_style(
-                        Style::default()
-                            .fg(colors.accent)
-                            .add_modifier(Modifier::BOLD),
-                    ),
-            )
+            .block(modal_block(title, &colors))
             .wrap(Wrap { trim: false }),
         area,
     );
@@ -358,12 +324,7 @@ pub(super) fn draw_ai_activity_overlay(frame: &mut Frame<'_>, app: &mut TuiApp) 
 
     let width = root.width.saturating_sub(4).clamp(68, 140);
     let height = root.height.saturating_sub(4).clamp(12, 28);
-    let area = Rect {
-        x: root.x + root.width.saturating_sub(width) / 2,
-        y: root.y + root.height.saturating_sub(height) / 2,
-        width,
-        height,
-    };
+    let area = centered_rect(root, width, height);
     app.last_ai_activity_area = Some(area);
 
     let inner_height = usize::from(area.height.saturating_sub(2)).max(1);
@@ -461,17 +422,7 @@ pub(super) fn draw_ai_activity_overlay(frame: &mut Frame<'_>, app: &mut TuiApp) 
     frame.render_widget(Clear, area);
     frame.render_widget(
         Paragraph::new(lines)
-            .block(
-                Block::default()
-                    .title("AI Activity")
-                    .borders(Borders::ALL)
-                    .border_style(Style::default().fg(colors.thread_border))
-                    .title_style(
-                        Style::default()
-                            .fg(colors.accent)
-                            .add_modifier(Modifier::BOLD),
-                    ),
-            )
+            .block(modal_block("AI Activity", &colors))
             .wrap(Wrap { trim: false }),
         area,
     );
@@ -515,12 +466,7 @@ pub(super) fn draw_file_heatmap_overlay(frame: &mut Frame<'_>, app: &mut TuiApp)
 
     let width = root.width.saturating_sub(4).clamp(72, 132);
     let height = root.height.saturating_sub(4).clamp(12, 32);
-    let area = Rect {
-        x: root.x + root.width.saturating_sub(width) / 2,
-        y: root.y + root.height.saturating_sub(height) / 2,
-        width,
-        height,
-    };
+    let area = centered_rect(root, width, height);
     app.last_file_heatmap_area = Some(area);
     let inner_height = usize::from(area.height.saturating_sub(2)).max(1);
     let content_width = usize::from(area.width.saturating_sub(2)).max(1);
@@ -620,17 +566,7 @@ pub(super) fn draw_file_heatmap_overlay(frame: &mut Frame<'_>, app: &mut TuiApp)
     frame.render_widget(Clear, area);
     frame.render_widget(
         Paragraph::new(lines)
-            .block(
-                Block::default()
-                    .title(title)
-                    .borders(Borders::ALL)
-                    .border_style(Style::default().fg(colors.thread_border))
-                    .title_style(
-                        Style::default()
-                            .fg(colors.accent)
-                            .add_modifier(Modifier::BOLD),
-                    ),
-            )
+            .block(modal_block(title, &colors))
             .wrap(Wrap { trim: false }),
         area,
     );
@@ -784,12 +720,7 @@ pub(super) fn draw_shortcuts_modal(frame: &mut Frame<'_>, app: &mut TuiApp) {
         2,
         14,
     );
-    let area = Rect {
-        x: root.x + root.width.saturating_sub(width) / 2,
-        y: root.y + root.height.saturating_sub(height) / 2,
-        width,
-        height,
-    };
+    let area = centered_rect(root, width, height);
     app.last_shortcuts_modal_area = Some(area);
     let colors = app.theme().colors.clone();
 
@@ -825,18 +756,7 @@ pub(super) fn draw_shortcuts_modal(frame: &mut Frame<'_>, app: &mut TuiApp) {
 
     frame.render_widget(Clear, area);
     let title = format!("  Help Docs [{}/{}]  ", doc_index + 1, docs_count);
-    frame.render_widget(
-        Block::default()
-            .title(title)
-            .borders(Borders::ALL)
-            .border_style(Style::default().fg(colors.thread_border))
-            .title_style(
-                Style::default()
-                    .fg(colors.accent)
-                    .add_modifier(Modifier::BOLD),
-            ),
-        area,
-    );
+    frame.render_widget(modal_block(title, &colors), area);
     frame.render_widget(
         Paragraph::new(vec![help_docs_tabs_line(doc_index, &colors)]).wrap(Wrap { trim: true }),
         tabs_area,
@@ -925,17 +845,7 @@ pub(super) fn draw_command_prompt(frame: &mut Frame<'_>, app: &TuiApp) {
 
     frame.render_widget(Clear, area);
     frame.render_widget(
-        Paragraph::new(content).block(
-            Block::default()
-                .title(title)
-                .borders(Borders::ALL)
-                .border_style(Style::default().fg(colors.thread_border))
-                .title_style(
-                    Style::default()
-                        .fg(colors.accent)
-                        .add_modifier(Modifier::BOLD),
-                ),
-        ),
+        Paragraph::new(content).block(modal_block(title, &colors)),
         area,
     );
 
@@ -966,12 +876,7 @@ pub(super) fn draw_command_palette(frame: &mut Frame<'_>, app: &mut TuiApp) {
 
     let width = root.width.saturating_sub(4).clamp(52, 96);
     let height = root.height.saturating_sub(4).clamp(10, 22);
-    let area = Rect {
-        x: root.x + root.width.saturating_sub(width) / 2,
-        y: root.y + root.height.saturating_sub(height) / 2,
-        width,
-        height,
-    };
+    let area = centered_rect(root, width, height);
     let colors = app.theme().colors.clone();
 
     let all_items = TuiApp::command_palette_items();
@@ -1046,17 +951,7 @@ pub(super) fn draw_command_palette(frame: &mut Frame<'_>, app: &mut TuiApp) {
 
     frame.render_widget(Clear, area);
     frame.render_widget(
-        Paragraph::new(lines).block(
-            Block::default()
-                .title("Command Palette")
-                .borders(Borders::ALL)
-                .border_style(Style::default().fg(colors.thread_border))
-                .title_style(
-                    Style::default()
-                        .fg(colors.accent)
-                        .add_modifier(Modifier::BOLD),
-                ),
-        ),
+        Paragraph::new(lines).block(modal_block("Command Palette", &colors)),
         area,
     );
 
@@ -1090,12 +985,7 @@ pub(super) fn draw_code_search(frame: &mut Frame<'_>, app: &mut TuiApp) {
 
     let width = root.width.saturating_sub(4).clamp(56, 112);
     let height = root.height.saturating_sub(4).clamp(10, 24);
-    let area = Rect {
-        x: root.x + root.width.saturating_sub(width) / 2,
-        y: root.y + root.height.saturating_sub(height) / 2,
-        width,
-        height,
-    };
+    let area = centered_rect(root, width, height);
     let colors = app.theme().colors.clone();
     let query_prefix = "/ ";
     let query_width = usize::from(area.width.saturating_sub(2)).saturating_sub(query_prefix.len());
@@ -1174,17 +1064,7 @@ pub(super) fn draw_code_search(frame: &mut Frame<'_>, app: &mut TuiApp) {
     frame.render_widget(Clear, area);
     let title = code_search_title(results.len(), engine);
     frame.render_widget(
-        Paragraph::new(lines).block(
-            Block::default()
-                .title(title)
-                .borders(Borders::ALL)
-                .border_style(Style::default().fg(colors.thread_border))
-                .title_style(
-                    Style::default()
-                        .fg(colors.accent)
-                        .add_modifier(Modifier::BOLD),
-                ),
-        ),
+        Paragraph::new(lines).block(modal_block(title, &colors)),
         area,
     );
 

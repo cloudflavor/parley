@@ -1,10 +1,10 @@
 use super::super::helpers::slice_chars;
-use super::helpers::fit_to_width;
+use super::helpers::{centered_rect, fit_to_width, modal_block};
 use super::status::{review_state_label, theme_family_label, theme_variant_label};
 use super::{SettingsEditorKind, TuiApp};
 use crate::utils::cast::usize_to_u16_saturating;
 use ratatui::Frame;
-use ratatui::layout::{Constraint, Direction, Layout, Rect};
+use ratatui::layout::{Constraint, Direction, Layout};
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragraph};
@@ -17,14 +17,7 @@ pub(super) fn draw_settings_editor(frame: &mut Frame<'_>, app: &TuiApp) {
     let root = frame.area();
     let width = root.width.min(72);
     let height: u16 = 7;
-    let x = root.x + root.width.saturating_sub(width) / 2;
-    let y = root.y + root.height.saturating_sub(height) / 2;
-    let area = Rect {
-        x,
-        y,
-        width,
-        height,
-    };
+    let area = centered_rect(root, width, height);
 
     let title = match editor.kind {
         SettingsEditorKind::UserName => "Set User Name",
@@ -53,17 +46,7 @@ pub(super) fn draw_settings_editor(frame: &mut Frame<'_>, app: &TuiApp) {
 
     frame.render_widget(Clear, area);
     frame.render_widget(
-        Paragraph::new(content).block(
-            Block::default()
-                .title(title)
-                .borders(Borders::ALL)
-                .border_style(Style::default().fg(colors.thread_border))
-                .title_style(
-                    Style::default()
-                        .fg(colors.accent)
-                        .add_modifier(Modifier::BOLD),
-                ),
-        ),
+        Paragraph::new(content).block(modal_block(title, &colors)),
         area,
     );
 
@@ -85,12 +68,7 @@ pub(super) fn draw_theme_picker(frame: &mut Frame<'_>, app: &TuiApp) {
     let root = frame.area();
     let width = root.width.saturating_sub(2).clamp(60, 90);
     let height = root.height.saturating_sub(2).clamp(12, 22);
-    let area = Rect {
-        x: root.x + root.width.saturating_sub(width) / 2,
-        y: root.y + root.height.saturating_sub(height) / 2,
-        width,
-        height,
-    };
+    let area = centered_rect(root, width, height);
     let colors = app.theme().colors.clone();
     let selected = picker
         .selected_index
@@ -100,15 +78,7 @@ pub(super) fn draw_theme_picker(frame: &mut Frame<'_>, app: &TuiApp) {
     let family = theme_family_label(&selected_theme.name);
 
     frame.render_widget(Clear, area);
-    let outer_block = Block::default()
-        .title("Theme Picker")
-        .borders(Borders::ALL)
-        .border_style(Style::default().fg(colors.thread_border))
-        .title_style(
-            Style::default()
-                .fg(colors.accent)
-                .add_modifier(Modifier::BOLD),
-        );
+    let outer_block = modal_block("Theme Picker", &colors);
     let content = outer_block.inner(area);
     frame.render_widget(outer_block, area);
 
@@ -273,26 +243,13 @@ pub(super) fn draw_commit_picker(frame: &mut Frame<'_>, app: &TuiApp) {
     let root = frame.area();
     let width = root.width.saturating_sub(2).clamp(72, 120);
     let height = root.height.saturating_sub(2).clamp(14, 24);
-    let area = Rect {
-        x: root.x + root.width.saturating_sub(width) / 2,
-        y: root.y + root.height.saturating_sub(height) / 2,
-        width,
-        height,
-    };
+    let area = centered_rect(root, width, height);
     let colors = app.theme().colors.clone();
     let filtered = app.commit_picker_filtered_indices();
     let selected = picker.selected_index.min(filtered.len().saturating_sub(1));
 
     frame.render_widget(Clear, area);
-    let outer_block = Block::default()
-        .title("Commit Picker")
-        .borders(Borders::ALL)
-        .border_style(Style::default().fg(colors.thread_border))
-        .title_style(
-            Style::default()
-                .fg(colors.accent)
-                .add_modifier(Modifier::BOLD),
-        );
+    let outer_block = modal_block("Commit Picker", &colors);
     let content = outer_block.inner(area);
     frame.render_widget(outer_block, area);
 
@@ -394,26 +351,13 @@ pub(super) fn draw_review_picker(frame: &mut Frame<'_>, app: &TuiApp) {
     let root = frame.area();
     let width = root.width.saturating_sub(2).clamp(72, 120);
     let height = root.height.saturating_sub(2).clamp(14, 24);
-    let area = Rect {
-        x: root.x + root.width.saturating_sub(width) / 2,
-        y: root.y + root.height.saturating_sub(height) / 2,
-        width,
-        height,
-    };
+    let area = centered_rect(root, width, height);
     let colors = app.theme().colors.clone();
     let filtered = app.review_picker_filtered_indices();
     let selected = picker.selected_index.min(filtered.len().saturating_sub(1));
 
     frame.render_widget(Clear, area);
-    let outer_block = Block::default()
-        .title("Review Picker")
-        .borders(Borders::ALL)
-        .border_style(Style::default().fg(colors.thread_border))
-        .title_style(
-            Style::default()
-                .fg(colors.accent)
-                .add_modifier(Modifier::BOLD),
-        );
+    let outer_block = modal_block("Review Picker", &colors);
     let content = outer_block.inner(area);
     frame.render_widget(outer_block, area);
 

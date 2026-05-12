@@ -1,8 +1,10 @@
 use super::FileReferenceHit;
 use crate::domain::reference::parse_file_references;
 use crate::tui::theme::ThemeColors;
+use ratatui::layout::Rect;
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
+use ratatui::widgets::{Block, Borders};
 
 const TAB_WIDTH: usize = 4;
 
@@ -24,6 +26,27 @@ pub(super) fn fit_to_width(input: &str, width: usize) -> String {
         out.push_str(&" ".repeat(missing));
     }
     out
+}
+
+pub(super) fn centered_rect(root: Rect, width: u16, height: u16) -> Rect {
+    Rect {
+        x: root.x + root.width.saturating_sub(width) / 2,
+        y: root.y + root.height.saturating_sub(height) / 2,
+        width,
+        height,
+    }
+}
+
+pub(super) fn modal_block(title: impl Into<String>, colors: &ThemeColors) -> Block<'static> {
+    Block::default()
+        .title(title.into())
+        .borders(Borders::ALL)
+        .border_style(Style::default().fg(colors.thread_border))
+        .title_style(
+            Style::default()
+                .fg(colors.accent)
+                .add_modifier(Modifier::BOLD),
+        )
 }
 
 pub(super) fn fit_spans_to_width(
@@ -415,4 +438,30 @@ pub(super) fn compute_compact_thread_content_width(
     indent: usize,
 ) -> usize {
     pane_inner_width.saturating_sub(indent).max(1)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::centered_rect;
+    use ratatui::layout::Rect;
+
+    #[test]
+    fn centered_rect_offsets_from_root_midpoint() {
+        let root = Rect {
+            x: 10,
+            y: 4,
+            width: 100,
+            height: 40,
+        };
+
+        assert_eq!(
+            centered_rect(root, 60, 10),
+            Rect {
+                x: 30,
+                y: 19,
+                width: 60,
+                height: 10
+            }
+        );
+    }
 }
