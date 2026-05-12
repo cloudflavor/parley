@@ -1,7 +1,7 @@
 use super::AiProgressEvent;
 use super::progress::emit_progress;
 use crate::domain::ai::{AiProvider, AiSessionMode};
-use crate::domain::config::{AgentTransport, AppConfig};
+use crate::domain::config::{AgentTransport, AppConfig, acp_command_replacement};
 use crate::utils::time::now_ms;
 use anyhow::{Context, Result, anyhow};
 use serde_json::Value;
@@ -257,50 +257,16 @@ fn validate_acp_provider_command(
     provider: AiProvider,
     provider_cfg: &crate::domain::config::AiProviderConfig,
 ) -> Result<()> {
-    if let Some(expected_command) = invalid_acp_command_expected_replacement(provider, provider_cfg)
-    {
+    if let Some(expected_command) = acp_command_replacement(provider, provider_cfg) {
         return Err(anyhow!(
             "provider {} is configured for ACP but '{}' is not an ACP command; use '{}' for ACP or set transport = \"cli\" for one-shot CLI mode",
             provider.as_str(),
-            provider_command_label(provider_cfg),
+            provider_cfg.command_label(),
             expected_command
         ));
     }
 
     Ok(())
-}
-
-fn invalid_acp_command_expected_replacement(
-    provider: AiProvider,
-    provider_cfg: &crate::domain::config::AiProviderConfig,
-) -> Option<&'static str> {
-    let client = provider_client_name(provider_cfg);
-    let first_arg = provider_cfg.args.first().map(String::as_str);
-
-    match provider {
-        AiProvider::Codex if client == "codex" => Some("codex-acp"),
-        AiProvider::Claude if client == "claude" || client == "claude-code" => {
-            Some("claude-agent-acp")
-        }
-        AiProvider::Opencode if client == "opencode" && first_arg != Some("acp") => {
-            Some("opencode acp")
-        }
-        _ => None,
-    }
-}
-
-fn provider_client_name(provider_cfg: &crate::domain::config::AiProviderConfig) -> &str {
-    std::path::Path::new(&provider_cfg.client)
-        .file_name()
-        .and_then(|name| name.to_str())
-        .unwrap_or(provider_cfg.client.as_str())
-}
-
-fn provider_command_label(provider_cfg: &crate::domain::config::AiProviderConfig) -> String {
-    let mut parts = Vec::with_capacity(provider_cfg.args.len().saturating_add(1));
-    parts.push(provider_cfg.client.as_str());
-    parts.extend(provider_cfg.args.iter().map(String::as_str));
-    parts.join(" ")
 }
 
 pub(super) fn format_ai_reply_body(model: Option<&str>, reply: &str) -> String {

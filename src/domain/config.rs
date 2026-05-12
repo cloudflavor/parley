@@ -133,27 +133,18 @@ impl AiProviderConfig {
             ..Self::default()
         }
     }
+
+    #[must_use]
+    pub fn command_label(&self) -> String {
+        let mut parts = Vec::with_capacity(self.args.len().saturating_add(1));
+        parts.push(self.client.as_str());
+        parts.extend(self.args.iter().map(String::as_str));
+        parts.join(" ")
+    }
 }
 
 impl Default for AiConfig {
     fn default() -> Self {
-        let mut codex = AiProviderConfig::with_client("codex-acp");
-        codex.args = Vec::new();
-
-        let mut claude = AiProviderConfig::with_client("claude-agent-acp");
-        claude.args = Vec::new();
-
-        let mut opencode = AiProviderConfig::with_client("opencode");
-        opencode.args = vec!["acp".to_string()];
-        opencode.model_arg = Some("-m".to_string());
-
-        let mut pi = AiProviderConfig::with_client("pi");
-        pi.transport = AgentTransport::PiRpc;
-        pi.args = vec![
-            "--mode".to_string(),
-            "rpc".to_string(),
-            "--no-session".to_string(),
-        ];
         Self {
             timeout_seconds: 120,
             default_provider: AiProvider::Opencode,
@@ -161,10 +152,17 @@ impl Default for AiConfig {
             prompt_path: None,
             reply_prompt_path: None,
             refactor_prompt_path: None,
-            codex,
-            claude,
-            opencode,
-            pi,
+            codex: default_provider_config_for_transport(AiProvider::Codex, AgentTransport::Acp)
+                .expect("codex acp profile should exist"),
+            claude: default_provider_config_for_transport(AiProvider::Claude, AgentTransport::Acp)
+                .expect("claude acp profile should exist"),
+            opencode: default_provider_config_for_transport(
+                AiProvider::Opencode,
+                AgentTransport::Acp,
+            )
+            .expect("opencode acp profile should exist"),
+            pi: default_provider_config_for_transport(AiProvider::Pi, AgentTransport::PiRpc)
+                .expect("pi rpc profile should exist"),
         }
     }
 }
@@ -192,13 +190,16 @@ impl AiConfig {
                 if configured.transport != AgentTransport::Acp
                     || is_cli_command_for_acp_transport(provider, configured) =>
             {
-                default_acp_provider_config(provider)
+                default_provider_config_for_transport(provider, AgentTransport::Acp)
+                    .unwrap_or_else(|| configured.clone())
             }
             Some(AgentTransport::Cli) if configured.transport != AgentTransport::Cli => {
-                default_cli_provider_config(provider).unwrap_or_else(|| configured.clone())
+                default_provider_config_for_transport(provider, AgentTransport::Cli)
+                    .unwrap_or_else(|| configured.clone())
             }
             Some(AgentTransport::PiRpc) if configured.transport != AgentTransport::PiRpc => {
-                configured.clone()
+                default_provider_config_for_transport(provider, AgentTransport::PiRpc)
+                    .unwrap_or_else(|| configured.clone())
             }
             _ => configured.clone(),
         }
@@ -217,6 +218,107 @@ impl AiConfig {
     }
 }
 
+#[derive(Debug, Clone, Copy)]
+struct ProviderCommandProfile {
+    transport: AgentTransport,
+    client: &'static str,
+    args: &'static [&'static str],
+    model_arg: Option<&'static str>,
+}
+
+impl ProviderCommandProfile {
+    fn to_config(self) -> AiProviderConfig {
+        let mut config = AiProviderConfig::with_client(self.client);
+        config.transport = self.transport;
+        config.args = self.args.iter().map(|value| (*value).to_string()).collect();
+        config.model_arg = self.model_arg.map(str::to_string);
+        config
+    }
+
+    fn command_label(self) -> String {
+        let mut parts = Vec::with_capacity(self.args.len().saturating_add(1));
+        parts.push(self.client);
+        parts.extend(self.args);
+        parts.join(" ")
+    }
+}
+
+fn provider_command_profile(
+    provider: AiProvider,
+    transport: AgentTransport,
+) -> Option<ProviderCommandProfile> {
+    match (provider, transport) {
+        (AiProvider::Codex, AgentTransport::Acp) => Some(ProviderCommandProfile {
+            transport: AgentTransport::Acp,
+            client: "codex-acp",
+            args: &[],
+            model_arg: Some("--model"),
+        }),
+        (AiProvider::Codex, AgentTransport::Cli) => Some(ProviderCommandProfile {
+            transport: AgentTransport::Cli,
+            client: "codex",
+            args: &["exec"],
+            model_arg: Some("--model"),
+        }),
+        (AiProvider::Claude, AgentTransport::Acp) => Some(ProviderCommandProfile {
+            transport: AgentTransport::Acp,
+            client: "claude-agent-acp",
+            args: &[],
+            model_arg: Some("--model"),
+        }),
+        (AiProvider::Claude, AgentTransport::Cli) => Some(ProviderCommandProfile {
+            transport: AgentTransport::Cli,
+            client: "claude",
+            args: &["-p"],
+            model_arg: Some("--model"),
+        }),
+        (AiProvider::Opencode, AgentTransport::Acp) => Some(ProviderCommandProfile {
+            transport: AgentTransport::Acp,
+            client: "opencode",
+            args: &["acp"],
+            model_arg: Some("-m"),
+        }),
+        (AiProvider::Opencode, AgentTransport::Cli) => Some(ProviderCommandProfile {
+            transport: AgentTransport::Cli,
+            client: "opencode",
+            args: &["run"],
+            model_arg: Some("-m"),
+        }),
+        (AiProvider::Pi, AgentTransport::PiRpc) => Some(ProviderCommandProfile {
+            transport: AgentTransport::PiRpc,
+            client: "pi",
+            args: &["--mode", "rpc", "--no-session"],
+            model_arg: Some("--model"),
+        }),
+        _ => None,
+    }
+}
+
+fn default_provider_config_for_transport(
+    provider: AiProvider,
+    transport: AgentTransport,
+) -> Option<AiProviderConfig> {
+    provider_command_profile(provider, transport)
+        .or_else(|| {
+            if provider == AiProvider::Pi && transport == AgentTransport::Acp {
+                provider_command_profile(provider, AgentTransport::PiRpc)
+            } else {
+                None
+            }
+        })
+        .map(ProviderCommandProfile::to_config)
+}
+
+#[must_use]
+pub fn acp_command_replacement(provider: AiProvider, config: &AiProviderConfig) -> Option<String> {
+    if is_cli_command_for_acp_transport(provider, config) {
+        provider_command_profile(provider, AgentTransport::Acp)
+            .map(ProviderCommandProfile::command_label)
+    } else {
+        None
+    }
+}
+
 fn is_cli_command_for_acp_transport(provider: AiProvider, config: &AiProviderConfig) -> bool {
     if config.transport != AgentTransport::Acp {
         return false;
@@ -232,62 +334,6 @@ fn is_cli_command_for_acp_transport(provider: AiProvider, config: &AiProviderCon
             client == "opencode" && config.args.first().map(String::as_str) != Some("acp")
         }
         AiProvider::Pi => false,
-    }
-}
-
-fn default_acp_provider_config(provider: AiProvider) -> AiProviderConfig {
-    match provider {
-        AiProvider::Codex => {
-            let mut config = AiProviderConfig::with_client("codex-acp");
-            config.args = Vec::new();
-            config
-        }
-        AiProvider::Claude => {
-            let mut config = AiProviderConfig::with_client("claude-agent-acp");
-            config.args = Vec::new();
-            config
-        }
-        AiProvider::Opencode => {
-            let mut config = AiProviderConfig::with_client("opencode");
-            config.args = vec!["acp".to_string()];
-            config.model_arg = Some("-m".to_string());
-            config
-        }
-        AiProvider::Pi => {
-            let mut config = AiProviderConfig::with_client("pi");
-            config.transport = AgentTransport::PiRpc;
-            config.args = vec![
-                "--mode".to_string(),
-                "rpc".to_string(),
-                "--no-session".to_string(),
-            ];
-            config
-        }
-    }
-}
-
-fn default_cli_provider_config(provider: AiProvider) -> Option<AiProviderConfig> {
-    match provider {
-        AiProvider::Codex => {
-            let mut config = AiProviderConfig::with_client("codex");
-            config.transport = AgentTransport::Cli;
-            config.args = vec!["exec".to_string()];
-            Some(config)
-        }
-        AiProvider::Claude => {
-            let mut config = AiProviderConfig::with_client("claude");
-            config.transport = AgentTransport::Cli;
-            config.args = vec!["-p".to_string()];
-            Some(config)
-        }
-        AiProvider::Opencode => {
-            let mut config = AiProviderConfig::with_client("opencode");
-            config.transport = AgentTransport::Cli;
-            config.args = vec!["run".to_string()];
-            config.model_arg = Some("-m".to_string());
-            Some(config)
-        }
-        AiProvider::Pi => None,
     }
 }
 

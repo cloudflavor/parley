@@ -173,10 +173,10 @@ Success criteria:
 
 ### Unit 8: Centralize Provider Command Profiles
 
-- [ ] Introduce one profile source for `(provider, transport)` command shape.
-- [ ] Use it for default config, transport override config, and ACP command validation/replacement.
-- [ ] Keep CLI invocation generic: provider differences should be profile data and reply extraction only.
-- [ ] Keep ACP command differences as profile data.
+- [x] Introduce one profile source for `(provider, transport)` command shape.
+- [x] Use it for default config, transport override config, and ACP command validation/replacement.
+- [x] Keep CLI invocation generic: provider differences should be profile data and reply extraction only.
+- [x] Keep ACP command differences as profile data.
 
 Files:
 - `src/domain/config.rs`
