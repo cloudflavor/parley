@@ -3,6 +3,7 @@
 //! Handles theme pickers, commit pickers, review pickers, and settings editors.
 
 use super::*;
+use crate::domain::review::CommentStatus;
 
 impl TuiApp {
     pub(crate) fn dismiss_blocking_overlays(&mut self) {
@@ -164,17 +165,17 @@ impl TuiApp {
             let open_count = review
                 .comments
                 .iter()
-                .filter(|comment| comment.status == crate::domain::review::CommentStatus::Open)
+                .filter(|comment| comment.status == CommentStatus::Open)
                 .count();
             let pending_count = review
                 .comments
                 .iter()
-                .filter(|comment| comment.status == crate::domain::review::CommentStatus::Pending)
+                .filter(|comment| comment.status == CommentStatus::Pending)
                 .count();
             let addressed_count = review
                 .comments
                 .iter()
-                .filter(|comment| comment.status == crate::domain::review::CommentStatus::Addressed)
+                .filter(|comment| comment.status == CommentStatus::Addressed)
                 .count();
             reviews.push(super::ReviewPickerEntry {
                 name: review.name,
