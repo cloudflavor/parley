@@ -195,9 +195,9 @@ Success criteria:
 
 ### Unit 9: Decide Pi Transport Shape
 
-- [ ] Decide whether `PiRpc` belongs in generic `AgentTransport`.
-- [ ] If user-facing agent invocation is only CLI or ACP, move Pi RPC out of the generic transport toggle/config path.
-- [ ] If Pi RPC remains, document it as provider-specific and non-agent-generic.
+- [x] Decide whether `PiRpc` belongs in generic `AgentTransport`.
+- [x] If user-facing agent invocation is only CLI or ACP, move Pi RPC out of the generic transport toggle/config path.
+- [x] If Pi RPC remains, document it as provider-specific and non-agent-generic.
 
 Files:
 - `src/domain/config.rs`

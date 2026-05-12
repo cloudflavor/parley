@@ -345,12 +345,12 @@ mod tests {
 
     #[tokio::test]
     async fn ai_transport_toggle_switches_between_acp_and_cli() -> Result<()> {
-        use crate::domain::config::AgentTransport;
+        use crate::domain::config::{AgentTransport, ProviderTransport};
 
         let mut app = make_test_app(vec!["src/a.rs"])?;
         let service = make_test_service()?;
 
-        assert_eq!(app.effective_ai_transport(), AgentTransport::Acp);
+        assert_eq!(app.effective_ai_transport(), ProviderTransport::Acp);
 
         app.handle_key(
             KeyEvent::new(KeyCode::Char('I'), KeyModifiers::SHIFT),
@@ -358,7 +358,7 @@ mod tests {
         )
         .await?;
 
-        assert_eq!(app.effective_ai_transport(), AgentTransport::Cli);
+        assert_eq!(app.effective_ai_transport(), ProviderTransport::Cli);
         assert_eq!(app.config.ai.default_transport, Some(AgentTransport::Cli));
 
         app.handle_key(
@@ -367,7 +367,7 @@ mod tests {
         )
         .await?;
 
-        assert_eq!(app.effective_ai_transport(), AgentTransport::Acp);
+        assert_eq!(app.effective_ai_transport(), ProviderTransport::Acp);
         assert_eq!(app.config.ai.default_transport, Some(AgentTransport::Acp));
         Ok(())
     }

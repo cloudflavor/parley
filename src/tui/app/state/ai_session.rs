@@ -740,9 +740,13 @@ impl TuiApp {
             return Ok(());
         }
 
-        let next = match self.effective_ai_transport() {
+        let next = match self
+            .effective_ai_transport()
+            .as_agent_transport()
+            .unwrap_or_default()
+        {
             AgentTransport::Acp => AgentTransport::Cli,
-            AgentTransport::Cli | AgentTransport::PiRpc => AgentTransport::Acp,
+            AgentTransport::Cli => AgentTransport::Acp,
         };
         self.ai_transport = Some(next);
         self.config.ai.default_transport = Some(next);
@@ -760,7 +764,7 @@ impl TuiApp {
         Ok(())
     }
 
-    pub(crate) fn effective_ai_transport(&self) -> AgentTransport {
+    pub(crate) fn effective_ai_transport(&self) -> ProviderTransport {
         self.config
             .ai
             .provider_config_for_transport(self.ai_provider, self.ai_transport)

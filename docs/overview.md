@@ -178,7 +178,7 @@ If an older config points ACP transport at a one-shot CLI command such as `codex
 
 Use `i` in the TUI to cycle the active AI provider. The active provider is shown in the status panel.
 
-Use `I` in the TUI to toggle the active AI transport between ACP and CLI for providers that support both. The selected transport is saved as `ai.default_transport`. Pi ignores the toggle and keeps using `pi_rpc`.
+Use `I` in the TUI to toggle the active AI transport between ACP and CLI for providers that support both. The selected transport is saved as `ai.default_transport`, which accepts only the generic `acp` and `cli` choices. Pi ignores the toggle and keeps using provider-specific `pi_rpc`.
 
 ### `.parley/config.toml` AI provider config
 

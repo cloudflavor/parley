@@ -2,7 +2,7 @@ use super::syntax::SyntaxPainter;
 use super::terminal::TerminalSession;
 use super::theme::{UiTheme, default_theme_name, load_themes, resolve_theme_index};
 use crate::domain::ai::{AiProvider, AiSessionMode};
-use crate::domain::config::{AgentTransport, AppConfig, default_user_name};
+use crate::domain::config::{AgentTransport, AppConfig, ProviderTransport, default_user_name};
 use crate::domain::diff::{DiffDocument, DiffFile, DiffLineKind};
 use crate::domain::review::{
     Author, CommentLineRange, CommentStatus, DiffSide, LineAnchorSnapshot, LineComment,

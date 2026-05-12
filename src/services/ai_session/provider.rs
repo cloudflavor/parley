@@ -1,7 +1,9 @@
 use super::AiProgressEvent;
 use super::progress::emit_progress;
 use crate::domain::ai::{AiProvider, AiSessionMode};
-use crate::domain::config::{AgentTransport, AppConfig, acp_command_replacement};
+use crate::domain::config::{
+    AgentTransport, AppConfig, ProviderTransport, acp_command_replacement,
+};
 use crate::utils::time::now_ms;
 use anyhow::{Context, Result, anyhow};
 use serde_json::Value;
@@ -44,7 +46,7 @@ pub(super) async fn invoke_provider(
     }
 
     match provider_cfg.transport {
-        AgentTransport::Acp => {
+        ProviderTransport::Acp => {
             validate_acp_provider_command(provider, &provider_cfg)?;
             return acp::invoke_acp_provider(
                 provider,
@@ -56,7 +58,7 @@ pub(super) async fn invoke_provider(
             )
             .await;
         }
-        AgentTransport::PiRpc => {
+        ProviderTransport::PiRpc => {
             return pi_rpc::invoke_pi_rpc_provider(
                 &provider_cfg,
                 mode,
@@ -66,7 +68,7 @@ pub(super) async fn invoke_provider(
             )
             .await;
         }
-        AgentTransport::Cli => {}
+        ProviderTransport::Cli => {}
     }
 
     let mut command = Command::new(&provider_cfg.client);

@@ -39,7 +39,6 @@ pub enum AgentTransport {
     #[default]
     Acp,
     Cli,
-    PiRpc,
 }
 
 impl AgentTransport {
@@ -48,7 +47,45 @@ impl AgentTransport {
         match self {
             Self::Acp => "acp",
             Self::Cli => "cli",
+        }
+    }
+}
+
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
+#[serde(rename_all = "snake_case")]
+#[derive(Default)]
+pub enum ProviderTransport {
+    #[default]
+    Acp,
+    Cli,
+    PiRpc,
+}
+
+impl ProviderTransport {
+    #[must_use]
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            Self::Acp => "acp",
+            Self::Cli => "cli",
             Self::PiRpc => "pi_rpc",
+        }
+    }
+
+    #[must_use]
+    pub fn as_agent_transport(&self) -> Option<AgentTransport> {
+        match self {
+            Self::Acp => Some(AgentTransport::Acp),
+            Self::Cli => Some(AgentTransport::Cli),
+            Self::PiRpc => None,
+        }
+    }
+}
+
+impl From<AgentTransport> for ProviderTransport {
+    fn from(value: AgentTransport) -> Self {
+        match value {
+            AgentTransport::Acp => Self::Acp,
+            AgentTransport::Cli => Self::Cli,
         }
     }
 }
@@ -56,7 +93,7 @@ impl AgentTransport {
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(default)]
 pub struct AiProviderConfig {
-    pub transport: AgentTransport,
+    pub transport: ProviderTransport,
     #[serde(alias = "program")]
     pub client: String,
     pub model: Option<String>,
@@ -115,7 +152,7 @@ impl Default for AppConfig {
 impl Default for AiProviderConfig {
     fn default() -> Self {
         Self {
-            transport: AgentTransport::Acp,
+            transport: ProviderTransport::Acp,
             client: String::new(),
             model: None,
             model_arg: Some("--model".to_string()),
@@ -152,17 +189,26 @@ impl Default for AiConfig {
             prompt_path: None,
             reply_prompt_path: None,
             refactor_prompt_path: None,
-            codex: default_provider_config_for_transport(AiProvider::Codex, AgentTransport::Acp)
-                .expect("codex acp profile should exist"),
-            claude: default_provider_config_for_transport(AiProvider::Claude, AgentTransport::Acp)
-                .expect("claude acp profile should exist"),
-            opencode: default_provider_config_for_transport(
+            codex: default_provider_config_for_provider_transport(
+                AiProvider::Codex,
+                ProviderTransport::Acp,
+            )
+            .expect("codex acp profile should exist"),
+            claude: default_provider_config_for_provider_transport(
+                AiProvider::Claude,
+                ProviderTransport::Acp,
+            )
+            .expect("claude acp profile should exist"),
+            opencode: default_provider_config_for_provider_transport(
                 AiProvider::Opencode,
-                AgentTransport::Acp,
+                ProviderTransport::Acp,
             )
             .expect("opencode acp profile should exist"),
-            pi: default_provider_config_for_transport(AiProvider::Pi, AgentTransport::PiRpc)
-                .expect("pi rpc profile should exist"),
+            pi: default_provider_config_for_provider_transport(
+                AiProvider::Pi,
+                ProviderTransport::PiRpc,
+            )
+            .expect("pi rpc profile should exist"),
         }
     }
 }
@@ -185,20 +231,19 @@ impl AiConfig {
         transport: Option<AgentTransport>,
     ) -> AiProviderConfig {
         let configured = self.provider_config(provider);
+        if provider == AiProvider::Pi {
+            return pi_rpc_provider_config(configured);
+        }
         match transport {
             Some(AgentTransport::Acp)
-                if configured.transport != AgentTransport::Acp
+                if configured.transport != ProviderTransport::Acp
                     || is_cli_command_for_acp_transport(provider, configured) =>
             {
-                default_provider_config_for_transport(provider, AgentTransport::Acp)
+                default_provider_config_for_agent_transport(provider, AgentTransport::Acp)
                     .unwrap_or_else(|| configured.clone())
             }
-            Some(AgentTransport::Cli) if configured.transport != AgentTransport::Cli => {
-                default_provider_config_for_transport(provider, AgentTransport::Cli)
-                    .unwrap_or_else(|| configured.clone())
-            }
-            Some(AgentTransport::PiRpc) if configured.transport != AgentTransport::PiRpc => {
-                default_provider_config_for_transport(provider, AgentTransport::PiRpc)
+            Some(AgentTransport::Cli) if configured.transport != ProviderTransport::Cli => {
+                default_provider_config_for_agent_transport(provider, AgentTransport::Cli)
                     .unwrap_or_else(|| configured.clone())
             }
             _ => configured.clone(),
@@ -220,7 +265,7 @@ impl AiConfig {
 
 #[derive(Debug, Clone, Copy)]
 struct ProviderCommandProfile {
-    transport: AgentTransport,
+    transport: ProviderTransport,
     client: &'static str,
     args: &'static [&'static str],
     model_arg: Option<&'static str>,
@@ -245,47 +290,47 @@ impl ProviderCommandProfile {
 
 fn provider_command_profile(
     provider: AiProvider,
-    transport: AgentTransport,
+    transport: ProviderTransport,
 ) -> Option<ProviderCommandProfile> {
     match (provider, transport) {
-        (AiProvider::Codex, AgentTransport::Acp) => Some(ProviderCommandProfile {
-            transport: AgentTransport::Acp,
+        (AiProvider::Codex, ProviderTransport::Acp) => Some(ProviderCommandProfile {
+            transport: ProviderTransport::Acp,
             client: "codex-acp",
             args: &[],
             model_arg: Some("--model"),
         }),
-        (AiProvider::Codex, AgentTransport::Cli) => Some(ProviderCommandProfile {
-            transport: AgentTransport::Cli,
+        (AiProvider::Codex, ProviderTransport::Cli) => Some(ProviderCommandProfile {
+            transport: ProviderTransport::Cli,
             client: "codex",
             args: &["exec"],
             model_arg: Some("--model"),
         }),
-        (AiProvider::Claude, AgentTransport::Acp) => Some(ProviderCommandProfile {
-            transport: AgentTransport::Acp,
+        (AiProvider::Claude, ProviderTransport::Acp) => Some(ProviderCommandProfile {
+            transport: ProviderTransport::Acp,
             client: "claude-agent-acp",
             args: &[],
             model_arg: Some("--model"),
         }),
-        (AiProvider::Claude, AgentTransport::Cli) => Some(ProviderCommandProfile {
-            transport: AgentTransport::Cli,
+        (AiProvider::Claude, ProviderTransport::Cli) => Some(ProviderCommandProfile {
+            transport: ProviderTransport::Cli,
             client: "claude",
             args: &["-p"],
             model_arg: Some("--model"),
         }),
-        (AiProvider::Opencode, AgentTransport::Acp) => Some(ProviderCommandProfile {
-            transport: AgentTransport::Acp,
+        (AiProvider::Opencode, ProviderTransport::Acp) => Some(ProviderCommandProfile {
+            transport: ProviderTransport::Acp,
             client: "opencode",
             args: &["acp"],
             model_arg: Some("-m"),
         }),
-        (AiProvider::Opencode, AgentTransport::Cli) => Some(ProviderCommandProfile {
-            transport: AgentTransport::Cli,
+        (AiProvider::Opencode, ProviderTransport::Cli) => Some(ProviderCommandProfile {
+            transport: ProviderTransport::Cli,
             client: "opencode",
             args: &["run"],
             model_arg: Some("-m"),
         }),
-        (AiProvider::Pi, AgentTransport::PiRpc) => Some(ProviderCommandProfile {
-            transport: AgentTransport::PiRpc,
+        (AiProvider::Pi, ProviderTransport::PiRpc) => Some(ProviderCommandProfile {
+            transport: ProviderTransport::PiRpc,
             client: "pi",
             args: &["--mode", "rpc", "--no-session"],
             model_arg: Some("--model"),
@@ -294,25 +339,46 @@ fn provider_command_profile(
     }
 }
 
-fn default_provider_config_for_transport(
+fn default_provider_config_for_provider_transport(
+    provider: AiProvider,
+    transport: ProviderTransport,
+) -> Option<AiProviderConfig> {
+    provider_command_profile(provider, transport).map(ProviderCommandProfile::to_config)
+}
+
+fn default_provider_config_for_agent_transport(
     provider: AiProvider,
     transport: AgentTransport,
 ) -> Option<AiProviderConfig> {
-    provider_command_profile(provider, transport)
-        .or_else(|| {
-            if provider == AiProvider::Pi && transport == AgentTransport::Acp {
-                provider_command_profile(provider, AgentTransport::PiRpc)
-            } else {
-                None
-            }
-        })
-        .map(ProviderCommandProfile::to_config)
+    default_provider_config_for_provider_transport(provider, ProviderTransport::from(transport))
+}
+
+fn pi_rpc_provider_config(configured: &AiProviderConfig) -> AiProviderConfig {
+    let default =
+        default_provider_config_for_provider_transport(AiProvider::Pi, ProviderTransport::PiRpc)
+            .expect("pi rpc profile should exist");
+    let mut config = configured.clone();
+    config.transport = ProviderTransport::PiRpc;
+    if config.client.trim().is_empty() {
+        config.client = default.client;
+    }
+    if config.args.is_empty() {
+        config.args = default.args;
+    }
+    if config
+        .model_arg
+        .as_deref()
+        .is_none_or(|value| value.trim().is_empty())
+    {
+        config.model_arg = default.model_arg;
+    }
+    config
 }
 
 #[must_use]
 pub fn acp_command_replacement(provider: AiProvider, config: &AiProviderConfig) -> Option<String> {
     if is_cli_command_for_acp_transport(provider, config) {
-        provider_command_profile(provider, AgentTransport::Acp)
+        provider_command_profile(provider, ProviderTransport::Acp)
             .map(ProviderCommandProfile::command_label)
     } else {
         None
@@ -320,7 +386,7 @@ pub fn acp_command_replacement(provider: AiProvider, config: &AiProviderConfig) 
 }
 
 fn is_cli_command_for_acp_transport(provider: AiProvider, config: &AiProviderConfig) -> bool {
-    if config.transport != AgentTransport::Acp {
+    if config.transport != ProviderTransport::Acp {
         return false;
     }
     let client = Path::new(&config.client)
@@ -339,8 +405,8 @@ fn is_cli_command_for_acp_transport(provider: AiProvider, config: &AiProviderCon
 
 #[cfg(test)]
 mod tests {
-    use super::{AgentTransport, AiConfig, AppConfig};
-    use crate::domain::ai::AiSessionMode;
+    use super::{AgentTransport, AiConfig, AiProviderConfig, AppConfig, ProviderTransport};
+    use crate::domain::ai::{AiProvider, AiSessionMode};
     use anyhow::Result;
 
     #[test]
@@ -373,11 +439,11 @@ mod tests {
     fn default_ai_config_uses_persistent_agent_transports() {
         let config = AiConfig::default();
 
-        assert_eq!(config.codex.transport, AgentTransport::Acp);
+        assert_eq!(config.codex.transport, ProviderTransport::Acp);
         assert_eq!(config.default_transport, Some(AgentTransport::Acp));
-        assert_eq!(config.claude.transport, AgentTransport::Acp);
-        assert_eq!(config.opencode.transport, AgentTransport::Acp);
-        assert_eq!(config.pi.transport, AgentTransport::PiRpc);
+        assert_eq!(config.claude.transport, ProviderTransport::Acp);
+        assert_eq!(config.opencode.transport, ProviderTransport::Acp);
+        assert_eq!(config.pi.transport, ProviderTransport::PiRpc);
         assert_eq!(config.opencode.args, vec!["acp"]);
         assert_eq!(config.pi.args, vec!["--mode", "rpc", "--no-session"]);
     }
@@ -386,19 +452,15 @@ mod tests {
     fn provider_config_for_transport_uses_builtin_cli_profiles() {
         let config = AiConfig::default();
 
-        let codex = config.provider_config_for_transport(
-            crate::domain::ai::AiProvider::Codex,
-            Some(AgentTransport::Cli),
-        );
-        let opencode = config.provider_config_for_transport(
-            crate::domain::ai::AiProvider::Opencode,
-            Some(AgentTransport::Cli),
-        );
+        let codex =
+            config.provider_config_for_transport(AiProvider::Codex, Some(AgentTransport::Cli));
+        let opencode =
+            config.provider_config_for_transport(AiProvider::Opencode, Some(AgentTransport::Cli));
 
-        assert_eq!(codex.transport, AgentTransport::Cli);
+        assert_eq!(codex.transport, ProviderTransport::Cli);
         assert_eq!(codex.client, "codex");
         assert_eq!(codex.args, vec!["exec"]);
-        assert_eq!(opencode.transport, AgentTransport::Cli);
+        assert_eq!(opencode.transport, ProviderTransport::Cli);
         assert_eq!(opencode.client, "opencode");
         assert_eq!(opencode.args, vec!["run"]);
     }
@@ -406,18 +468,31 @@ mod tests {
     #[test]
     fn provider_config_for_transport_repairs_cli_command_for_acp_transport() {
         let mut config = AiConfig::default();
-        config.opencode.transport = AgentTransport::Acp;
+        config.opencode.transport = ProviderTransport::Acp;
         config.opencode.client = "opencode".to_string();
         config.opencode.args = vec!["run".to_string()];
 
-        let opencode = config.provider_config_for_transport(
-            crate::domain::ai::AiProvider::Opencode,
-            Some(AgentTransport::Acp),
-        );
+        let opencode =
+            config.provider_config_for_transport(AiProvider::Opencode, Some(AgentTransport::Acp));
 
-        assert_eq!(opencode.transport, AgentTransport::Acp);
+        assert_eq!(opencode.transport, ProviderTransport::Acp);
         assert_eq!(opencode.client, "opencode");
         assert_eq!(opencode.args, vec!["acp"]);
+    }
+
+    #[test]
+    fn provider_config_for_transport_keeps_pi_rpc_provider_specific() {
+        let mut config = AiConfig {
+            default_transport: Some(AgentTransport::Cli),
+            ..AiConfig::default()
+        };
+        config.pi = AiProviderConfig::with_client("/custom/pi");
+
+        let pi = config.provider_config_for_transport(AiProvider::Pi, config.default_transport);
+
+        assert_eq!(pi.transport, ProviderTransport::PiRpc);
+        assert_eq!(pi.client, "/custom/pi");
+        assert_eq!(pi.args, vec!["--mode", "rpc", "--no-session"]);
     }
 
     #[test]

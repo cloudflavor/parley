@@ -323,7 +323,7 @@ client = "codex"
 args = ["exec"]
 ```
 
-The TUI can also switch transport at runtime with `I`. The active selection is stored as `ai.default_transport`; Parley uses built-in CLI profiles for `codex`, `claude`, and `opencode` when that value is `cli`. Pi keeps using `pi_rpc`.
+The TUI can also switch transport at runtime with `I`. The active selection is stored as `ai.default_transport`, which accepts only the generic `acp` and `cli` choices. Parley uses built-in CLI profiles for `codex`, `claude`, and `opencode` when that value is `cli`. Pi keeps using provider-specific `pi_rpc`.
 
 Parley stores AI output as per-file session logs in memory while the TUI is open. Starting an AI run opens/follows the current file logs. `H` shows transcripts for the current file, and `L` shows a global activity index for running and recent sessions. Review comments are separate durable state; AI output is added to a thread only when the AI review flow persists a reply.
 
