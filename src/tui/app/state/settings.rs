@@ -258,6 +258,7 @@ impl TuiApp {
         service.save_config(&self.config).await?;
         self.row_cache.clear();
         self.clear_diff_render_cache();
+        self.clear_thread_body_render_cache();
         self.status_line = format!("theme set to {}", self.config.theme);
         Ok(())
     }
@@ -292,6 +293,7 @@ impl TuiApp {
         service.save_config(&self.config).await?;
         self.row_cache.clear();
         self.clear_diff_render_cache();
+        self.clear_thread_body_render_cache();
         self.status_line = format!("theme set to {}", self.config.theme);
         Ok(())
     }

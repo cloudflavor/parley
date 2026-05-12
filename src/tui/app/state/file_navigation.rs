@@ -134,6 +134,7 @@ impl TuiApp {
         self.comment_indices_by_file = Self::build_comment_index(&self.review);
         self.comment_stats_by_file = Self::build_comment_stats(&self.review);
         self.invalidate_visible_file_indices_cache();
+        self.clear_thread_body_render_cache();
     }
 
     pub(crate) fn comments_for_file(&self, file_path: &str) -> Vec<&LineComment> {

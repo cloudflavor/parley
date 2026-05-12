@@ -369,7 +369,7 @@ Priority work:
 4. [x] Avoid cloning full diff render cache entries on cache hits.
 5. [x] Make root mode load file lists first, then load file content lazily or with bounded concurrency.
 6. [x] Index comment anchors by file/line to reduce refresh/remap scans.
-7. [ ] Cache wrapped/rendered thread bodies by width plus thread revision.
+7. [x] Cache wrapped/rendered thread bodies by width plus thread revision.
 
 Keep the ignored perf tests updated with each optimization so regressions are measurable.
 

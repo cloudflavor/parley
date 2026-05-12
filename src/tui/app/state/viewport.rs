@@ -346,6 +346,11 @@ impl TuiApp {
         self.diff_render_cache_order.clear();
     }
 
+    pub(crate) fn clear_thread_body_render_cache(&mut self) {
+        self.thread_body_render_cache.clear();
+        self.thread_body_render_cache_order.clear();
+    }
+
     pub(crate) fn clear_diff_render_cache_for_file(&mut self, file_index: usize) {
         self.diff_render_cache
             .retain(|key, _| key.file_index != file_index);
@@ -375,6 +380,32 @@ impl TuiApp {
         while self.diff_render_cache_order.len() > DIFF_RENDER_CACHE_MAX_ENTRIES {
             if let Some(evicted) = self.diff_render_cache_order.pop_front() {
                 self.diff_render_cache.remove(&evicted);
+            }
+        }
+    }
+
+    pub(crate) fn get_thread_body_render_cache(
+        &self,
+        key: &ThreadBodyRenderCacheKey,
+    ) -> Option<&ThreadBodyRenderCacheEntry> {
+        self.thread_body_render_cache.get(key)
+    }
+
+    pub(crate) fn insert_thread_body_render_cache(
+        &mut self,
+        key: ThreadBodyRenderCacheKey,
+        entry: ThreadBodyRenderCacheEntry,
+    ) {
+        if self.thread_body_render_cache.contains_key(&key) {
+            self.thread_body_render_cache_order
+                .retain(|existing| existing != &key);
+        }
+        self.thread_body_render_cache.insert(key.clone(), entry);
+        self.thread_body_render_cache_order.push_back(key);
+
+        while self.thread_body_render_cache_order.len() > THREAD_BODY_RENDER_CACHE_MAX_ENTRIES {
+            if let Some(evicted) = self.thread_body_render_cache_order.pop_front() {
+                self.thread_body_render_cache.remove(&evicted);
             }
         }
     }

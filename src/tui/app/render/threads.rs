@@ -4,16 +4,22 @@ use super::helpers::{
     line_plain_text, push_compact_thread_row, wrap_markdown_lines,
 };
 use super::status::{comment_status_label, comment_status_style};
-use super::{FileReferenceHit, TuiApp};
+use super::{
+    FileReferenceHit, ThreadBodyRenderCacheEntry, ThreadBodyRenderCacheKey,
+    ThreadBodyRenderCacheKind, TuiApp,
+};
 use crate::domain::reference::parse_file_references;
-use crate::domain::review::DiffSide;
+use crate::domain::review::{CommentReply, DiffSide, LineComment};
 use crate::git::diff::DiffSource;
 use crate::tui::theme::ThemeColors;
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
+use std::sync::Arc;
 
 pub(super) struct RenderCommentThreadSpec<'a> {
-    pub(super) app: &'a TuiApp,
+    pub(super) app: &'a mut TuiApp,
     pub(super) comment: &'a crate::domain::review::LineComment,
     pub(super) review_state: &'a str,
     pub(super) source_row_index: usize,
@@ -29,7 +35,7 @@ pub(super) fn render_comment_thread(
 ) {
     let app = spec.app;
     let comment = spec.comment;
-    let colors = &app.theme().colors;
+    let colors = app.theme().colors.clone();
     let expanded = app.is_thread_expanded(comment.id, spec.selected_comment_id);
     let layout = comment_thread_layout(
         app.side_by_side_diff && !matches!(app.diff_source, DiffSource::RootDirectory),
@@ -57,7 +63,7 @@ pub(super) fn render_comment_thread(
                     .min(layout.outer_width),
                 text: &comment_preview,
                 style: Style::default().fg(colors.comment_title),
-                colors,
+                colors: &colors,
             },
         );
 
@@ -82,7 +88,7 @@ pub(super) fn render_comment_thread(
                     .min(layout.reply_outer_width),
                     text: &reply_preview,
                     style: Style::default().fg(colors.reply_title),
-                    colors,
+                    colors: &colors,
                 },
             );
         }
@@ -96,6 +102,7 @@ pub(super) fn render_comment_thread(
         app.author_label(&comment.author),
         format_timestamp_utc(comment.created_at_ms)
     );
+    let comment_body_lines = cached_comment_body_lines(app, comment, layout.inner_width, &colors);
     push_thread_box(
         lines,
         row_map,
@@ -108,11 +115,11 @@ pub(super) fn render_comment_thread(
             title_prefix: &comment_title_prefix,
             title_status: Some(status),
             title_suffix: &format!(" | review: {}]", spec.review_state),
-            title_status_style: Some(comment_status_style(&comment.status, colors)),
-            body: &comment.body,
+            title_status_style: Some(comment_status_style(&comment.status, &colors)),
+            body_lines: &comment_body_lines,
             border_color: colors.thread_border,
             title_color: colors.comment_title,
-            colors,
+            colors: &colors,
         },
     );
 
@@ -123,6 +130,8 @@ pub(super) fn render_comment_thread(
             app.author_label(&reply.author),
             format_timestamp_utc(reply.created_at_ms)
         );
+        let reply_body_lines =
+            cached_reply_body_lines(app, comment.id, reply, layout.reply_inner_width, &colors);
         push_thread_box(
             lines,
             row_map,
@@ -136,10 +145,10 @@ pub(super) fn render_comment_thread(
                 title_status: None,
                 title_suffix: "",
                 title_status_style: None,
-                body: &reply.body,
+                body_lines: &reply_body_lines,
                 border_color: colors.thread_border,
                 title_color: colors.reply_title,
-                colors,
+                colors: &colors,
             },
         );
     }
@@ -211,7 +220,7 @@ pub(super) struct ThreadBoxSpec<'a> {
     pub(super) title_status: Option<&'a str>,
     pub(super) title_suffix: &'a str,
     pub(super) title_status_style: Option<Style>,
-    pub(super) body: &'a str,
+    pub(super) body_lines: &'a [Line<'static>],
     pub(super) border_color: Color,
     pub(super) title_color: Color,
     pub(super) colors: &'a ThemeColors,
@@ -284,9 +293,9 @@ pub(super) fn push_thread_box(
     ]));
     row_map.push(spec.source_row_index);
 
-    for wrapped in wrap_markdown_lines(spec.body, spec.inner_width, spec.colors) {
+    for wrapped in spec.body_lines {
         let rendered_row_index = lines.len();
-        let wrapped_text = line_plain_text(&wrapped);
+        let wrapped_text = line_plain_text(wrapped);
         for reference in parse_file_references(&wrapped_text) {
             link_hits.push(FileReferenceHit {
                 rendered_row_index,
@@ -302,14 +311,14 @@ pub(super) fn push_thread_box(
         row_spans.push(Span::styled("│ ".to_string(), border));
 
         let mut rendered_width = 0usize;
-        for span in wrapped.spans {
+        for span in &wrapped.spans {
             rendered_width += span.content.chars().count();
             let style = if span.style.bg.is_some() {
                 span.style
             } else {
                 span.style.bg(spec.colors.thread_background)
             };
-            row_spans.push(Span::styled(span.content, style));
+            row_spans.push(Span::styled(span.content.clone(), style));
         }
 
         if rendered_width < spec.inner_width {
@@ -331,10 +340,75 @@ pub(super) fn push_thread_box(
     row_map.push(spec.source_row_index);
 }
 
+pub(super) fn cached_comment_body_lines(
+    app: &mut TuiApp,
+    comment: &LineComment,
+    inner_width: usize,
+    colors: &ThemeColors,
+) -> Arc<[Line<'static>]> {
+    let key = ThreadBodyRenderCacheKey {
+        thread_id: comment.id,
+        body_id: comment.id,
+        kind: ThreadBodyRenderCacheKind::Comment,
+        revision_ms: comment.updated_at_ms,
+        body_hash: text_hash(&comment.body),
+        inner_width,
+        theme_index: app.theme_index,
+    };
+    cached_thread_body_lines(app, key, &comment.body, inner_width, colors)
+}
+
+pub(super) fn cached_reply_body_lines(
+    app: &mut TuiApp,
+    thread_id: u64,
+    reply: &CommentReply,
+    inner_width: usize,
+    colors: &ThemeColors,
+) -> Arc<[Line<'static>]> {
+    let key = ThreadBodyRenderCacheKey {
+        thread_id,
+        body_id: reply.id,
+        kind: ThreadBodyRenderCacheKind::Reply,
+        revision_ms: reply.created_at_ms,
+        body_hash: text_hash(&reply.body),
+        inner_width,
+        theme_index: app.theme_index,
+    };
+    cached_thread_body_lines(app, key, &reply.body, inner_width, colors)
+}
+
+fn cached_thread_body_lines(
+    app: &mut TuiApp,
+    key: ThreadBodyRenderCacheKey,
+    body: &str,
+    inner_width: usize,
+    colors: &ThemeColors,
+) -> Arc<[Line<'static>]> {
+    if let Some(entry) = app.get_thread_body_render_cache(&key) {
+        return entry.lines.clone();
+    }
+
+    let lines: Arc<[Line<'static>]> =
+        Arc::from(wrap_markdown_lines(body, inner_width, colors).into_boxed_slice());
+    app.insert_thread_body_render_cache(
+        key,
+        ThreadBodyRenderCacheEntry {
+            lines: lines.clone(),
+        },
+    );
+    lines
+}
+
+fn text_hash(value: &str) -> u64 {
+    let mut hasher = DefaultHasher::new();
+    value.hash(&mut hasher);
+    hasher.finish()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::domain::review::CommentStatus;
+    use crate::domain::review::{Author, CommentReply, CommentStatus};
     use crate::tui::app::state::tests::{make_comment_with_anchor, make_test_app};
 
     fn line_text(line: &Line<'_>) -> String {
@@ -368,7 +442,7 @@ mod tests {
             &mut row_map,
             &mut link_hits,
             RenderCommentThreadSpec {
-                app: &app,
+                app: &mut app,
                 comment: &comment,
                 review_state: "open",
                 source_row_index: 0,
@@ -380,6 +454,52 @@ mod tests {
         let rendered_text = lines.iter().map(line_text).collect::<Vec<_>>().join("\n");
         assert!(rendered_text.contains("▸ #1"));
         assert!(!rendered_text.contains("comment #1 ["));
+        Ok(())
+    }
+
+    #[test]
+    fn expanded_thread_reuses_cached_body_lines_for_same_width_and_revision() -> anyhow::Result<()>
+    {
+        let mut app = make_test_app(
+            vec!["src/a.rs"],
+            vec![make_comment_with_anchor(
+                1,
+                "src/a.rs",
+                CommentStatus::Open,
+                1,
+                1,
+            )],
+        )?;
+        let mut comment = app.comments_for_file("src/a.rs")[0].clone();
+        comment.body = "comment body with enough text to wrap and render".to_string();
+        comment.updated_at_ms = 10;
+        comment.replies.push(CommentReply {
+            id: 1,
+            author: Author::Ai,
+            body: "reply body with enough text to wrap and render".to_string(),
+            created_at_ms: 11,
+        });
+
+        for _ in 0..2 {
+            let mut lines = Vec::new();
+            let mut row_map = Vec::new();
+            let mut link_hits = Vec::new();
+            render_comment_thread(
+                &mut lines,
+                &mut row_map,
+                &mut link_hits,
+                RenderCommentThreadSpec {
+                    app: &mut app,
+                    comment: &comment,
+                    review_state: "open",
+                    source_row_index: 0,
+                    pane_inner_width: 80,
+                    selected_comment_id: Some(1),
+                },
+            );
+        }
+
+        assert_eq!(app.thread_body_render_cache.len(), 2);
         Ok(())
     }
 }

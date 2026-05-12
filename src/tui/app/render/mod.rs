@@ -80,6 +80,28 @@ impl DiffRenderCacheEntry {
     }
 }
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+pub(crate) enum ThreadBodyRenderCacheKind {
+    Comment,
+    Reply,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
+pub(crate) struct ThreadBodyRenderCacheKey {
+    pub(crate) thread_id: u64,
+    pub(crate) body_id: u64,
+    pub(crate) kind: ThreadBodyRenderCacheKind,
+    pub(crate) revision_ms: u64,
+    pub(crate) body_hash: u64,
+    pub(crate) inner_width: usize,
+    pub(crate) theme_index: usize,
+}
+
+#[derive(Debug, Clone)]
+pub(crate) struct ThreadBodyRenderCacheEntry {
+    pub(crate) lines: Arc<[Line<'static>]>,
+}
+
 use diff::draw_diff_view_for_pane;
 use modals::{draw_commit_picker, draw_review_picker, draw_settings_editor, draw_theme_picker};
 use overlays::{

@@ -32,6 +32,7 @@ use ratatui::layout::Rect;
 use render::draw;
 pub(super) use render::{
     DiffRenderCacheEntry, DiffRenderCacheKey, DisplayRow, FileReferenceHit, HighlightParts,
+    ThreadBodyRenderCacheEntry, ThreadBodyRenderCacheKey,
 };
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::io;
@@ -245,6 +246,7 @@ async fn run_loop(
 const AI_PROGRESS_MAX_LINES: usize = 300;
 const AI_LOG_MAX_SESSIONS_PER_FILE: usize = 32;
 const DIFF_RENDER_CACHE_MAX_ENTRIES: usize = 64;
+const THREAD_BODY_RENDER_CACHE_MAX_ENTRIES: usize = 512;
 const INLINE_FILE_MENTION_MAX_VISIBLE_ROWS: usize = 6;
 const INLINE_FILE_MENTION_MAX_CANDIDATES: usize = 120;
 
@@ -752,6 +754,8 @@ struct TuiApp {
     row_cache: HashMap<usize, CachedFileRows>,
     diff_render_cache: HashMap<DiffRenderCacheKey, DiffRenderCacheEntry>,
     diff_render_cache_order: VecDeque<DiffRenderCacheKey>,
+    thread_body_render_cache: HashMap<ThreadBodyRenderCacheKey, ThreadBodyRenderCacheEntry>,
+    thread_body_render_cache_order: VecDeque<ThreadBodyRenderCacheKey>,
     pending_z_prefix_at: Option<Instant>,
     redraw_invalidated: bool,
     should_quit: bool,

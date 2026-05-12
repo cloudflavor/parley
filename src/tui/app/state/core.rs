@@ -128,6 +128,8 @@ impl TuiApp {
             row_cache: HashMap::new(),
             diff_render_cache: HashMap::new(),
             diff_render_cache_order: VecDeque::new(),
+            thread_body_render_cache: HashMap::new(),
+            thread_body_render_cache_order: VecDeque::new(),
             pending_z_prefix_at: None,
             redraw_invalidated: true,
             should_quit: false,

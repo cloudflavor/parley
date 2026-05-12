@@ -13,7 +13,10 @@ use super::helpers::{
 use super::status::{
     comment_status_label, comment_status_style, review_state_label, spinner_frame,
 };
-use super::threads::{RenderCommentThreadSpec, render_comment_thread};
+use super::threads::{
+    RenderCommentThreadSpec, cached_comment_body_lines, cached_reply_body_lines,
+    render_comment_thread,
+};
 use super::{
     DiffPane, DiffRenderCacheEntry, DiffRenderCacheKey, DisplayRow,
     INLINE_FILE_MENTION_MAX_VISIBLE_ROWS, InlineDraftMode, InlineFileMentionState,
@@ -164,7 +167,7 @@ pub(super) fn draw_diff_view_for_pane(
             );
             let highlighted_segments =
                 apply_search_highlighting(&highlighted_parts, app.search_query.as_deref(), &colors);
-            let Some(row) = app.row_for_file(file_index, index) else {
+            let Some(row) = app.row_for_file(file_index, index).cloned() else {
                 continue;
             };
             let is_current_line = index == selected_line;
@@ -172,7 +175,7 @@ pub(super) fn draw_diff_view_for_pane(
                 .is_some_and(|(start, end)| is_active && index >= start && index <= end)
                 || file_comments
                     .iter()
-                    .any(|comment| comment_line_range_contains_display_row(comment, row));
+                    .any(|comment| comment_line_range_contains_display_row(comment, &row));
             let selection = if is_current_line {
                 RowSelectionKind::Current
             } else if is_range_selected {
@@ -186,7 +189,7 @@ pub(super) fn draw_diff_view_for_pane(
                     DiffLineKind::Added | DiffLineKind::Removed | DiffLineKind::Context
                 ) {
                 build_side_by_side_row_lines(
-                    row,
+                    &row,
                     &highlighted_segments,
                     selection,
                     is_active,
@@ -195,7 +198,7 @@ pub(super) fn draw_diff_view_for_pane(
                 )
             } else {
                 build_unified_row_lines(
-                    row,
+                    &row,
                     &highlighted_segments,
                     selection,
                     is_active,
@@ -209,7 +212,7 @@ pub(super) fn draw_diff_view_for_pane(
             }
 
             for comment in file_comments.iter().filter(|comment| {
-                comment_matches_display_row(comment, row)
+                comment_matches_display_row(comment, &row)
                     || root_fallback_rows
                         .get(&comment.id)
                         .is_some_and(|row_index| *row_index == index)
@@ -275,6 +278,8 @@ pub(super) fn draw_diff_view_for_pane(
                 );
             } else {
                 let comment_title_prefix = format!("comment #{} [", comment.id);
+                let comment_body_lines =
+                    cached_comment_body_lines(app, comment, inner_width, &colors);
                 super::threads::push_thread_box(
                     &mut lines,
                     &mut row_map,
@@ -288,7 +293,7 @@ pub(super) fn draw_diff_view_for_pane(
                         title_status: Some(comment_status_label(&comment.status)),
                         title_suffix: &format!(" | review: {review_state}]"),
                         title_status_style: Some(comment_status_style(&comment.status, &colors)),
-                        body: &comment.body,
+                        body_lines: &comment_body_lines,
                         border_color: colors.thread_border,
                         title_color: colors.comment_title,
                         colors: &colors,
@@ -301,6 +306,13 @@ pub(super) fn draw_diff_view_for_pane(
                         "{} | {}",
                         app.author_label(&reply.author),
                         format_timestamp_utc(reply.created_at_ms)
+                    );
+                    let reply_body_lines = cached_reply_body_lines(
+                        app,
+                        comment.id,
+                        reply,
+                        compute_thread_inner_width(pane_inner_width, 14),
+                        &colors,
                     );
                     super::threads::push_thread_box(
                         &mut lines,
@@ -315,7 +327,7 @@ pub(super) fn draw_diff_view_for_pane(
                             title_status: None,
                             title_suffix: "",
                             title_status_style: None,
-                            body: &reply.body,
+                            body_lines: &reply_body_lines,
                             border_color: colors.thread_border,
                             title_color: colors.reply_title,
                             colors: &colors,
