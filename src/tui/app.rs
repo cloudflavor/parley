@@ -32,15 +32,6 @@ use crate::services::review_service::ReviewService;
 use super::syntax::SyntaxPainter;
 use super::terminal::TerminalSession;
 use super::theme::{UiTheme, default_theme_name, load_themes, resolve_theme_index};
-
-mod help_docs;
-mod helpers;
-mod input;
-#[cfg(test)]
-mod perf_tests;
-mod render;
-mod state;
-
 use helpers::{
     MOUSE_WHEEL_FILE_SCROLL_FILES, MOUSE_WHEEL_SCROLL_LINES,
     comment_line_range_contains_display_row, comment_matches_display_row,
@@ -52,6 +43,14 @@ use render::draw;
 pub(super) use render::{
     DiffRenderCacheEntry, DiffRenderCacheKey, DisplayRow, FileReferenceHit, HighlightParts,
 };
+
+mod help_docs;
+mod helpers;
+mod input;
+#[cfg(test)]
+mod perf_tests;
+mod render;
+mod state;
 
 /// # Errors
 ///
