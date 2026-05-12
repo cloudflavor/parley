@@ -2,12 +2,14 @@
 
 ## Navigation
 
+- `q`: quit
 - `h/l`: previous/next file
 - `j/k`: down/up line
 - `PgUp/PgDn`: page scroll
 - `Ctrl+u/Ctrl+d`: half-page scroll
 - `g/G`: top/bottom
 - `zz`: center active line
+- `R`: refresh review and diff/root source
 
 ## Search and jump
 
@@ -61,17 +63,18 @@
 
 - `s`: set review state `open`
 - `w`: set review state `under_review`
-- `d`: set review state `done` (guarded)
-- `Shift+D`: force set `done`
 
 ## AI
 
 - `x`: AI refactor selected thread
 - `X`: AI reply selected thread
 - `A`: AI refactor review
+- `i`: cycle AI provider (`codex`, `claude`, `opencode`, `pi`)
+- `I`: toggle AI transport between ACP and CLI for providers that support both
 - `K`: cancel active AI run
 - `H`: toggle per-file AI logs popup
 - `L`: toggle global AI activity pane
+- Starting an AI run opens/follows the current file's AI logs so provider startup errors and stream output are visible.
 - AI activity `Enter`: jump to the selected file/session logs
 - AI activity `j/k`, `PgUp/PgDn`, `Home`, `End`: select a session
 
@@ -81,6 +84,7 @@
 - `Ctrl+k`: command palette
 - Command palette `Search Codebase`: open live repository search
 - Command palette `Show AI Activity`: open the global AI session activity pane
+- Command palette `Toggle AI Transport`: switch between ACP and CLI for the active provider
 - Command palette `Toggle Active File Group`: collapse or expand the active file group
 - Command palette `Collapse All File Groups`: collapse every file group visible under the current filter
 - Command palette `Open Commit Picker`: open recent commits, filter by message or SHA, and apply the selected commit as the active diff source
@@ -92,7 +96,11 @@
 - Heatmap `S`: reverse sort direction
 - Heatmap color follows the active sort metric
 - `Ctrl+f`: file filter input
+- `F`: cycle file filter mode
+- `O`: cycle file sort mode
 - `Shift+U`: edit user name
+- `t`: open theme picker
+- `T`: toggle light/dark theme variant
 - `Ctrl+v`: toggle split view
 - Command palette `Toggle Split View`: toggle split view without using the visual-selection key
 - `S`: toggle side-by-side diff
@@ -102,6 +110,16 @@
 - `Shift+C`: collapse all visible file groups
 - Mouse: click a file group header to collapse or expand it
 - `b`: toggle thread navigator
+
+## Root file rendering
+
+- `D` / `Shift+d`: toggle rendered document view in `--root` mode.
+- Rendered document view is off by default; root mode opens files as raw source rows.
+- With rendered document view enabled, `.json` files are shown as pretty-printed JSON.
+- With rendered document view enabled, `.md`, `.markdown`, `.mdown`, and `.mkd` files are rendered as readable Markdown text rows.
+- `R`: refresh the root source if file content changed while Parley is open.
+- Command palette `Toggle Root JSON/Markdown Rendering`: same as `D` / `Shift+d`.
+- Command palette search terms `json`, `markdown`, `pretty`, or `render` surface the toggle.
 
 ## Help pane
 

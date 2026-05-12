@@ -2,13 +2,13 @@
 
 Parley is a terminal-first review tool for local git diffs, optimized for iterative AI-assisted code review.
 
-Review discussions are anchored to concrete diff lines, and both thread state and review state are explicit.
+Review discussions are anchored to concrete diff lines, and thread state is explicit.
 
 ## Core model
 
 - **Threaded line review**: each comment thread is anchored to file path + line reference.
 - **Thread lifecycle**: `open`, `pending`, `addressed`.
-- **Review lifecycle**: `open`, `under_review`, `done`.
+- **Review lifecycle**: TUI progress is based on per-thread status.
 - **Keyboard-first workflow**: full navigation and review operations without leaving the terminal.
 - **Optional AI automation**: run AI thread replies/refactors while keeping state transitions human-controlled.
 
@@ -37,7 +37,7 @@ This is why status changes are opinionated:
 - reply from anyone else, including AI -> `pending`
 - original commenter marks resolution -> `addressed`
 
-The review state is then derived from the unresolved thread set until you explicitly set it to `done`.
+The TUI treats individual thread status as the source of review progress.
 
 ## Thread model at a glance
 
@@ -51,16 +51,14 @@ The review state is then derived from the unresolved thread set until you explic
 
 - `open`: at least one thread is `open`.
 - `under_review`: no `open` threads remain.
-- `done`: explicitly set complete state.
-- `done` is guarded: unresolved threads block normal transition to `done`.
-- If unresolved threads appear after `done`, the review auto-reopens to `open`.
+- `addressed`: this thread is complete.
+- Thread `addressed` is the completion signal.
 
 ## AI eligibility summary
 
-- AI runs are skipped when review state is `done`.
 - `reply` mode targets `open` + `pending` threads by default.
-- `refactor` mode targets `open` threads only.
-- Explicitly selected thread IDs can override reply-mode filtering (details in `docs/review-workflow.md`).
+- `refactor` mode targets `open` and `pending` threads by default.
+- Explicit selected-thread AI actions target the selected thread regardless of status.
 
 ## Typical session
 
@@ -120,7 +118,7 @@ parley tui --review my-review --root
 
 Root mode loads tracked files plus untracked files that are not ignored by git. It skips `.git/`, `.parley/`, and `worktrees/`. Files are shown as context lines, so comments attach to the current file line numbers instead of added or removed diff lines.
 
-Root mode is lazy-loaded for startup performance. The TUI builds the file tree first, shows load progress while file data hydrates, and loads file content when the file is selected or opened from search.
+Root mode is lazy-loaded for startup performance. The TUI builds the file tree first, shows load progress while file data hydrates, and loads file content when the file is selected or opened from search. Root mode opens raw source by default. Press `D` / `Shift+d` or use command palette `Toggle Root JSON/Markdown Rendering` to switch JSON files into pretty-printed display and Markdown files into readable rendered text rows.
 
 ## Finding code and hotspots
 
@@ -161,20 +159,86 @@ Use `v` or `V` for visual line selection before creating a range comment. After 
 
 Use `Ctrl+t` or command palette `Open Thread Selector` to search all threads in the active review by file, status, id, line reference, or body preview. Selecting a thread jumps to its file and focuses the thread. In root mode, stale or detached comments are still shown at their stored line reference when the original anchor text no longer matches current file content.
 
-AI task output is tracked as file-scoped sessions in the TUI. `H` opens the AI logs popup for the current file; navigating away does not discard that file's session output. `L` opens the global AI activity pane, which lists running and recent sessions across files and jumps back to the selected file/session with `Enter`.
+AI task output is tracked as file-scoped sessions in the TUI. Starting an AI run opens and follows the current file's AI log popup. `H` toggles that popup; navigating away does not discard that file's session output. `L` opens the global AI activity pane, which lists running and recent sessions across files and jumps back to the selected file/session with `Enter`.
 
-Comments and AI logs are intentionally separate. Comments remain durable review state anchored to file lines and ranges. AI logs are transient session transcripts from ACP, Pi RPC, or CLI transport events. Agent output becomes a review reply only through the explicit AI reply/refactor flow that persists a reply on the target thread.
+Comments and AI logs are intentionally separate. Comments remain durable review state anchored to file lines and ranges. AI logs are transient session transcripts from ACP, Pi RPC, or CLI transport events, including provider startup/config failures. Agent output becomes a review reply only through the explicit AI reply/refactor flow that persists a reply on the target thread.
 
 ## AI agent transports
 
 Parley prefers persistent agent transports over one-shot CLI prompt execution:
 
 - `opencode`: ACP via `opencode acp`
-- `codex`: ACP via a configured Codex ACP adapter
-- `claude`: ACP via a configured Claude ACP adapter
-- `pi`: persistent JSONL RPC via `pi --mode rpc --no-session`
+- `codex`: ACP via `codex-acp`
+- `claude`: ACP via `claude-agent-acp`
+- `pi`: persistent JSONL RPC via `pi --mode rpc --no-session`, not ACP
 
 Provider config still supports `transport = "cli"` as an explicit fallback. ACP agents stream `session/update` events into the per-file AI logs, and final thread replies are built from agent message chunks rather than thought chunks.
+
+If an older config points ACP transport at a one-shot CLI command such as `codex exec`, `claude -p`, or `opencode run`, Parley rejects the run before spawning the process and shows the config error in the AI logs. Configure an ACP-capable command such as `codex-acp`, `claude-agent-acp`, or `opencode acp`, or set `transport = "cli"` when one-shot CLI mode is intentional.
+
+Use `i` in the TUI to cycle the active AI provider. The active provider is shown in the status panel.
+
+Use `I` in the TUI to toggle the active AI transport between ACP and CLI for providers that support both. The selected transport is saved as `ai.default_transport`, which accepts only the generic `acp` and `cli` choices. Pi ignores the toggle and keeps using provider-specific `pi_rpc`.
+
+### `.parley/config.toml` AI provider config
+
+Parley reads project-local config from `.parley/config.toml`. If the file is missing, these AI defaults are used:
+
+```toml
+[ai]
+timeout_seconds = 120
+default_provider = "opencode"
+default_transport = "acp"
+
+[ai.codex]
+transport = "acp"
+client = "codex-acp"
+args = []
+
+[ai.claude]
+transport = "acp"
+client = "claude-agent-acp"
+args = []
+
+[ai.opencode]
+transport = "acp"
+client = "opencode"
+args = ["acp"]
+model_arg = "-m"
+
+[ai.pi]
+transport = "pi_rpc"
+client = "pi"
+args = ["--mode", "rpc", "--no-session"]
+```
+
+Use CLI transport only for explicit one-shot command mode:
+
+```toml
+[ai.codex]
+transport = "cli"
+client = "codex"
+args = ["exec"]
+
+[ai.claude]
+transport = "cli"
+client = "claude"
+args = ["-p"]
+
+[ai.opencode]
+transport = "cli"
+client = "opencode"
+args = ["run"]
+```
+
+Custom prompt templates can be configured globally or per AI mode:
+
+```toml
+[ai]
+prompt_path = "prompts/ai.md"
+reply_prompt_path = "prompts/reply.md"
+refactor_prompt_path = "prompts/refactor.md"
+```
 
 ## Local state and diff filtering
 
@@ -207,5 +271,4 @@ ignore_parley_dir = false
 
 ## Completion behavior
 
-- `done` is blocked while unresolved threads remain.
-- Use force done (`Shift+D` in TUI) only when intentionally closing with unresolved threads.
+- TUI completion is per-thread: `a` marks the selected thread addressed, and `o` reopens it.

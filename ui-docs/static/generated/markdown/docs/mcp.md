@@ -48,7 +48,7 @@ Inputs:
 
 Global gate:
 
-- if review state is `done`, the AI session is skipped
+- review-wide AI selects threads by thread status; explicit comment IDs target those comments directly
 
 Target filtering:
 
@@ -79,7 +79,7 @@ Reply mode over all eligible threads:
 }
 ```
 
-Refactor mode over open threads only:
+Refactor mode over unresolved threads:
 
 ```json
 {
@@ -110,5 +110,5 @@ Reply mode on explicit thread IDs:
 
 - Tools that operate on review state require an explicit `review_name`.
 - Thread state updates are explicit tool calls.
-- `set_review_state` accepts Parley review states (`open`, `under_review`, `done`).
+- `set_review_state` accepts Parley review states (`open`, `under_review`).
 - `run_ai_session` supports `reply` and `refactor` modes.
