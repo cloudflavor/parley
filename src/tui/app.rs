@@ -93,6 +93,7 @@ pub async fn run_tui(
     service.save_config(&config).await?;
     let log_path = service.review_log_path(&review_name)?;
     super::logging::init_file_tracing(&log_path, &config.log_level)
+        .await
         .context("failed to initialize tui log writer")?;
 
     let mut app = TuiApp::new(TuiAppInit {

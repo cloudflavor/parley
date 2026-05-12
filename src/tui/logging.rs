@@ -1,6 +1,4 @@
 use std::fs::File;
-use std::fs::OpenOptions;
-use std::fs::create_dir_all;
 use std::io;
 use std::io::Write;
 use std::path::Path;
@@ -8,6 +6,8 @@ use std::sync::Arc;
 use std::sync::Mutex;
 
 use anyhow::{Context, Result};
+use tokio::fs::OpenOptions;
+use tokio::fs::create_dir_all;
 use tracing_subscriber::Layer;
 use tracing_subscriber::filter::LevelFilter;
 use tracing_subscriber::layer::SubscriberExt;
@@ -54,9 +54,10 @@ impl Write for FileWriter {
 ///
 /// Returns an error when the log directory cannot be created or the log file cannot be opened.
 /// Unknown log level values are mapped to `INFO` for tracing initialization.
-pub fn init_file_tracing(log_path: &Path, log_level: &str) -> Result<()> {
+pub async fn init_file_tracing(log_path: &Path, log_level: &str) -> Result<()> {
     if let Some(parent) = log_path.parent() {
         create_dir_all(parent)
+            .await
             .with_context(|| format!("failed to create log directory {}", parent.display()))?;
     }
 
@@ -64,7 +65,9 @@ pub fn init_file_tracing(log_path: &Path, log_level: &str) -> Result<()> {
         .create(true)
         .append(true)
         .open(log_path)
+        .await
         .with_context(|| format!("failed to open log file {}", log_path.display()))?;
+    let file = file.into_std().await;
     let make_writer = FileMakeWriter {
         file: Arc::new(Mutex::new(file)),
     };
