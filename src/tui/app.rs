@@ -13,7 +13,7 @@ use crate::git::diff::{
 };
 use crate::git::history::{FileHeatmapEntry, file_heatmap};
 use crate::services::ai_session::{
-    AiProgressEvent, RunAiSessionInput, run_ai_session_with_progress,
+    AiProgressEvent, AiSessionResult, RunAiSessionInput, run_ai_session_with_progress,
 };
 use crate::services::review_service::ReviewService;
 use anyhow::{Context, Result};
@@ -632,7 +632,7 @@ struct AiRunTask {
     file_path: String,
     provider: AiProvider,
     mode: AiSessionMode,
-    handle: JoinHandle<Result<crate::services::ai_session::AiSessionResult>>,
+    handle: JoinHandle<Result<AiSessionResult>>,
     progress_rx: UnboundedReceiver<AiProgressEvent>,
 }
 
