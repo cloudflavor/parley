@@ -1,9 +1,8 @@
-use std::{
-    io::{Error, ErrorKind},
-    path::{Path, PathBuf},
-};
+use std::io::{Error, ErrorKind};
+use std::path::{Path, PathBuf};
 
-use crate::domain::{config::AppConfig, review::ReviewSession};
+use crate::domain::config::AppConfig;
+use crate::domain::review::ReviewSession;
 use tokio::fs;
 
 #[derive(Debug, thiserror::Error)]
