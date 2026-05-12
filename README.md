@@ -48,6 +48,12 @@ Prerequisites:
 - Git repository as working directory
 - Terminal with TUI support
 
+Install the `parley` binary:
+
+```bash
+cargo install parley-cli
+```
+
 Build locally:
 
 ```bash
@@ -58,12 +64,6 @@ Run from source:
 
 ```bash
 cargo run -- tui
-```
-
-Install the `parley` binary locally:
-
-```bash
-cargo install --path .
 ```
 
 ## Quickstart

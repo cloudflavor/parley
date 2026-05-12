@@ -1,5 +1,11 @@
 # Quickstart
 
+## Install
+
+```bash
+cargo install parley-cli
+```
+
 ## Build
 
 ```bash

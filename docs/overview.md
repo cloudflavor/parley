@@ -2,6 +2,12 @@
 
 Parley is a terminal-first review tool for local git diffs, optimized for iterative AI-assisted code review.
 
+Install with:
+
+```bash
+cargo install parley-cli
+```
+
 Review discussions are anchored to concrete diff lines, and thread state is explicit.
 
 ## Core model
