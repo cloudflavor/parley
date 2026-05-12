@@ -84,10 +84,10 @@ Success criteria:
 
 ### Unit 4: Remove Stale CLI/Docs Entries
 
-- [ ] Remove `resolve <name>` from README unless a command is intentionally added.
-- [ ] Decide whether `review start` is kept as a shortcut or removed as old lifecycle surface.
-- [ ] If keeping `review start`, document it as a shortcut to `set-state <name> under_review`.
-- [ ] If removing `review start`, delete the clap variant, handler branch, docs, and tests.
+- [x] Remove `resolve <name>` from README unless a command is intentionally added.
+- [x] Decide whether `review start` is kept as a shortcut or removed as old lifecycle surface.
+- [x] If keeping `review start`, document it as a shortcut to `set-state <name> under_review`.
+- [x] Kept `review start`, so no clap variant, handler branch, docs, or tests were removed.
 
 Files:
 - `README.md`

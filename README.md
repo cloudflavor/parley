@@ -114,7 +114,7 @@ Top-level commands:
 Common `review` subcommands:
 
 - `create <name>`
-- `start <name>`
+- `start <name>` (shortcut for `set-state <name> under_review`)
 - `list`
 - `show <name> [--json]`
 - `set-state <name> <open|under_review>`
@@ -123,7 +123,6 @@ Common `review` subcommands:
 - `mark-addressed ...`
 - `mark-open ...`
 - `run-ai-session ...`
-- `resolve <name>`
 
 ## TUI Workflow and Key Controls
 
