@@ -39,7 +39,6 @@
 - Thread selector `Ctrl+a/Ctrl+e`: move cursor to start/end of filter query
 - Thread selector `Esc` or `Ctrl+t`: close selector
 - `e`: toggle selected thread expansion
-- `Shift+E`: cycle thread density (`compact`/`expanded`)
 - `a`: mark addressed
 - `o`: mark open
 - `f`: force-address selected thread

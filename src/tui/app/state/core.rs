@@ -68,7 +68,6 @@ impl TuiApp {
             file_sort_mode: FileSortMode::Path,
             visible_file_indices_cache: None,
             collapsed_file_groups: std::collections::HashSet::new(),
-            thread_density_mode: ThreadDensityMode::Compact,
             expanded_threads: std::collections::HashSet::new(),
             collapsed_threads: std::collections::HashSet::new(),
             settings_editor: None,

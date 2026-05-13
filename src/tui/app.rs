@@ -465,12 +465,6 @@ enum FileFilterMode {
     Pending,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
-pub(super) enum ThreadDensityMode {
-    Compact,
-    Expanded,
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum FileSortMode {
     Path,
@@ -522,7 +516,6 @@ enum CommandPaletteAction {
     ToggleActiveFileGroup,
     CollapseAllFileGroups,
     ShowFileHeatmap,
-    CycleThreadDensityMode,
     ToggleSelectedThreadExpansion,
     ToggleRootDocumentRendering,
     OpenShortcuts,
@@ -703,7 +696,6 @@ struct TuiApp {
     file_sort_mode: FileSortMode,
     visible_file_indices_cache: Option<VisibleFileIndicesCache>,
     collapsed_file_groups: HashSet<String>,
-    thread_density_mode: ThreadDensityMode,
     expanded_threads: HashSet<u64>,
     collapsed_threads: HashSet<u64>,
     settings_editor: Option<SettingsEditorState>,

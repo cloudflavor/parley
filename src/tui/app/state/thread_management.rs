@@ -133,8 +133,7 @@ impl TuiApp {
         selected_comment_id: Option<u64>,
     ) -> bool {
         !self.collapsed_threads.contains(&comment_id)
-            && (matches!(self.thread_density_mode, ThreadDensityMode::Expanded)
-                || selected_comment_id == Some(comment_id)
+            && (selected_comment_id == Some(comment_id)
                 || self.expanded_threads.contains(&comment_id))
     }
 
@@ -156,22 +155,6 @@ impl TuiApp {
             self.status_line = format!("thread #{comment_id} expanded");
         }
         self.clear_diff_render_cache_for_file(active_file_index);
-    }
-
-    pub(crate) fn thread_density_mode_label(&self) -> &'static str {
-        match self.thread_density_mode {
-            ThreadDensityMode::Compact => "compact",
-            ThreadDensityMode::Expanded => "expanded",
-        }
-    }
-
-    pub(crate) fn cycle_thread_density_mode(&mut self) {
-        self.thread_density_mode = match self.thread_density_mode {
-            ThreadDensityMode::Compact => ThreadDensityMode::Expanded,
-            ThreadDensityMode::Expanded => ThreadDensityMode::Compact,
-        };
-        self.clear_diff_render_cache();
-        self.status_line = format!("thread density: {}", self.thread_density_mode_label());
     }
 
     pub(crate) async fn mark_selected_comment_status(
@@ -294,7 +277,7 @@ mod tests {
     }
 
     #[test]
-    fn collapsed_thread_overrides_expanded_density_mode() -> Result<()> {
+    fn collapsed_thread_remains_collapsed() -> Result<()> {
         let mut app = make_test_app(
             vec!["src/a.rs"],
             vec![
@@ -302,11 +285,10 @@ mod tests {
                 make_comment_with_anchor(2, "src/a.rs", CommentStatus::Open, 2, 2),
             ],
         )?;
-        app.thread_density_mode = ThreadDensityMode::Expanded;
         app.collapsed_threads.insert(1);
 
         assert!(!app.is_thread_expanded(1, Some(1)));
-        assert!(app.is_thread_expanded(2, None));
+        assert!(!app.is_thread_expanded(2, None));
         Ok(())
     }
 
@@ -319,7 +301,6 @@ mod tests {
                 make_comment_with_anchor(2, "src/a.rs", CommentStatus::Open, 2, 2),
             ],
         )?;
-        app.thread_density_mode = ThreadDensityMode::Expanded;
         app.selected_comment = 0;
 
         app.toggle_selected_thread_expansion();
@@ -327,7 +308,8 @@ mod tests {
         assert!(app.collapsed_threads.contains(&1));
         assert!(!app.collapsed_threads.contains(&2));
         assert!(!app.is_thread_expanded(1, Some(1)));
-        assert!(app.is_thread_expanded(2, None));
+        // Thread 2 is not selected and not explicitly expanded, so it stays collapsed
+        assert!(!app.is_thread_expanded(2, None));
 
         app.toggle_selected_thread_expansion();
 

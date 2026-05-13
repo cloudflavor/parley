@@ -1,6 +1,8 @@
 use crate::cli::{Cli, Command, ReviewCommand};
+use crate::domain::review::ReviewState;
 use crate::git::diff::DiffSource;
-use crate::services::review_service::ReviewService;
+use crate::services::ai_session::{RunAiSessionInput, default_ai_session_mode, run_ai_session};
+use crate::services::review_service::{AddCommentInput, AddReplyInput, ReviewService};
 use anyhow::{Context, Result, anyhow};
 use clap::Parser;
 use std::ffi::OsString;
@@ -95,10 +97,6 @@ fn resolve_tui_diff_source(
 }
 
 async fn handle_review_command(command: ReviewCommand, service: &ReviewService) -> Result<()> {
-    use crate::domain::review::ReviewState;
-    use crate::services::ai_session::{RunAiSessionInput, default_ai_session_mode, run_ai_session};
-    use crate::services::review_service::{AddCommentInput, AddReplyInput};
-
     match command {
         ReviewCommand::Create { name } => {
             let review = service.create_review(&name).await?;
