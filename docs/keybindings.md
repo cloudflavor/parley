@@ -3,39 +3,43 @@
 ## Navigation
 
 - `q`: quit
-- `h/l`: previous/next file
-- `j/k`: down/up line
+- `h/l` or `Left/Right`: previous/next file
+- `j/k` or `Up/Down`: down/up line
 - `PgUp/PgDn`: page scroll
 - `Ctrl+u/Ctrl+d`: half-page scroll
-- `g/G`: top/bottom
-- `zz`: center active line
+- `g`: top
+- `Shift+G`: bottom
+- `z` (double press): center active line in viewport
 - `R`: refresh review and diff/root source
 
 ## Search and jump
 
 - `:<line>`: go to line
 - `/<text>`: search within the current file (`rg`, falling back to `grep`)
+- `n/p`: next/previous in-diff search match
 - `Ctrl+g`: open codebase search popup (`rg`, falling back to `grep`)
 - Code search `type`: update results live
 - Code search `Enter`: open selected file and line
 - Code search `↑/↓`, `j/k`, `PgUp/PgDn`, `Home`, `End`: move selected result
 - Code search mouse: click a result to open that file and line
 - Code search `Esc`: close search
-- `n/p`: next/previous in-diff search match
 
 ## Threads
 
 - `m` or `c`: create thread on selected line
-- `v` or `V`: start or clear visual line selection for a range comment
+- `v`: start visual line selection for a range comment
+- `Shift+V`: clear visual line selection
 - With visual line selection active, move with `j/k` or arrows, then press `m` or `c` to open the comment box at the bottom of the selected range
 - `r`: reply to selected thread
 - `N/P`: next/previous thread
-- `[/]`: previous/next selected thread in file
+- `[/]`: previous/next thread in current file
 - `Ctrl+t`: open global thread selector
 - Thread selector `Enter`: jump to selected thread and file
 - Thread selector `type`: filter by file, status, id, line, or body preview
+- Thread selector `Ctrl+a/Ctrl+e`: move cursor to start/end of filter query
+- Thread selector `Esc` or `Ctrl+t`: close selector
 - `e`: toggle selected thread expansion
-- `Shift+E`: cycle thread density
+- `Shift+E`: cycle thread density (`compact`/`expanded`)
 - `a`: mark addressed
 - `o`: mark open
 - `f`: force-address selected thread
@@ -47,14 +51,24 @@
 - `↑/↓` or `PgUp/PgDn`: move through file matches
 - `Enter` or `Tab`: accept the selected file and enter line-picker mode
 - While line-picker mode is active, Parley opens that file in the current diff pane and tells you to select a diff line in the editor itself.
-- `↑/↓`, `j/k`, `PgUp/PgDn`, `g/G`: move to the target diff line
+- `↑/↓`, `j/k`, `PgUp/PgDn`, `g/Shift+G`: move to the target diff line
 - `Enter` or `Tab`: insert `@path:line` for the currently selected line
 - Mouse: click a diff line while line-picker mode is active to insert that line immediately
 - After inserting the reference, Parley returns to the file and diff line where you started writing the draft.
 - `Esc`: cancel the picker; if the file is already inserted, it leaves the bare `@path` in place
 
-### Comment editor word motions
+### Comment editor
 
+- `Esc`: close comment box
+- `Ctrl+s`: save comment or reply
+- `Ctrl+p`: toggle markdown preview in comment editor
+- Arrow keys or `Ctrl+p/n/b/f`: move cursor (up/down/left/right)
+- `Home/End`: move to start/end of line
+- `Ctrl+a/Ctrl+e`: move to start/end of line
+- `Ctrl+k`: kill to end of line
+- `Enter`: insert newline
+- `Tab`: insert 4 spaces
+- `Backspace/Delete`: delete character
 - `Alt+b`: move backward one whitespace-delimited word in the draft
 - `Alt+d`: delete forward through the next whitespace-delimited word in the draft
 - Long comments wrap inside the editor, preserving whole words when possible
@@ -76,7 +90,12 @@
 - `L`: toggle global AI activity pane
 - Starting an AI run opens/follows the current file's AI logs so provider startup errors and stream output are visible.
 - AI activity `Enter`: jump to the selected file/session logs
-- AI activity `j/k`, `PgUp/PgDn`, `Home`, `End`: select a session
+- AI activity `j/k`, `PgUp/PgDn`, `Home/End`: select a session
+- AI activity `Esc` or `L`: close activity pane
+- AI activity `O/o`: open AI log in external pager
+- AI progress popup `PgUp/PgDn`: scroll AI stream
+- AI progress popup `Home/End`: jump to beginning/latest of AI stream
+- AI progress popup `O/o`: open AI log in external pager
 
 ## Layout and tools
 
@@ -92,10 +111,15 @@
 - Command palette `Open Thread Selector`: search and jump across all review threads
 - Command palette `Create Review`: create a new review context and switch to it
 - `M` or command palette `Show Git File Heatmap`: scan full git history on demand and show file hotspots
+- Heatmap `j/k` or `↑/↓`: scroll heatmap
+- Heatmap `PgUp/PgDn`: page scroll heatmap
+- Heatmap `g/Shift+G` or `Home/End`: jump to top/bottom
 - Heatmap `s`: cycle sort (`churn`, `added`, `removed`, `commits`, `net-growth`, `net-shrink`, `volatility`, `path`)
-- Heatmap `S`: reverse sort direction
+- Heatmap `Shift+S`: reverse sort direction
+- Heatmap `Esc` or `M`: close heatmap
 - Heatmap color follows the active sort metric
 - `Ctrl+f`: file filter input
+- `Esc` or `Enter` or `Ctrl+f`: exit file filter
 - `F`: cycle file filter mode
 - `O`: cycle file sort mode
 - `Shift+U`: edit user name
@@ -104,12 +128,14 @@
 - `Ctrl+v`: toggle split view
 - Command palette `Toggle Split View`: toggle split view without using the visual-selection key
 - `S`: toggle side-by-side diff
-- `Tab`: switch active diff pane
+- `Tab`: switch active diff pane (when split view is enabled)
 - `</>`: resize files pane
 - `Enter`: collapse or expand the active file group
 - `Shift+C`: collapse all visible file groups
 - Mouse: click a file group header to collapse or expand it
 - `b`: toggle thread navigator
+- `Ctrl+z`: suspend Parley (run `fg` to resume)
+- `Ctrl+t`: open thread selector (also closes it when open)
 
 ## Root file rendering
 
@@ -123,8 +149,11 @@
 
 ## Help pane
 
-- `Tab` / `Shift+Tab` or `h/l`: switch help doc tab
+- `Tab` / `Shift+Tab` or `h/l` or `Left/Right`: switch help doc tab
 - `1-9`: direct tab select
-- `j/k`, `PgUp/PgDn`, `g/G`: scroll help content
+- `j/k` or `↑/Down`: scroll help content
+- `PgUp/PgDn`: page scroll help content
+- `g/Shift+G` or `Home/End`: jump to top/bottom of help content
 - `</>`: zoom help pane
 - `Esc` or `?`: close help pane
+- Mouse scroll: scroll help content

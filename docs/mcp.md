@@ -42,7 +42,7 @@ Inputs:
 
 Inputs:
 
-- `provider`: `codex` | `claude` | `opencode`
+- `provider`: `codex` | `claude` | `opencode` | `pi`
 - `mode`: `reply` | `refactor` (optional; defaults by API call site)
 - `comment_ids`: optional explicit thread IDs
 
@@ -53,8 +53,8 @@ Global gate:
 Target filtering:
 
 - `mode=refactor`:
-  - auto-target (`comment_ids` omitted): only `open` threads
-  - explicit `comment_ids`: still only `open` threads are processed
+  - auto-target (`comment_ids` omitted): only `open` and `pending` threads
+  - explicit `comment_ids`: still only `open` and `pending` threads are processed
 - `mode=reply`:
   - auto-target (`comment_ids` omitted): `open` and `pending`
   - explicit `comment_ids`: status filter is bypassed for selection, so `addressed` can be processed
@@ -112,3 +112,4 @@ Reply mode on explicit thread IDs:
 - Thread state updates are explicit tool calls.
 - `set_review_state` accepts Parley review states (`open`, `under_review`).
 - `run_ai_session` supports `reply` and `refactor` modes.
+- Supported AI providers: `codex`, `claude`, `opencode`, `pi`.

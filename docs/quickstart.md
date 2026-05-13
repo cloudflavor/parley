@@ -205,27 +205,28 @@ Mode-specific paths take precedence over `prompt_path`. Relative paths are resol
 
 ### Navigation
 
-- `h/l`: previous or next file
-- `j/k`: move line cursor down or up
+- `h/l` or `Left/Right`: previous or next file
+- `j/k` or `Up/Down`: move line cursor down or up
 - `PgUp/PgDn`: page scroll
 - `Ctrl+u/Ctrl+d`: half-page scroll
-- `g/G`: jump to first or last line
-- `zz`: center active line
+- `g/Shift+G`: jump to first or last line
+- `z` (double press): center active line in viewport
 
 ### Search and jump
 
 - `:<line>`: go to line
 - `/<text>`: search within the current file
+- `n/p`: next or previous search hit
 - `Ctrl+g`: open codebase search popup
 - File and codebase search use `rg` when available and fall back to `grep`
 - Codebase search respects gitignore rules and updates results while you type
 - `Enter` or mouse click on a result opens the matched file and line
-- `n/p`: next or previous search hit
 
 ### Threads
 
 - `m` or `c`: create thread on selected line
-- `v` or `V`: start or clear visual line selection
+- `v`: start visual line selection
+- `Shift+V`: clear visual line selection
 - With visual line selection active, move to the end of the range and press `m` or `c` to open the comment box at the bottom of that range
 - `r`: reply to selected thread
 - `N/P`: jump next or previous thread
@@ -234,21 +235,32 @@ Mode-specific paths take precedence over `prompt_path`. Relative paths are resol
 - `e`: toggle selected thread expansion
 - `Shift+E`: cycle thread density (`compact`/`expanded`)
 - `a/o/f`: addressed/open/force-address selected thread
+- `u`: re-anchor selected thread to the currently selected diff line
 
 ### File references in comments
 
 - Type `@` inside the comment or reply box to open file matching.
 - Use `Enter` or `Tab` on a file match to open that file in the active diff pane and switch into line-picker mode.
 - The comment editor explicitly tells you to select a diff line before the reference is confirmed.
-- In line-picker mode, use `↑/↓`, `j/k`, `PgUp/PgDn`, or `g/G` to move the diff cursor, then `Enter` or `Tab` to insert `@path:line`.
+- In line-picker mode, use `↑/↓`, `j/k`, `PgUp/PgDn`, or `g/Shift+G` to move the diff cursor, then `Enter` or `Tab` to insert `@path:line`.
 - If mouse support is enabled, clicking a diff line during line-picker mode inserts that line immediately.
 - After inserting the reference, Parley restores the file, pane, and diff line where the draft started.
 - `Esc` cancels the line picker and leaves the bare `@path` reference in the comment buffer.
 
-### Comment editor word motions
+### Comment editor
 
-- `Alt+b`: move backward one whitespace-delimited word in the draft
-- `Alt+d`: delete forward through the next whitespace-delimited word in the draft
+- `Esc`: close comment box
+- `Ctrl+s`: save comment or reply
+- `Ctrl+p`: toggle markdown preview
+- Arrow keys or `Ctrl+p/n/b/f`: move cursor (up/down/left/right)
+- `Home/End`: move to start/end of line
+- `Ctrl+a/Ctrl+e`: move to start/end of line
+- `Ctrl+k`: kill to end of line
+- `Enter`: insert newline
+- `Tab`: insert 4 spaces
+- `Backspace/Delete`: delete character
+- `Alt+b`: move backward one whitespace-delimited word
+- `Alt+d`: delete forward through the next whitespace-delimited word
 - Long comment drafts wrap inside the editor, preserving whole words when possible
 
 ### Review state
@@ -273,6 +285,8 @@ Review state mostly follows thread state:
 - `H`: toggle per-file AI logs popup
 - `L`: toggle the global AI activity pane
 - AI activity `Enter`: jump to the selected file/session logs
+- AI activity `O/o`: open AI log in external pager
+- AI progress popup `O/o`: open AI log in external pager
 - `Ctrl+k`: open command palette
 - Command palette `Search Codebase`: open live repository search
 - Command palette `Show AI Activity`: open the global AI session activity pane
@@ -284,8 +298,21 @@ Review state mostly follows thread state:
 - Command palette `Create Review`: create a new review context and switch to it
 - `M`: open the git file heatmap
 - Heatmap `s`: cycle sort by churn, added, removed, commits, net growth, net shrink, volatility, or path
-- Heatmap `S`: reverse the active heatmap sort
+- Heatmap `Shift+S`: reverse the active heatmap sort
 - `Ctrl+f`: focus files filter input
+- `F`: cycle file filter mode
+- `O`: cycle file sort mode
+- `Shift+U`: edit user name
+- `t`: open theme picker
+- `T`: toggle light/dark theme variant
+- `b`: toggle thread navigator
+- `Ctrl+v`: toggle split view
+- `S`: toggle side-by-side diff layout
+- `Tab`: switch active diff pane (when split view enabled)
+- `</>`: resize files pane
+- `Enter`: collapse or expand the active file group
+- `Shift+C`: collapse all visible file groups
+- `Ctrl+z`: suspend Parley (run `fg` to resume)
 - `?`: open in-app docs/help overlay
 
 By default, agent providers use persistent transports instead of spawning a one-shot CLI prompt for every thread. OpenCode uses ACP with `opencode acp`, Codex uses `codex-acp`, Claude uses `claude-agent-acp`, and Pi uses `pi --mode rpc --no-session`. Pi is RPC, not ACP. Set a provider's `transport = "cli"` in `.parley/config.toml` only when you explicitly need the old one-shot behavior. If ACP is configured with a non-ACP command such as `codex exec` or `opencode run`, Parley fails fast and shows the config error in the AI logs.
@@ -359,7 +386,7 @@ Inside the TUI:
 - press `r` on that thread to reply later
 - press `R` after editing code in another terminal
 - press `a` when the original reviewer considers the issue resolved
-- press `d` when the review is actually complete
+- press `Ctrl+z` to suspend Parley; run `fg` to resume
 
 For a historical review:
 

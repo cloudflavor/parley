@@ -24,6 +24,7 @@ Replies do not have thread status. A reply event updates the parent thread statu
 - Mark open: original thread author -> `open`
 - Mark addressed: original thread author -> `addressed`
 - Force mark addressed: force path (no author gate) -> `addressed`
+- Re-anchor: move thread to a different diff line -> `addressed` (status unchanged)
 
 ## 3. Review state reconciliation
 
@@ -57,8 +58,8 @@ Example:
 ### Mode = `refactor`
 
 - No explicit `comment_ids` (auto-target):
-  - processed: `open`
-  - skipped: `pending`, `addressed`
+  - processed: `open`, `pending`
+  - skipped: `addressed`
 - Explicit `comment_ids`:
   - processed: any selected status
   - skipped by status filter: none
@@ -118,9 +119,9 @@ AI sessions use the same selected revision source for prompt context.
 
 Use `parley tui --review <name> --root` to review the current repository root without requiring a git diff or commit. `--review` is required, and the review must already exist. Create it first with `parley review create <name>`.
 
-Root-directory review mode loads tracked files plus untracked files that are not ignored by gitignore rules. It skips `.git`, `.parley`, and `worktrees/` directories. Each file is shown as context lines so comments can attach to the current file line numbers.
+Root-directory review mode loads tracked files plus untracked files that are not ignored by gitignore rules. It skips `.git/`, `.parley/`, and `worktrees/` directories. Each file is shown as context lines so comments can attach to the current file line numbers.
 
-Root-directory review mode lazy-loads file content for startup performance. The TUI shows the file tree first, shows progress while file data loads, and opens file content when selected or when code search jumps to a match. JSON files are pretty-printed for display, and Markdown files are rendered into readable text rows.
+Root-directory review mode lazy-loads file content for startup performance. The TUI shows the file tree first, shows progress while file data loads, and opens file content when selected or when code search jumps to a match. JSON files are pretty-printed for display, and Markdown files are rendered into readable text rows. Press `D` / `Shift+d` to toggle between raw source and rendered document view.
 
 ## 11. Searching and hotspot review
 
@@ -139,7 +140,7 @@ Heatmap sort modes:
 - `volatility`: churn per touching commit
 - `path`: path name
 
-Inside the heatmap, `s` cycles sort mode and `S` reverses direction.
+Inside the heatmap, `s` cycles sort mode and `Shift+S` reverses direction.
 
 ## 12. Custom AI task prompts
 

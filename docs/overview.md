@@ -57,13 +57,12 @@ The TUI treats individual thread status as the source of review progress.
 
 - `open`: at least one thread is `open`.
 - `under_review`: no `open` threads remain.
-- `addressed`: this thread is complete.
 - Thread `addressed` is the completion signal.
 
 ## AI eligibility summary
 
 - `reply` mode targets `open` + `pending` threads by default.
-- `refactor` mode targets `open` and `pending` threads by default.
+- `refactor` mode targets `open` + `pending` threads by default.
 - Explicit selected-thread AI actions target the selected thread regardless of status.
 
 ## Typical session
@@ -106,7 +105,7 @@ From inside the TUI, use `Ctrl+k` to open the command palette, choose `Open Comm
 
 Use `Ctrl+k` and `Open Review Picker` to switch the active review context. The picker filters by review name or state and shows each review's thread counts. Applying a review reloads the review-owned comments while keeping the current diff source.
 
-Use `Ctrl+k` and `Create Review` to create a new review from inside the TUI and switch to it immediately. Entering a name in the review picker that has no matches also opens the create-review prompt.
+Use `Ctrl+k` and `Create Review` to create a new review from inside the TUI and switch to it immediately. Entering a name in the review picker that has no matches also opens the create-review prompt with that name.
 
 Current limitation:
 
@@ -143,7 +142,7 @@ Heatmap sort modes:
 - `volatility`: churn per touching commit
 - `path`: path name
 
-Press `s` in the heatmap to cycle sort mode and `S` to reverse sort direction. Heatmap color intensity follows the active sort metric, so the strongest color always means the file is hottest for the current sort.
+Press `s` in the heatmap to cycle sort mode and `Shift+S` to reverse sort direction. Heatmap color intensity follows the active sort metric, so the strongest color always means the file is hottest for the current sort.
 
 ## File references in comment drafts
 
@@ -155,17 +154,17 @@ This keeps file references understandable to humans reading the thread instead o
 
 Inside that same draft editor, `Alt+b` moves backward by the previous whitespace-delimited word and `Alt+d` deletes forward through the next one.
 
-Comment drafts wrap inside the editor instead of extending as one long terminal line. Wrapped display preserves words when possible, so long comments remain readable before saving.
+Comment drafts wrap inside the editor instead of extending as one long terminal line. Wrapped display preserves words when possible, so long comments remain readable before saving. Markdown preview is available in the comment editor with `Ctrl+p`.
 
 ## Split diffs, logs, and AI sessions
 
 Use `Ctrl+v` or command palette `Toggle Split View` to toggle split view, `S` to toggle side-by-side diff layout, and `Tab` to switch the active pane. Added and removed lines use tinted backgrounds so large diffs are easier to scan.
 
-Use `v` or `V` for visual line selection before creating a range comment. After selecting a range, `m` or `c` opens the comment box at the bottom of the selection. Saved range comments keep the covered lines highlighted and send the selected line range to AI prompt context.
+Use `v` or `Shift+V` for visual line selection before creating a range comment. After selecting a range, `m` or `c` opens the comment box at the bottom of the selection. Saved range comments keep the covered lines highlighted and send the selected line range to AI prompt context.
 
 Use `Ctrl+t` or command palette `Open Thread Selector` to search all threads in the active review by file, status, id, line reference, or body preview. Selecting a thread jumps to its file and focuses the thread. In root mode, stale or detached comments are still shown at their stored line reference when the original anchor text no longer matches current file content.
 
-AI task output is tracked as file-scoped sessions in the TUI. Starting an AI run opens and follows the current file's AI log popup. `H` toggles that popup; navigating away does not discard that file's session output. `L` opens the global AI activity pane, which lists running and recent sessions across files and jumps back to the selected file/session with `Enter`.
+AI task output is tracked as file-scoped sessions in the TUI. Starting an AI run opens and follows the current file's AI log popup. `H` toggles that popup; navigating away does not discard that file's session output. `L` opens the global AI activity pane, which lists running and recent sessions across files and jumps back to the selected file/session with `Enter`. Press `O` or `o` in the AI activity pane or AI progress popup to open the AI log in an external pager.
 
 Comments and AI logs are intentionally separate. Comments remain durable review state anchored to file lines and ranges. AI logs are transient session transcripts from ACP, Pi RPC, or CLI transport events, including provider startup/config failures. Agent output becomes a review reply only through the explicit AI reply/refactor flow that persists a reply on the target thread.
 
