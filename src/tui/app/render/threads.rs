@@ -4,7 +4,8 @@ use super::super::helpers::{
 };
 use super::helpers::{
     CompactThreadRowSpec, compact_preview, compute_compact_thread_content_width, fit_to_width,
-    line_plain_text, push_compact_thread_row, wrap_markdown_lines, wrap_styled_line_words,
+    line_plain_text, push_compact_thread_row, wrap_markdown_lines, wrap_styled_line,
+    wrap_styled_line_words,
 };
 use super::status::{comment_status_label, comment_status_style};
 use super::{
@@ -14,6 +15,7 @@ use super::{
 use crate::domain::reference::parse_file_references;
 use crate::domain::review::{CommentReply, DiffSide, LineComment, StoredAnchorSnapshot};
 use crate::git::diff::DiffSource;
+use crate::tui::syntax::SyntaxPainter;
 use crate::tui::theme::ThemeColors;
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
@@ -441,14 +443,36 @@ fn original_anchor_context_lines(
     if let Some(diff) = anchor.diff.as_ref() {
         push_context_line(&mut lines, "hunk", &diff.hunk_header, inner_width, colors);
     }
+    let mut syntax_painter = SyntaxPainter::for_path(&anchor.file_path, colors);
     for line in anchor.before_context.iter().rev() {
-        push_context_code_line(&mut lines, "  ", line, inner_width, colors);
+        push_context_code_line(
+            &mut lines,
+            "  ",
+            line,
+            inner_width,
+            colors,
+            &mut syntax_painter,
+        );
     }
     for line in anchor.selected_text.lines() {
-        push_context_code_line(&mut lines, "> ", line, inner_width, colors);
+        push_context_code_line(
+            &mut lines,
+            "> ",
+            line,
+            inner_width,
+            colors,
+            &mut syntax_painter,
+        );
     }
     for line in &anchor.after_context {
-        push_context_code_line(&mut lines, "  ", line, inner_width, colors);
+        push_context_code_line(
+            &mut lines,
+            "  ",
+            line,
+            inner_width,
+            colors,
+            &mut syntax_painter,
+        );
     }
     lines
 }
@@ -487,19 +511,20 @@ fn push_context_code_line(
     value: &str,
     inner_width: usize,
     colors: &ThemeColors,
+    syntax_painter: &mut SyntaxPainter,
 ) {
     let prefix_style = Style::default()
         .fg(colors.markdown_quote_mark)
         .bg(colors.thread_background)
         .add_modifier(Modifier::BOLD);
-    let value_style = Style::default()
-        .fg(colors.markdown_code_fg)
-        .bg(colors.thread_background);
-    let line = Line::from(vec![
-        Span::styled(prefix.to_string(), prefix_style),
-        Span::styled(value.to_string(), value_style),
-    ]);
-    lines.extend(wrap_styled_line_words(&line, inner_width));
+    let mut spans = vec![Span::styled(prefix.to_string(), prefix_style)];
+    spans.extend(
+        syntax_painter
+            .highlight(value, colors)
+            .into_iter()
+            .map(|(style, text)| Span::styled(text, style.bg(colors.thread_background))),
+    );
+    lines.extend(wrap_styled_line(&Line::from(spans), inner_width));
 }
 
 fn text_hash(value: &str) -> u64 {
@@ -582,7 +607,7 @@ mod tests {
             old_line: Some(2),
             new_line: Some(2),
             line_range: None,
-            selected_text: "fn target() {}".to_string(),
+            selected_text: "let target = make_call();\nlet other = target + 1;".to_string(),
             before_context: vec!["fn before() {}".to_string()],
             after_context: vec!["fn after() {}".to_string()],
             diff: None,
@@ -601,9 +626,15 @@ mod tests {
 
         assert!(rendered_text.contains("original anchor: src/a.rs @ 2:2 (right)"));
         assert!(rendered_text.contains("  fn before() {}"));
-        assert!(rendered_text.contains("> fn target() {}"));
+        assert!(rendered_text.contains("> let target = make_call();"));
+        assert!(rendered_text.contains("> let other = target + 1;"));
         assert!(rendered_text.contains("  fn after() {}"));
         assert!(rendered_text.contains("review body"));
+        let target_line = rendered
+            .iter()
+            .find(|line| line_text(line).contains("> let target = make_call();"))
+            .ok_or_else(|| anyhow::anyhow!("rendered selected line should exist"))?;
+        assert!(target_line.spans.len() > 2);
         Ok(())
     }
 

@@ -726,6 +726,11 @@ mod tests {
                 end_new_line: Some(11),
             })
         );
+        let original_anchor = comment
+            .original_anchor
+            .as_ref()
+            .ok_or_else(|| anyhow!("original anchor should exist"))?;
+        assert_eq!(original_anchor.selected_text, "fn ten() {}\nfn eleven() {}");
         assert!(
             app.comment_selection_row_range_for_pane(DiffPane::Primary)
                 .is_none()
