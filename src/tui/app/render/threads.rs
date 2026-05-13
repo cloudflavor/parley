@@ -461,6 +461,14 @@ fn original_anchor_context_lines(
     if let Some(diff) = anchor.diff.as_ref() {
         push_context_line(&mut lines, "hunk", &diff.hunk_header, inner_width, colors);
     }
+
+    let code_bg = colors.markdown_code_bg;
+    let border_style = Style::default().fg(colors.markdown_quote_mark).bg(code_bg);
+    let horizontal = "─".repeat(inner_width);
+    lines.push(Line::from(vec![
+        Span::styled(format!("╭{horizontal}╮"), border_style),
+    ]));
+
     let mut syntax_painter = SyntaxPainter::for_path(&anchor.file_path, colors);
     for line in anchor.before_context.iter().rev() {
         push_context_code_line(
@@ -492,6 +500,10 @@ fn original_anchor_context_lines(
             &mut syntax_painter,
         );
     }
+
+    lines.push(Line::from(vec![
+        Span::styled(format!("╰{horizontal}╯"), border_style),
+    ]));
     lines
 }
 
@@ -533,14 +545,14 @@ fn push_context_code_line(
 ) {
     let prefix_style = Style::default()
         .fg(colors.markdown_quote_mark)
-        .bg(colors.thread_background)
+        .bg(colors.markdown_code_bg)
         .add_modifier(Modifier::BOLD);
     let mut spans = vec![Span::styled(prefix.to_string(), prefix_style)];
     spans.extend(
         syntax_painter
             .highlight(value, colors)
             .into_iter()
-            .map(|(style, text)| Span::styled(text, style.bg(colors.thread_background))),
+            .map(|(style, text)| Span::styled(text, style.bg(colors.markdown_code_bg))),
     );
     lines.extend(wrap_styled_line(&Line::from(spans), inner_width));
 }
