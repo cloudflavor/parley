@@ -698,6 +698,7 @@ struct TuiApp {
     collapsed_file_groups: HashSet<String>,
     expanded_threads: HashSet<u64>,
     collapsed_threads: HashSet<u64>,
+    expanded_anchor_threads: HashSet<u64>,
     settings_editor: Option<SettingsEditorState>,
     command_prompt: Option<CommandPromptState>,
     pending_action: Option<PendingUiAction>,

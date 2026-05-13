@@ -39,6 +39,7 @@
 - Thread selector `Ctrl+a/Ctrl+e`: move cursor to start/end of filter query
 - Thread selector `Esc` or `Ctrl+t`: close selector
 - `e`: toggle selected thread expansion
+- `Ctrl+e`: toggle selected thread anchor context expansion (collapsed by default)
 - `a`: mark addressed
 - `o`: mark open
 - `f`: force-address selected thread

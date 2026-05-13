@@ -157,6 +157,23 @@ impl TuiApp {
         self.clear_diff_render_cache_for_file(active_file_index);
     }
 
+    pub(crate) fn toggle_selected_thread_anchor_expansion(&mut self) {
+        let Some(comment) = self.selected_comment_details() else {
+            self.status_line = "no thread selected".into();
+            return;
+        };
+        let comment_id = comment.id;
+        let active_file_index = self.active_file_index();
+        if self.expanded_anchor_threads.contains(&comment_id) {
+            self.expanded_anchor_threads.remove(&comment_id);
+            self.status_line = format!("thread #{comment_id} anchor collapsed");
+        } else {
+            self.expanded_anchor_threads.insert(comment_id);
+            self.status_line = format!("thread #{comment_id} anchor expanded");
+        }
+        self.clear_diff_render_cache_for_file(active_file_index);
+    }
+
     pub(crate) async fn mark_selected_comment_status(
         &mut self,
         service: &ReviewService,
