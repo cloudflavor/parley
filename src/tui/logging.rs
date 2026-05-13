@@ -1,12 +1,13 @@
 use anyhow::{Context, Result};
-use std::fs::File;
 use std::io;
 use std::io::Write;
 use std::path::Path;
-use std::sync::Arc;
-use std::sync::Mutex;
+use tokio::fs::File;
 use tokio::fs::OpenOptions;
 use tokio::fs::create_dir_all;
+use tokio::io::AsyncWriteExt;
+use tokio::sync::mpsc;
+use tokio::sync::mpsc::UnboundedSender;
 use tracing_subscriber::Layer;
 use tracing_subscriber::filter::LevelFilter;
 use tracing_subscriber::layer::SubscriberExt;
@@ -14,11 +15,12 @@ use tracing_subscriber::util::SubscriberInitExt;
 
 #[derive(Clone)]
 struct FileMakeWriter {
-    file: Arc<Mutex<File>>,
+    sender: UnboundedSender<Vec<u8>>,
 }
 
 struct FileWriter {
-    file: Arc<Mutex<File>>,
+    sender: UnboundedSender<Vec<u8>>,
+    buffer: Vec<u8>,
 }
 
 impl<'a> tracing_subscriber::fmt::MakeWriter<'a> for FileMakeWriter {
@@ -26,26 +28,33 @@ impl<'a> tracing_subscriber::fmt::MakeWriter<'a> for FileMakeWriter {
 
     fn make_writer(&'a self) -> Self::Writer {
         FileWriter {
-            file: Arc::clone(&self.file),
+            sender: self.sender.clone(),
+            buffer: Vec::new(),
         }
     }
 }
 
 impl Write for FileWriter {
     fn write(&mut self, buf: &[u8]) -> io::Result<usize> {
-        let mut guard = self
-            .file
-            .lock()
-            .map_err(|_| io::Error::other("log file mutex poisoned"))?;
-        guard.write(buf)
+        self.buffer.extend_from_slice(buf);
+        Ok(buf.len())
     }
 
     fn flush(&mut self) -> io::Result<()> {
-        let mut guard = self
-            .file
-            .lock()
-            .map_err(|_| io::Error::other("log file mutex poisoned"))?;
-        guard.flush()
+        if self.buffer.is_empty() {
+            return Ok(());
+        }
+
+        let bytes = std::mem::take(&mut self.buffer);
+        self.sender
+            .send(bytes)
+            .map_err(|_| io::Error::new(io::ErrorKind::BrokenPipe, "log writer task stopped"))
+    }
+}
+
+impl Drop for FileWriter {
+    fn drop(&mut self) {
+        let _ = self.flush();
     }
 }
 
@@ -55,9 +64,9 @@ impl Write for FileWriter {
 /// Unknown log level values are mapped to `INFO` for tracing initialization.
 pub async fn init_file_tracing(log_path: &Path, log_level: &str) -> Result<()> {
     let file = open_log_file(log_path).await?;
-    let make_writer = FileMakeWriter {
-        file: Arc::new(Mutex::new(file)),
-    };
+    let (sender, receiver) = mpsc::unbounded_channel();
+    let _log_writer_task = tokio::spawn(write_log_entries(file, receiver));
+    let make_writer = FileMakeWriter { sender };
 
     let level_filter = parse_level_filter(log_level);
     let layer = tracing_subscriber::fmt::layer()
@@ -80,6 +89,18 @@ pub async fn init_file_tracing(log_path: &Path, log_level: &str) -> Result<()> {
     Ok(())
 }
 
+async fn write_log_entries(mut file: File, mut receiver: mpsc::UnboundedReceiver<Vec<u8>>) {
+    while let Some(entry) = receiver.recv().await {
+        if file.write_all(&entry).await.is_err() {
+            break;
+        }
+
+        if file.flush().await.is_err() {
+            break;
+        }
+    }
+}
+
 async fn open_log_file(log_path: &Path) -> Result<File> {
     if let Some(parent) = log_path.parent() {
         create_dir_all(parent)
@@ -94,7 +115,7 @@ async fn open_log_file(log_path: &Path) -> Result<File> {
         .await
         .with_context(|| format!("failed to open log file {}", log_path.display()))?;
 
-    Ok(file.into_std().await)
+    Ok(file)
 }
 
 fn parse_level_filter(level: &str) -> LevelFilter {
@@ -111,7 +132,7 @@ fn parse_level_filter(level: &str) -> LevelFilter {
 mod tests {
     use super::open_log_file;
     use anyhow::Result;
-    use std::io::Write;
+    use tokio::io::AsyncWriteExt;
 
     #[tokio::test]
     async fn open_log_file_creates_parent_and_appends() -> Result<()> {
@@ -119,11 +140,13 @@ mod tests {
         let log_path = temp_dir.path().join("nested").join("parley.log");
 
         let mut file = open_log_file(&log_path).await?;
-        file.write_all(b"first")?;
+        file.write_all(b"first").await?;
+        file.flush().await?;
         drop(file);
 
         let mut file = open_log_file(&log_path).await?;
-        file.write_all(b" second")?;
+        file.write_all(b" second").await?;
+        file.flush().await?;
         drop(file);
 
         let contents = tokio::fs::read_to_string(log_path).await?;
