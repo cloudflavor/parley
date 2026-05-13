@@ -387,10 +387,28 @@ pub(super) fn detached_thread_body_lines(
     comment_body_lines: &[Line<'static>],
     inner_width: usize,
     colors: &ThemeColors,
+    anchor_expanded: bool,
 ) -> Vec<Line<'static>> {
     let Some(anchor) = comment.original_anchor.as_ref() else {
         return comment_body_lines.to_vec();
     };
+
+    if !anchor_expanded {
+        let ref_text = original_anchor_reference(anchor);
+        let collapsed_line = Line::from(vec![
+            Span::styled(
+                "▸ original anchor: ",
+                Style::default().fg(colors.comment_title).add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(
+                format!("{} @ {} ({})", anchor.file_path, ref_text, anchor.side.as_str()),
+                Style::default().fg(colors.text_muted),
+            ),
+        ]);
+        let mut lines = vec![collapsed_line];
+        lines.extend(comment_body_lines.iter().cloned());
+        return lines;
+    }
 
     let mut lines = original_anchor_context_lines(anchor, inner_width, colors);
     if !lines.is_empty() {
@@ -616,7 +634,7 @@ mod tests {
         });
         let body_lines = vec![Line::from("review body")];
 
-        let rendered = detached_thread_body_lines(&comment, &body_lines, 80, &colors);
+        let rendered = detached_thread_body_lines(&comment, &body_lines, 80, &colors, true);
         let rendered_text = rendered
             .iter()
             .map(line_text)

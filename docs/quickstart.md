@@ -233,6 +233,7 @@ Mode-specific paths take precedence over `prompt_path`. Relative paths are resol
 - `[/]`: select previous or next thread in current file
 - `Ctrl+t`: open the global thread selector
 - `e`: toggle selected thread expansion
+- `Ctrl+e`: toggle selected thread anchor context expansion (collapsed by default)
 - `a/o/f`: addressed/open/force-address selected thread
 - `u`: re-anchor selected thread to the currently selected diff line
 

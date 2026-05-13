@@ -70,6 +70,7 @@ impl TuiApp {
             collapsed_file_groups: std::collections::HashSet::new(),
             expanded_threads: std::collections::HashSet::new(),
             collapsed_threads: std::collections::HashSet::new(),
+            expanded_anchor_threads: std::collections::HashSet::new(),
             settings_editor: None,
             command_prompt: None,
             pending_action: None,
