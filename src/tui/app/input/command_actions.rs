@@ -122,9 +122,6 @@ impl TuiApp {
             CommandPaletteAction::ShowFileHeatmap => {
                 self.start_file_heatmap();
             }
-            CommandPaletteAction::CycleThreadDensityMode => {
-                self.cycle_thread_density_mode();
-            }
             CommandPaletteAction::ToggleSelectedThreadExpansion => {
                 self.toggle_selected_thread_expansion();
             }

@@ -199,12 +199,6 @@ impl TuiApp {
             KeyCode::Char('e') if key.modifiers.is_empty() => {
                 self.toggle_selected_thread_expansion();
             }
-            KeyCode::Char('E') if key.modifiers.contains(KeyModifiers::SHIFT) => {
-                self.cycle_thread_density_mode();
-            }
-            KeyCode::Char('e') if key.modifiers.contains(KeyModifiers::SHIFT) => {
-                self.cycle_thread_density_mode();
-            }
             KeyCode::Char('u') if key.modifiers.contains(KeyModifiers::CONTROL) => {
                 self.scroll_active_pane_page(false, true);
                 self.status_line = "half-page up".into();

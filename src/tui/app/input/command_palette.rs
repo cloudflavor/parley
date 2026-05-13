@@ -50,11 +50,6 @@ impl TuiApp {
                 keywords: "thread prev previous",
             },
             CommandPaletteItem {
-                action: CommandPaletteAction::CycleThreadDensityMode,
-                label: "Cycle Thread Density Mode",
-                keywords: "thread compact expanded",
-            },
-            CommandPaletteItem {
                 action: CommandPaletteAction::ToggleSelectedThreadExpansion,
                 label: "Toggle Selected Thread Expanded",
                 keywords: "thread expand collapse selected",
