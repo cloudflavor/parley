@@ -109,7 +109,6 @@ pub(crate) fn cache_key(file_index: usize) -> DiffRenderCacheKey {
         pane_inner_width: 80,
         side_by_side_diff: false,
         search_query: None,
-        thread_density_mode: ThreadDensityMode::Compact,
         selected_line: 0,
         selected_row_range: None,
         selected_comment_id: None,

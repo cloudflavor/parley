@@ -232,7 +232,6 @@ Mode-specific paths take precedence over `prompt_path`. Relative paths are resol
 - `[/]`: select previous or next thread in current file
 - `Ctrl+t`: open the global thread selector
 - `e`: toggle selected thread expansion
-- `Shift+E`: cycle thread density (`compact`/`expanded`)
 - `a/o/f`: addressed/open/force-address selected thread
 
 ### File references in comments

@@ -1,4 +1,3 @@
-use super::ThreadDensityMode;
 use super::{
     AiLogEvent, AiLogSessionStatus, CommandPromptMode, DiffPane, FileHeatmapSortMode,
     InlineDraftMode, InlineFileMentionState, InlineFileReferencePickerState, SettingsEditorKind,
@@ -49,7 +48,6 @@ pub(crate) struct DiffRenderCacheKey {
     pub(crate) pane_inner_width: usize,
     pub(crate) side_by_side_diff: bool,
     pub(crate) search_query: Option<String>,
-    pub(crate) thread_density_mode: ThreadDensityMode,
     pub(crate) selected_line: usize,
     pub(crate) selected_row_range: Option<(usize, usize)>,
     pub(crate) selected_comment_id: Option<u64>,

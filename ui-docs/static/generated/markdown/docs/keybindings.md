@@ -35,7 +35,6 @@
 - Thread selector `Enter`: jump to selected thread and file
 - Thread selector `type`: filter by file, status, id, line, or body preview
 - `e`: toggle selected thread expansion
-- `Shift+E`: cycle thread density
 - `a`: mark addressed
 - `o`: mark open
 - `f`: force-address selected thread
