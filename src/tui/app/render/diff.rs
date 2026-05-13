@@ -116,7 +116,6 @@ pub(super) fn draw_diff_view_for_pane(
         pane_inner_width,
         side_by_side_diff: effective_side_by_side_diff,
         search_query: app.search_query.clone(),
-        thread_density_mode: app.thread_density_mode,
         selected_line,
         selected_row_range,
         selected_comment_id,

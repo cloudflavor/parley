@@ -549,7 +549,7 @@ mod tests {
     }
 
     #[test]
-    fn collapsed_thread_renders_compact_row_in_expanded_density_mode() -> anyhow::Result<()> {
+    fn collapsed_thread_renders_compact_row() -> anyhow::Result<()> {
         let mut app = make_test_app(
             vec!["src/a.rs"],
             vec![make_comment_with_anchor(
@@ -560,7 +560,6 @@ mod tests {
                 1,
             )],
         )?;
-        app.thread_density_mode = super::super::ThreadDensityMode::Expanded;
         app.collapsed_threads.insert(1);
         let comment = app.comments_for_file("src/a.rs")[0].clone();
         let mut lines = Vec::new();
