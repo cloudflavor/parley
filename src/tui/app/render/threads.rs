@@ -4,7 +4,7 @@ use super::super::helpers::{
 };
 use super::helpers::{
     CompactThreadRowSpec, compact_preview, compute_compact_thread_content_width, fit_to_width,
-    line_plain_text, push_compact_thread_row, wrap_markdown_lines, wrap_styled_line,
+    line_from_styled_chars, line_plain_text, push_compact_thread_row, wrap_markdown_lines,
     wrap_styled_line_words,
 };
 use super::status::{comment_status_label, comment_status_style};
@@ -554,7 +554,45 @@ fn push_context_code_line(
             .into_iter()
             .map(|(style, text)| Span::styled(text, style.bg(colors.markdown_code_bg))),
     );
-    lines.extend(wrap_styled_line(&Line::from(spans), inner_width));
+    let line = Line::from(spans);
+    let available = inner_width.saturating_sub(prefix.chars().count());
+    if available == 0 {
+        lines.push(line);
+        return;
+    }
+    let mut styled_chars: Vec<(Style, char)> = Vec::new();
+    let mut column = 0usize;
+    for span in &line.spans {
+        for ch in span.content.chars() {
+            if ch == '\t' {
+                let spaces = 4 - (column % 4);
+                styled_chars.extend(std::iter::repeat_n((span.style, ' '), spaces));
+                column += spaces;
+            } else {
+                styled_chars.push((span.style, ch));
+                column += 1;
+            }
+        }
+    }
+    if styled_chars.is_empty() {
+        lines.push(Line::from(""));
+        return;
+    }
+    let prefix_chars: Vec<(Style, char)> = prefix
+        .chars()
+        .map(|ch| (prefix_style, ch))
+        .collect();
+    let trimmed = if styled_chars.len() > available {
+        &styled_chars[..available]
+    } else {
+        &styled_chars[..]
+    };
+    let mut out_spans = prefix_chars
+        .into_iter()
+        .map(|(s, c)| Span::styled(c.to_string(), s))
+        .collect::<Vec<_>>();
+    out_spans.extend(line_from_styled_chars(trimmed).spans);
+    lines.push(Line::from(out_spans));
 }
 
 fn text_hash(value: &str) -> u64 {
