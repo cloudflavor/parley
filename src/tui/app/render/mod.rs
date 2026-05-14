@@ -102,8 +102,8 @@ pub(crate) struct ThreadBodyRenderCacheEntry {
 
 use diff::draw_diff_view_for_pane;
 use modals::{
-    draw_commit_picker, draw_review_picker, draw_settings_editor, draw_theme_picker,
-    draw_worktree_picker,
+    draw_branch_picker, draw_commit_picker, draw_review_picker, draw_settings_editor,
+    draw_theme_picker, draw_worktree_picker,
 };
 use overlays::{
     draw_ai_activity_overlay, draw_ai_progress_popup, draw_code_search, draw_command_palette,
@@ -122,6 +122,7 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &mut TuiApp) {
         || app.commit_picker.is_some()
         || app.review_picker.is_some()
         || app.worktree_picker.is_some()
+        || app.branch_picker.is_some()
         || app.thread_selector.is_some()
         || app.code_search.is_some()
         || app.settings_editor.is_some()
@@ -178,6 +179,9 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &mut TuiApp) {
         }
         if app.worktree_picker.is_some() {
             draw_worktree_picker(frame, app);
+        }
+        if app.branch_picker.is_some() {
+            draw_branch_picker(frame, app);
         }
         if app.thread_selector.is_some() {
             draw_thread_selector(frame, app);
@@ -249,6 +253,9 @@ pub(super) fn draw(frame: &mut Frame<'_>, app: &mut TuiApp) {
     }
     if app.worktree_picker.is_some() {
         draw_worktree_picker(frame, app);
+    }
+    if app.branch_picker.is_some() {
+        draw_branch_picker(frame, app);
     }
     if app.thread_selector.is_some() {
         draw_thread_selector(frame, app);

@@ -404,6 +404,21 @@ struct CommitPickerState {
 }
 
 #[derive(Debug, Clone)]
+struct BranchPickerEntry {
+    name: String,
+    is_current: bool,
+}
+
+#[derive(Debug, Clone)]
+struct BranchPickerState {
+    branches: Vec<BranchPickerEntry>,
+    query: String,
+    cursor_col: usize,
+    selected_index: usize,
+    scroll: usize,
+}
+
+#[derive(Debug, Clone)]
 struct ReviewPickerEntry {
     name: String,
     state: ReviewState,
@@ -716,6 +731,7 @@ struct TuiApp {
     commit_picker: Option<CommitPickerState>,
     review_picker: Option<ReviewPickerState>,
     worktree_picker: Option<WorktreePickerState>,
+    branch_picker: Option<BranchPickerState>,
     thread_selector: Option<ThreadSelectorState>,
     code_search: Option<CodeSearchState>,
     file_search: FileSearchState,

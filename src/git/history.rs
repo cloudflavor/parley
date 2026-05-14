@@ -72,6 +72,72 @@ pub fn recent_commits(limit: usize, worktree_path: &Path) -> Result<Vec<CommitSu
     Ok(commits)
 }
 
+#[derive(Debug, Clone)]
+pub struct BranchInfo {
+    pub name: String,
+    pub is_current: bool,
+    pub is_head_detached: bool,
+}
+
+/// # Errors
+///
+/// Returns an error when the git repository cannot be found or branches cannot be listed.
+pub fn list_branches(worktree_path: &Path) -> Result<Vec<BranchInfo>> {
+    let repo = Repository::discover(worktree_path).context("failed to locate git repository")?;
+
+    let current_branch = repo
+        .head()
+        .ok()
+        .and_then(|h| h.shorthand().map(String::from));
+    let is_detached = repo.head().ok().is_some_and(|h| h.target().is_none());
+
+    let mut branches = Vec::new();
+    for branch_result in repo.branches(None).context("failed to list branches")? {
+        let (branch, _) = branch_result.context("failed to read branch")?;
+        if let Some(name) = branch.name().ok().flatten() {
+            branches.push(BranchInfo {
+                name: name.to_string(),
+                is_current: current_branch.as_deref() == Some(name),
+                is_head_detached: is_detached,
+            });
+        }
+    }
+
+    branches.sort_by(|a, b| {
+        if a.is_current {
+            std::cmp::Ordering::Less
+        } else if b.is_current {
+            std::cmp::Ordering::Greater
+        } else {
+            a.name.cmp(&b.name)
+        }
+    });
+
+    Ok(branches)
+}
+
+/// # Errors
+///
+/// Returns an error when the git repository cannot be found or checkout fails.
+pub fn switch_branch(worktree_path: &Path, branch_name: &str) -> Result<()> {
+    let repo = Repository::discover(worktree_path).context("failed to locate git repository")?;
+
+    let (object, reference) = repo
+        .revparse_ext(branch_name)
+        .context("failed to resolve branch")?;
+
+    repo.checkout_tree(&object, None)
+        .context("failed to checkout branch")?;
+
+    match reference {
+        Some(gref) => repo.set_head(gref.name().context("invalid branch reference")?),
+        None => repo.set_head_detached(object.id()),
+    }
+    .context("failed to set HEAD")?;
+
+    Ok(())
+}
+
 fn find_branch_for_commit(repo: &Repository, oid: git2::Oid) -> Option<String> {
     repo.branches(None).ok()?.flatten().find_map(|(branch, _)| {
         branch

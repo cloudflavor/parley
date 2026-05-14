@@ -147,7 +147,7 @@ impl TuiApp {
             selected_index: 0,
             scroll: 0,
         });
-        self.status_line = "commit picker opened".into();
+        self.status_line = "commit picker opened (press Enter to select)".into();
         Ok(())
     }
 
@@ -179,6 +179,71 @@ impl TuiApp {
             scroll: 0,
         });
         self.status_line = "worktree picker opened".into();
+        Ok(())
+    }
+
+    pub(crate) fn open_branch_picker(&mut self) -> Result<()> {
+        let branches = crate::git::history::list_branches(&self.worktree_path)?;
+        if branches.is_empty() {
+            self.status_line = "branch picker unavailable: no branches found".into();
+            return Ok(());
+        }
+        let entries: Vec<super::BranchPickerEntry> = branches
+            .into_iter()
+            .map(|b| super::BranchPickerEntry {
+                name: b.name,
+                is_current: b.is_current,
+            })
+            .collect();
+        self.dismiss_ai_progress_popup();
+        self.branch_picker = Some(super::BranchPickerState {
+            branches: entries,
+            query: String::new(),
+            cursor_col: 0,
+            selected_index: 0,
+            scroll: 0,
+        });
+        self.status_line = "branch picker opened (press Enter to switch)".into();
+        Ok(())
+    }
+
+    pub(crate) async fn apply_branch_picker_selection(
+        &mut self,
+        service: &ReviewService,
+    ) -> Result<()> {
+        let filtered = self.branch_picker_filtered_indices();
+        let Some(picker) = self.branch_picker.as_ref() else {
+            return Ok(());
+        };
+        if filtered.is_empty() {
+            self.status_line = "no branches match the current search".into();
+            return Ok(());
+        }
+        let selected = picker.selected_index.min(filtered.len().saturating_sub(1));
+        let entry = picker
+            .branches
+            .get(filtered[selected])
+            .cloned()
+            .context("selected branch is unavailable")?;
+        self.branch_picker = None;
+
+        if entry.is_current {
+            self.status_line = format!("already on branch {}", entry.name);
+            return Ok(());
+        }
+
+        crate::git::history::switch_branch(&self.worktree_path, &entry.name)?;
+
+        self.refresh_review_and_diff(service).await?;
+        self.code_search = None;
+        self.search_query = None;
+        self.file_heatmap_task = None;
+        self.file_heatmap = None;
+        self.row_cache.clear();
+        self.clear_diff_render_cache();
+        self.invalidate_visible_file_indices_cache();
+
+        self.status_line = format!("switched to branch {}", entry.name);
         Ok(())
     }
 

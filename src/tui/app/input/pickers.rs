@@ -482,4 +482,110 @@ impl TuiApp {
             .map(|(idx, _)| idx)
             .collect()
     }
+
+    pub(super) async fn handle_branch_picker_key(
+        &mut self,
+        key: KeyEvent,
+        service: &ReviewService,
+    ) -> Result<()> {
+        match key.code {
+            KeyCode::Esc => {
+                self.branch_picker = None;
+                self.status_line = "branch picker closed".into();
+            }
+            KeyCode::Enter => {
+                self.apply_branch_picker_selection(service).await?;
+            }
+            KeyCode::Up | KeyCode::Char('k') => {
+                let Some(picker) = self.branch_picker.as_mut() else {
+                    return Ok(());
+                };
+                if picker.selected_index > 0 {
+                    picker.selected_index -= 1;
+                    if picker.selected_index < picker.scroll {
+                        picker.scroll = picker.selected_index;
+                    }
+                }
+            }
+            KeyCode::Down | KeyCode::Char('j') => {
+                let filtered = self.branch_picker_filtered_indices();
+                let Some(picker) = self.branch_picker.as_mut() else {
+                    return Ok(());
+                };
+                if picker.selected_index < filtered.len().saturating_sub(1) {
+                    picker.selected_index += 1;
+                    let visible = 10;
+                    if picker.selected_index >= picker.scroll + visible {
+                        picker.scroll = picker.selected_index.saturating_sub(visible - 1);
+                    }
+                }
+            }
+            KeyCode::Backspace => {
+                let Some(picker) = self.branch_picker.as_mut() else {
+                    return Ok(());
+                };
+                if picker.cursor_col > 0 && !picker.query.is_empty() {
+                    picker.cursor_col -= 1;
+                    picker.query.remove(picker.cursor_col);
+                }
+            }
+            KeyCode::Left => {
+                let Some(picker) = self.branch_picker.as_mut() else {
+                    return Ok(());
+                };
+                if picker.cursor_col > 0 {
+                    picker.cursor_col -= 1;
+                }
+            }
+            KeyCode::Right => {
+                let Some(picker) = self.branch_picker.as_mut() else {
+                    return Ok(());
+                };
+                if picker.cursor_col < picker.query.len() {
+                    picker.cursor_col += 1;
+                }
+            }
+            KeyCode::Home => {
+                if let Some(picker) = self.branch_picker.as_mut() {
+                    picker.cursor_col = 0;
+                }
+            }
+            KeyCode::End => {
+                if let Some(picker) = self.branch_picker.as_mut() {
+                    picker.cursor_col = picker.query.len();
+                }
+            }
+            KeyCode::Char(c) if c.is_ascii() && !key.modifiers.contains(KeyModifiers::CONTROL) => {
+                let Some(picker) = self.branch_picker.as_mut() else {
+                    return Ok(());
+                };
+                let cursor = picker.cursor_col;
+                picker.query.insert(cursor, c);
+                picker.cursor_col += 1;
+                picker.selected_index = 0;
+                picker.scroll = 0;
+            }
+            _ => {}
+        }
+        Ok(())
+    }
+
+    pub(crate) fn branch_picker_filtered_indices(&self) -> Vec<usize> {
+        let Some(picker) = self.branch_picker.as_ref() else {
+            return Vec::new();
+        };
+        let needle = picker.query.trim().to_ascii_lowercase();
+        picker
+            .branches
+            .iter()
+            .enumerate()
+            .filter(|(_, entry)| {
+                if needle.is_empty() {
+                    return true;
+                }
+                entry.name.to_ascii_lowercase().contains(&needle)
+            })
+            .map(|(idx, _)| idx)
+            .collect()
+    }
 }

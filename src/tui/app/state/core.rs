@@ -60,6 +60,7 @@ impl TuiApp {
             commit_picker: None,
             review_picker: None,
             worktree_picker: None,
+            branch_picker: None,
             thread_selector: None,
             code_search: None,
             file_search: FileSearchState {

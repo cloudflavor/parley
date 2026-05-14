@@ -84,6 +84,9 @@ impl TuiApp {
         if self.commit_picker.is_some() {
             return self.handle_commit_picker_key(key, service).await;
         }
+        if self.branch_picker.is_some() {
+            return self.handle_branch_picker_key(key, service).await;
+        }
         if self.review_picker.is_some() {
             return self.handle_review_picker_key(key, service).await;
         }
