@@ -81,6 +81,47 @@ pub async fn load_root_directory_file_list(
     Ok(DiffDocument { files })
 }
 
+/// Read file content at a specific git ref (branch, commit, tag).
+/// Format: "ref:path/to/file" e.g., "main:src/lib.rs" or "abc123:file.txt"
+///
+/// # Errors
+///
+/// Returns an error when the repository cannot be found, ref is invalid, or file doesn't exist.
+pub fn read_file_at_ref(worktree_path: &Path, ref_path: &str) -> Result<String> {
+    let repo = Repository::discover(worktree_path).context("failed to discover git repository")?;
+
+    let Some((rev, path)) = ref_path.split_once(':') else {
+        return Err(anyhow::anyhow!(
+            "invalid format: use 'ref:path' (e.g., 'main:src/lib.rs')"
+        ));
+    };
+
+    let obj = repo
+        .revparse_single(rev)
+        .with_context(|| format!("failed to resolve ref '{rev}'"))?;
+
+    let tree = if let Some(commit) = obj.as_commit() {
+        commit
+            .tree()
+            .with_context(|| format!("failed to read tree for commit {rev}"))?
+    } else if let Some(tree) = obj.as_tree() {
+        tree.clone()
+    } else {
+        return Err(anyhow::anyhow!("ref '{}' is not a commit or tree", rev));
+    };
+
+    let entry = tree
+        .get_path(std::path::Path::new(path))
+        .with_context(|| format!("file '{}' not found at ref '{}'", path, rev))?;
+
+    let blob = repo
+        .find_blob(entry.id())
+        .with_context(|| format!("failed to read blob for '{}'", path))?;
+
+    String::from_utf8(blob.content().to_vec())
+        .with_context(|| format!("file '{}' contains invalid UTF-8", path))
+}
+
 /// # Errors
 ///
 /// Returns an error when the git repository cannot be discovered, the path cannot be inspected, or

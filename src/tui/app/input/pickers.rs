@@ -588,4 +588,47 @@ impl TuiApp {
             .map(|(idx, _)| idx)
             .collect()
     }
+
+    pub(super) fn handle_file_viewer_key(&mut self, key: KeyEvent) -> Result<()> {
+        match key.code {
+            KeyCode::Esc | KeyCode::Char('q') | KeyCode::Enter => {
+                self.file_viewer = None;
+                self.status_line = "file viewer closed".into();
+            }
+            KeyCode::Up | KeyCode::Char('k') => {
+                if let Some(viewer) = self.file_viewer.as_mut() {
+                    viewer.scroll = viewer.scroll.saturating_sub(1);
+                }
+            }
+            KeyCode::Down | KeyCode::Char('j') => {
+                if let Some(viewer) = self.file_viewer.as_mut() {
+                    let max_scroll = viewer.content.lines().count().saturating_sub(10);
+                    viewer.scroll = (viewer.scroll + 1).min(max_scroll);
+                }
+            }
+            KeyCode::PageUp => {
+                if let Some(viewer) = self.file_viewer.as_mut() {
+                    viewer.scroll = viewer.scroll.saturating_sub(20);
+                }
+            }
+            KeyCode::PageDown => {
+                if let Some(viewer) = self.file_viewer.as_mut() {
+                    let max_scroll = viewer.content.lines().count().saturating_sub(10);
+                    viewer.scroll = (viewer.scroll + 20).min(max_scroll);
+                }
+            }
+            KeyCode::Home => {
+                if let Some(viewer) = self.file_viewer.as_mut() {
+                    viewer.scroll = 0;
+                }
+            }
+            KeyCode::End => {
+                if let Some(viewer) = self.file_viewer.as_mut() {
+                    viewer.scroll = viewer.content.lines().count().saturating_sub(10);
+                }
+            }
+            _ => {}
+        }
+        Ok(())
+    }
 }

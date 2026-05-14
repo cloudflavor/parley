@@ -4,7 +4,7 @@ use super::status::{review_state_label, theme_family_label, theme_variant_label}
 use super::{SettingsEditorKind, TuiApp};
 use crate::utils::cast::usize_to_u16_saturating;
 use ratatui::Frame;
-use ratatui::layout::{Constraint, Direction, Layout};
+use ratatui::layout::{Constraint, Direction, Layout, Rect};
 use ratatui::style::{Modifier, Style};
 use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, List, ListItem, ListState, Paragraph};
@@ -232,6 +232,63 @@ pub(super) fn draw_theme_picker(frame: &mut Frame<'_>, app: &TuiApp) {
         Paragraph::new(preview_lines)
             .block(Block::default().title("Preview").borders(Borders::ALL)),
         panels[1],
+    );
+}
+
+pub(super) fn draw_file_viewer(frame: &mut Frame<'_>, app: &TuiApp) {
+    let Some(viewer) = app.file_viewer.as_ref() else {
+        return;
+    };
+
+    let root = frame.area();
+    let width = root.width.saturating_sub(4).clamp(80, root.width);
+    let height = root.height.saturating_sub(4).clamp(20, root.height);
+    let area = centered_rect(root, width, height);
+    let colors = app.theme().colors.clone();
+
+    frame.render_widget(Clear, area);
+    let outer_block = modal_block(&viewer.title, &colors);
+    let content = outer_block.inner(area);
+    frame.render_widget(outer_block, area);
+
+    let visible_lines = usize::from(content.height);
+    let lines: Vec<&str> = viewer.content.lines().collect();
+    let total_lines = lines.len();
+    let scroll = viewer.scroll.min(total_lines.saturating_sub(visible_lines));
+
+    let displayed_lines: Vec<Line> = lines
+        .iter()
+        .skip(scroll)
+        .take(visible_lines)
+        .map(|line| {
+            let truncated = fit_to_width(line, usize::from(content.width));
+            Line::from(Span::styled(
+                truncated,
+                Style::default().fg(colors.text_primary),
+            ))
+        })
+        .collect();
+
+    let paragraph = Paragraph::new(displayed_lines);
+    frame.render_widget(paragraph, content);
+
+    let footer = format!(
+        " {}/{} lines  |  j/k: scroll  |  PgUp/PgDn: page  |  q/Esc: close ",
+        scroll + 1.min(total_lines),
+        total_lines
+    );
+    let footer_area = Rect {
+        x: area.x,
+        y: area.y + area.height - 1,
+        width: area.width,
+        height: 1,
+    };
+    frame.render_widget(
+        Paragraph::new(Line::from(Span::styled(
+            footer,
+            Style::default().fg(colors.text_muted),
+        ))),
+        footer_area,
     );
 }
 
