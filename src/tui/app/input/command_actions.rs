@@ -63,6 +63,9 @@ impl TuiApp {
             CommandPaletteAction::OpenReviewPicker => {
                 self.open_review_picker(service).await?;
             }
+            CommandPaletteAction::OpenWorktreePicker => {
+                self.open_worktree_picker().await?;
+            }
             CommandPaletteAction::OpenThreadSelector => {
                 self.open_thread_selector();
             }

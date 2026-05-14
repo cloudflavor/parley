@@ -329,4 +329,157 @@ impl TuiApp {
         }
         Ok(())
     }
+
+    pub(super) async fn handle_worktree_picker_key(
+        &mut self,
+        key: KeyEvent,
+        service: &ReviewService,
+    ) -> Result<()> {
+        if matches!(key.code, KeyCode::Esc) {
+            self.worktree_picker = None;
+            self.status_line = "worktree picker closed".into();
+            return Ok(());
+        }
+
+        if matches!(key.code, KeyCode::Enter) {
+            return self.apply_worktree_picker_selection(service).await;
+        }
+
+        let filtered_len = self.worktree_picker_filtered_indices().len();
+        let Some(picker) = self.worktree_picker.as_mut() else {
+            return Ok(());
+        };
+        match key.code {
+            KeyCode::Up => {
+                picker.selected_index = picker.selected_index.saturating_sub(1);
+            }
+            KeyCode::Down => {
+                let max_index = filtered_len.saturating_sub(1);
+                picker.selected_index = (picker.selected_index + 1).min(max_index);
+            }
+            KeyCode::Home => {
+                picker.selected_index = 0;
+            }
+            KeyCode::End => {
+                picker.selected_index = filtered_len.saturating_sub(1);
+            }
+            KeyCode::PageUp => {
+                picker.selected_index = picker.selected_index.saturating_sub(8);
+            }
+            KeyCode::PageDown => {
+                let max_index = filtered_len.saturating_sub(1);
+                picker.selected_index = (picker.selected_index + 8).min(max_index);
+            }
+            KeyCode::Left => {
+                picker.cursor_col = picker.cursor_col.saturating_sub(1);
+            }
+            KeyCode::Right => {
+                picker.cursor_col = (picker.cursor_col + 1).min(picker.query.chars().count());
+            }
+            KeyCode::Char('a') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                picker.cursor_col = 0;
+            }
+            KeyCode::Char('e') if key.modifiers.contains(KeyModifiers::CONTROL) => {
+                picker.cursor_col = picker.query.chars().count();
+            }
+            KeyCode::Backspace if picker.cursor_col > 0 => {
+                remove_char_at(&mut picker.query, picker.cursor_col - 1);
+                picker.cursor_col -= 1;
+                picker.selected_index = 0;
+                picker.scroll = 0;
+            }
+            KeyCode::Delete if picker.cursor_col < picker.query.chars().count() => {
+                remove_char_at(&mut picker.query, picker.cursor_col);
+                picker.selected_index = 0;
+                picker.scroll = 0;
+            }
+            KeyCode::Char(ch)
+                if key.modifiers.is_empty() || key.modifiers == KeyModifiers::SHIFT =>
+            {
+                insert_char_at(&mut picker.query, picker.cursor_col, ch);
+                picker.cursor_col += 1;
+                picker.selected_index = 0;
+                picker.scroll = 0;
+            }
+            _ => {}
+        }
+
+        let refreshed_len = self.worktree_picker_filtered_indices().len();
+        if let Some(picker) = self.worktree_picker.as_mut() {
+            if refreshed_len == 0 {
+                picker.selected_index = 0;
+                picker.scroll = 0;
+            } else {
+                picker.selected_index = picker.selected_index.min(refreshed_len.saturating_sub(1));
+                if picker.selected_index < picker.scroll {
+                    picker.scroll = picker.selected_index;
+                }
+                let lower_bound = picker.scroll.saturating_add(8);
+                if picker.selected_index > lower_bound {
+                    picker.scroll = picker.selected_index.saturating_sub(8);
+                }
+            }
+        }
+        Ok(())
+    }
+
+    pub(super) async fn apply_worktree_picker_selection(
+        &mut self,
+        service: &ReviewService,
+    ) -> Result<()> {
+        let filtered = self.worktree_picker_filtered_indices();
+        let Some(picker) = self.worktree_picker.as_ref() else {
+            return Ok(());
+        };
+        if filtered.is_empty() {
+            self.status_line = "no worktrees match the current search".into();
+            return Ok(());
+        }
+        let selected = picker.selected_index.min(filtered.len().saturating_sub(1));
+        let entry = picker
+            .worktrees
+            .get(filtered[selected])
+            .cloned()
+            .context("selected worktree is unavailable")?;
+        self.worktree_picker = None;
+
+        let new_path = std::path::PathBuf::from(&entry.path);
+        self.worktree_path = new_path.clone();
+        self.config.last_worktree = Some(entry.name.clone());
+        service.save_config(&self.config).await?;
+
+        // Clear caches and reload diff for the new worktree
+        self.refresh_review_and_diff(service).await?;
+        self.code_search = None;
+        self.search_query = None;
+        self.file_heatmap_task = None;
+        self.file_heatmap = None;
+        self.row_cache.clear();
+        self.clear_diff_render_cache();
+        self.invalidate_visible_file_indices_cache();
+
+        self.status_line = format!("worktree set to {}", entry.name);
+        Ok(())
+    }
+
+    pub(crate) fn worktree_picker_filtered_indices(&self) -> Vec<usize> {
+        let Some(picker) = self.worktree_picker.as_ref() else {
+            return Vec::new();
+        };
+        let trimmed = picker.query.trim().to_lowercase();
+        if trimmed.is_empty() {
+            return (0..picker.worktrees.len()).collect();
+        }
+        picker
+            .worktrees
+            .iter()
+            .enumerate()
+            .filter(|(_, entry)| {
+                entry.name.to_lowercase().contains(&trimmed)
+                    || entry.path.to_lowercase().contains(&trimmed)
+                    || entry.branch.to_lowercase().contains(&trimmed)
+            })
+            .map(|(idx, _)| idx)
+            .collect()
+    }
 }

@@ -11,6 +11,7 @@ impl TuiApp {
         self.theme_picker = None;
         self.commit_picker = None;
         self.review_picker = None;
+        self.worktree_picker = None;
         self.thread_selector = None;
         self.code_search = None;
         self.settings_editor = None;
@@ -125,7 +126,7 @@ impl TuiApp {
     }
 
     pub(crate) fn open_commit_picker(&mut self) -> Result<()> {
-        let commits = crate::git::history::recent_commits(200)?;
+        let commits = crate::git::history::recent_commits(200, &self.worktree_path)?;
         if commits.is_empty() {
             self.status_line = "commit picker unavailable: no commits found".into();
             return Ok(());
@@ -146,6 +147,37 @@ impl TuiApp {
             scroll: 0,
         });
         self.status_line = "commit picker opened".into();
+        Ok(())
+    }
+
+    pub(crate) async fn open_worktree_picker(&mut self) -> Result<()> {
+        let worktrees = crate::git::worktree::list_worktrees(&self.worktree_path).await?;
+        if worktrees.is_empty() {
+            self.status_line = "worktree picker unavailable: no worktrees found".into();
+            return Ok(());
+        }
+        let entries: Vec<super::WorktreePickerEntry> = worktrees
+            .into_iter()
+            .map(|wt| super::WorktreePickerEntry {
+                name: wt.name.clone(),
+                path: wt.path.to_string_lossy().to_string(),
+                branch: wt
+                    .branch
+                    .clone()
+                    .or_else(|| wt.head_summary.clone())
+                    .unwrap_or_else(|| "-".to_string()),
+                is_current: wt.is_current,
+            })
+            .collect();
+        self.dismiss_ai_progress_popup();
+        self.worktree_picker = Some(super::WorktreePickerState {
+            worktrees: entries,
+            query: String::new(),
+            cursor_col: 0,
+            selected_index: 0,
+            scroll: 0,
+        });
+        self.status_line = "worktree picker opened".into();
         Ok(())
     }
 
