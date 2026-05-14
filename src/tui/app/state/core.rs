@@ -11,6 +11,7 @@ impl TuiApp {
             themes,
             theme_index,
             log_path,
+            worktree_path,
         } = init;
         let ai_provider = config.ai.default_provider;
         let ai_transport = config.ai.default_transport;
@@ -31,6 +32,7 @@ impl TuiApp {
             ai_provider,
             ai_transport,
             log_path,
+            worktree_path,
             selected_file: 0,
             secondary_selected_file: 0,
             active_diff_pane: DiffPane::Primary,
@@ -57,6 +59,7 @@ impl TuiApp {
             theme_picker: None,
             commit_picker: None,
             review_picker: None,
+            worktree_picker: None,
             thread_selector: None,
             code_search: None,
             file_search: FileSearchState {
