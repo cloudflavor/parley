@@ -464,3 +464,112 @@ pub(super) fn draw_review_picker(frame: &mut Frame<'_>, app: &TuiApp) {
         .saturating_add(filter_area.width.saturating_sub(1));
     frame.set_cursor_position((cursor_x.min(max_cursor_x), filter_area.y));
 }
+
+pub(super) fn draw_worktree_picker(frame: &mut Frame<'_>, app: &TuiApp) {
+    let Some(picker) = app.worktree_picker.as_ref() else {
+        return;
+    };
+
+    let root = frame.area();
+    let width = root.width.saturating_sub(2).clamp(64, 100);
+    let height = root.height.saturating_sub(2).clamp(14, 24);
+    let area = centered_rect(root, width, height);
+    let colors = app.theme().colors.clone();
+    let filtered = app.worktree_picker_filtered_indices();
+    let selected = picker.selected_index.min(filtered.len().saturating_sub(1));
+
+    frame.render_widget(Clear, area);
+    let outer_block = modal_block("Worktree Picker", &colors);
+    let content = outer_block.inner(area);
+    frame.render_widget(outer_block, area);
+
+    let rows = Layout::default()
+        .direction(Direction::Vertical)
+        .constraints([
+            Constraint::Length(3),
+            Constraint::Min(3),
+            Constraint::Length(1),
+        ])
+        .split(content);
+
+    let filter_line = Line::from(vec![
+        Span::styled(
+            "Search ",
+            Style::default()
+                .fg(colors.status_help)
+                .add_modifier(Modifier::BOLD),
+        ),
+        Span::styled(
+            picker.query.clone(),
+            Style::default().fg(colors.text_primary),
+        ),
+    ]);
+    frame.render_widget(
+        Paragraph::new(vec![
+            filter_line,
+            Line::from(Span::styled(
+                "Filter by name, path, or branch",
+                Style::default().fg(colors.text_muted),
+            )),
+        ])
+        .block(Block::default().borders(Borders::ALL)),
+        rows[0],
+    );
+
+    let visible_rows = usize::from(rows[1].height.saturating_sub(2)).max(1);
+    let max_scroll = filtered.len().saturating_sub(visible_rows);
+    let scroll = picker.scroll.min(max_scroll);
+    let mut items = Vec::new();
+    for &worktree_index in filtered.iter().skip(scroll).take(visible_rows) {
+        if let Some(wt) = picker.worktrees.get(worktree_index) {
+            let marker = if wt.is_current { "* " } else { "  " };
+            let label = format!("{marker}{} [{}] {}", wt.name, wt.branch, wt.path);
+            items.push(ListItem::new(fit_to_width(
+                &label,
+                usize::from(rows[1].width.saturating_sub(6)).max(8),
+            )));
+        }
+    }
+    if items.is_empty() {
+        items.push(ListItem::new(Span::styled(
+            "(no matching worktrees)",
+            Style::default().fg(colors.text_muted),
+        )));
+    }
+
+    let mut state = ListState::default();
+    if !filtered.is_empty() {
+        state.select(Some(selected.saturating_sub(scroll)));
+    }
+    frame.render_stateful_widget(
+        List::new(items)
+            .block(Block::default().title("Worktrees").borders(Borders::ALL))
+            .highlight_style(
+                Style::default()
+                    .bg(colors.sidebar_highlight_bg)
+                    .fg(colors.sidebar_highlight_fg)
+                    .add_modifier(Modifier::BOLD),
+            )
+            .highlight_symbol("> "),
+        rows[1],
+        &mut state,
+    );
+
+    frame.render_widget(
+        Paragraph::new(Line::from(Span::styled(
+            "Enter apply · Esc close · ↑↓ select · type to filter",
+            Style::default().fg(colors.status_help),
+        ))),
+        rows[2],
+    );
+
+    let filter_area = Block::default().borders(Borders::ALL).inner(rows[0]);
+    let cursor_x = filter_area
+        .x
+        .saturating_add(usize_to_u16_saturating("Search ".chars().count()))
+        .saturating_add(usize_to_u16_saturating(picker.cursor_col));
+    let max_cursor_x = filter_area
+        .x
+        .saturating_add(filter_area.width.saturating_sub(1));
+    frame.set_cursor_position((cursor_x.min(max_cursor_x), filter_area.y));
+}
