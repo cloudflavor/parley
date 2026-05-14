@@ -15,9 +15,9 @@ use anyhow::{Result, anyhow};
 
 #[test]
 fn targetability_excludes_addressed_threads() {
-    assert!(comment_is_targetable(CommentStatus::Open));
-    assert!(comment_is_targetable(CommentStatus::Pending));
-    assert!(!comment_is_targetable(CommentStatus::Addressed));
+    assert!(comment_is_targetable(&CommentStatus::Open));
+    assert!(comment_is_targetable(&CommentStatus::Pending));
+    assert!(!comment_is_targetable(&CommentStatus::Addressed));
 }
 
 #[tokio::test]

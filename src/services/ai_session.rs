@@ -254,7 +254,8 @@ async fn process_ai_session_target(
     step_number: usize,
     total_targets: usize,
 ) -> Result<()> {
-    let Some(comment_status) = comment_status(review, comment_id) else {
+    let opt_status = comment_status(review, comment_id);
+    if opt_status.is_none() {
         warn!(
             review = %context.input.review_name,
             provider = %context.input.provider.as_str(),
@@ -269,9 +270,10 @@ async fn process_ai_session_target(
             format!("thread #{comment_id}: failed (comment not found)"),
         );
         return Ok(());
-    };
+    }
+    let comment_status = opt_status.unwrap();
 
-    if !comment_is_targetable(comment_status.clone()) {
+    if !comment_is_targetable(comment_status) {
         debug!(
             review = %context.input.review_name,
             provider = %context.input.provider.as_str(),
@@ -407,17 +409,19 @@ fn ai_session_target_ids(review: &ReviewSession, comment_ids: &[u64]) -> Vec<u64
     review
         .comments
         .iter()
-        .filter(|comment| comment_is_targetable(comment.status.clone()))
+        .filter(|comment| comment_is_targetable(&comment.status))
         .map(|comment| comment.id)
         .collect()
 }
 
-fn comment_status(review: &ReviewSession, comment_id: u64) -> Option<CommentStatus> {
-    review
-        .comments
-        .iter()
-        .find(|comment| comment.id == comment_id)
-        .map(|comment| comment.status.clone())
+fn comment_status(review: &ReviewSession, comment_id: u64) -> Option<&CommentStatus> {
+    review.comments.iter().find_map(|comment| {
+        if comment.id == comment_id {
+            Some(&comment.status)
+        } else {
+            None
+        }
+    })
 }
 
 fn no_targets_message(mode: AiSessionMode) -> &'static str {
@@ -600,6 +604,6 @@ fn balanced_json_object_end(value: &str, start: usize) -> Option<usize> {
     None
 }
 
-fn comment_is_targetable(status: CommentStatus) -> bool {
+fn comment_is_targetable(status: &CommentStatus) -> bool {
     matches!(status, CommentStatus::Open | CommentStatus::Pending)
 }
