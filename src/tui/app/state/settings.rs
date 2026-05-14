@@ -11,6 +11,7 @@ impl TuiApp {
         self.theme_picker = None;
         self.commit_picker = None;
         self.review_picker = None;
+        self.worktree_picker = None;
         self.thread_selector = None;
         self.code_search = None;
         self.settings_editor = None;
@@ -125,7 +126,7 @@ impl TuiApp {
     }
 
     pub(crate) fn open_commit_picker(&mut self) -> Result<()> {
-        let commits = crate::git::history::recent_commits(200)?;
+        let commits = crate::git::history::recent_commits(200, &self.worktree_path)?;
         if commits.is_empty() {
             self.status_line = "commit picker unavailable: no commits found".into();
             return Ok(());
@@ -138,6 +139,7 @@ impl TuiApp {
                     oid: commit.oid,
                     short_oid: commit.short_oid,
                     summary: commit.summary,
+                    branch: commit.branch,
                 })
                 .collect(),
             query: String::new(),
@@ -145,7 +147,120 @@ impl TuiApp {
             selected_index: 0,
             scroll: 0,
         });
-        self.status_line = "commit picker opened".into();
+        self.status_line = "commit picker opened (press Enter to select)".into();
+        Ok(())
+    }
+
+    pub(crate) async fn open_worktree_picker(&mut self) -> Result<()> {
+        let worktrees = crate::git::worktree::list_worktrees(&self.worktree_path).await?;
+        if worktrees.is_empty() {
+            self.status_line = "worktree picker unavailable: no worktrees found".into();
+            return Ok(());
+        }
+        let entries: Vec<super::WorktreePickerEntry> = worktrees
+            .into_iter()
+            .map(|wt| super::WorktreePickerEntry {
+                name: wt.name.clone(),
+                path: wt.path.to_string_lossy().to_string(),
+                branch: wt
+                    .branch
+                    .clone()
+                    .or_else(|| wt.head_summary.clone())
+                    .unwrap_or_else(|| "-".to_string()),
+                is_current: wt.is_current,
+            })
+            .collect();
+        self.dismiss_ai_progress_popup();
+        self.worktree_picker = Some(super::WorktreePickerState {
+            worktrees: entries,
+            query: String::new(),
+            cursor_col: 0,
+            selected_index: 0,
+            scroll: 0,
+        });
+        self.status_line = "worktree picker opened".into();
+        Ok(())
+    }
+
+    pub(crate) fn open_branch_picker(&mut self) -> Result<()> {
+        let branches = crate::git::history::list_branches(&self.worktree_path)?;
+        if branches.is_empty() {
+            self.status_line = "branch picker unavailable: no branches found".into();
+            return Ok(());
+        }
+        let entries: Vec<super::BranchPickerEntry> = branches
+            .into_iter()
+            .map(|b| super::BranchPickerEntry {
+                name: b.name,
+                is_current: b.is_current,
+            })
+            .collect();
+        self.dismiss_ai_progress_popup();
+        self.branch_picker = Some(super::BranchPickerState {
+            branches: entries,
+            query: String::new(),
+            cursor_col: 0,
+            selected_index: 0,
+            scroll: 0,
+        });
+        self.status_line = "branch picker opened (press Enter to switch)".into();
+        Ok(())
+    }
+
+    pub(crate) fn open_file_viewer(&mut self) {
+        let Some(file) = self.current_file() else {
+            self.status_line = "no file selected".into();
+            return;
+        };
+
+        let file_path = file.path.clone();
+        let full_path = self.worktree_path.join(&file_path);
+        if !full_path.exists() {
+            self.status_line = format!("file not found: {file_path}");
+            return;
+        }
+
+        self.pending_action = Some(super::PendingUiAction::OpenFileInPager(full_path));
+        self.status_line = format!("opening {file_path} in pager");
+    }
+
+    pub(crate) async fn apply_branch_picker_selection(
+        &mut self,
+        service: &ReviewService,
+    ) -> Result<()> {
+        let filtered = self.branch_picker_filtered_indices();
+        let Some(picker) = self.branch_picker.as_ref() else {
+            return Ok(());
+        };
+        if filtered.is_empty() {
+            self.status_line = "no branches match the current search".into();
+            return Ok(());
+        }
+        let selected = picker.selected_index.min(filtered.len().saturating_sub(1));
+        let entry = picker
+            .branches
+            .get(filtered[selected])
+            .cloned()
+            .context("selected branch is unavailable")?;
+        self.branch_picker = None;
+
+        if entry.is_current {
+            self.status_line = format!("already on branch {}", entry.name);
+            return Ok(());
+        }
+
+        crate::git::history::switch_branch(&self.worktree_path, &entry.name)?;
+
+        self.refresh_review_and_diff(service).await?;
+        self.code_search = None;
+        self.search_query = None;
+        self.file_heatmap_task = None;
+        self.file_heatmap = None;
+        self.row_cache.clear();
+        self.clear_diff_render_cache();
+        self.invalidate_visible_file_indices_cache();
+
+        self.status_line = format!("switched to branch {}", entry.name);
         Ok(())
     }
 
@@ -218,6 +333,10 @@ impl TuiApp {
                 commit.oid.to_ascii_lowercase().contains(&needle)
                     || commit.short_oid.to_ascii_lowercase().contains(&needle)
                     || commit.summary.to_ascii_lowercase().contains(&needle)
+                    || commit
+                        .branch
+                        .as_ref()
+                        .is_some_and(|b| b.to_ascii_lowercase().contains(&needle))
             })
             .map(|(idx, _)| idx)
             .collect()

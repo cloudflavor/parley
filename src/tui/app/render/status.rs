@@ -112,7 +112,15 @@ pub(super) fn draw_status_panel(frame: &mut ratatui::Frame<'_>, app: &TuiApp, ar
     );
     let version = format!("v{}", env!("CARGO_PKG_VERSION"));
     let secondary_left = status_footer_context(app);
-    let line_2_right = format!("user {} · ? help · {version}", app.config.user_name);
+    let worktree_indicator = app
+        .worktree_path
+        .file_name()
+        .map(|n| n.to_string_lossy())
+        .unwrap_or_else(|| app.worktree_path.to_string_lossy());
+    let line_2_right = format!(
+        "wt {} · user {} · ? help · {version}",
+        worktree_indicator, app.config.user_name
+    );
     let line_2 = build_right_tag_line(
         &secondary_left,
         &line_2_right,

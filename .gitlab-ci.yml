@@ -3,7 +3,7 @@ stages:
   - release
 
 default:
-  image: rust:1.88
+  image: rust:nightly
   before_script:
     - rustup component add rustfmt clippy
 

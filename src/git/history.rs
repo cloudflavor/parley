@@ -8,6 +8,7 @@ pub struct CommitSummary {
     pub oid: String,
     pub short_oid: String,
     pub summary: String,
+    pub branch: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -29,12 +30,13 @@ struct FileHeatmapStats {
 /// # Errors
 ///
 /// Returns an error when the git repository cannot be found or its commit history cannot be read.
-pub fn recent_commits(limit: usize) -> Result<Vec<CommitSummary>> {
+pub fn recent_commits(limit: usize, worktree_path: &Path) -> Result<Vec<CommitSummary>> {
     if limit == 0 {
         return Ok(Vec::new());
     }
 
-    let repo = Repository::discover(".").context("failed to locate git repository")?;
+    let repo = Repository::discover(worktree_path).context("failed to locate git repository")?;
+
     let mut revwalk = repo.revwalk().context("failed to create git revwalk")?;
     revwalk
         .set_sorting(Sort::TOPOLOGICAL | Sort::TIME)
@@ -46,6 +48,7 @@ pub fn recent_commits(limit: usize) -> Result<Vec<CommitSummary>> {
     let mut commits = Vec::with_capacity(limit);
     for oid_result in revwalk.take(limit) {
         let oid = oid_result.context("failed to walk git history")?;
+
         let commit = repo
             .find_commit(oid)
             .with_context(|| format!("failed to load commit {oid}"))?;
@@ -55,21 +58,101 @@ pub fn recent_commits(limit: usize) -> Result<Vec<CommitSummary>> {
             .to_string();
         let oid_text = oid.to_string();
         let short_oid: String = oid_text.chars().take(12).collect();
+
+        let branch = find_branch_for_commit(&repo, oid);
+
         commits.push(CommitSummary {
             oid: oid_text,
             short_oid,
             summary,
+            branch,
         });
     }
 
     Ok(commits)
 }
 
+#[derive(Debug, Clone)]
+pub struct BranchInfo {
+    pub name: String,
+    pub is_current: bool,
+    pub is_head_detached: bool,
+}
+
+/// # Errors
+///
+/// Returns an error when the git repository cannot be found or branches cannot be listed.
+pub fn list_branches(worktree_path: &Path) -> Result<Vec<BranchInfo>> {
+    let repo = Repository::discover(worktree_path).context("failed to locate git repository")?;
+
+    let current_branch = repo
+        .head()
+        .ok()
+        .and_then(|h| h.shorthand().map(String::from));
+    let is_detached = repo.head().ok().is_some_and(|h| h.target().is_none());
+
+    let mut branches = Vec::new();
+    for branch_result in repo.branches(None).context("failed to list branches")? {
+        let (branch, _) = branch_result.context("failed to read branch")?;
+        if let Some(name) = branch.name().ok().flatten() {
+            branches.push(BranchInfo {
+                name: name.to_string(),
+                is_current: current_branch.as_deref() == Some(name),
+                is_head_detached: is_detached,
+            });
+        }
+    }
+
+    branches.sort_by(|a, b| {
+        if a.is_current {
+            std::cmp::Ordering::Less
+        } else if b.is_current {
+            std::cmp::Ordering::Greater
+        } else {
+            a.name.cmp(&b.name)
+        }
+    });
+
+    Ok(branches)
+}
+
+/// # Errors
+///
+/// Returns an error when the git repository cannot be found or checkout fails.
+pub fn switch_branch(worktree_path: &Path, branch_name: &str) -> Result<()> {
+    let repo = Repository::discover(worktree_path).context("failed to locate git repository")?;
+
+    let (object, reference) = repo
+        .revparse_ext(branch_name)
+        .context("failed to resolve branch")?;
+
+    repo.checkout_tree(&object, None)
+        .context("failed to checkout branch")?;
+
+    match reference {
+        Some(gref) => repo.set_head(gref.name().context("invalid branch reference")?),
+        None => repo.set_head_detached(object.id()),
+    }
+    .context("failed to set HEAD")?;
+
+    Ok(())
+}
+
+fn find_branch_for_commit(repo: &Repository, oid: git2::Oid) -> Option<String> {
+    repo.branches(None).ok()?.flatten().find_map(|(branch, _)| {
+        branch
+            .get()
+            .target()
+            .filter(|target| *target == oid)
+            .and_then(|_| branch.name().ok().flatten().map(String::from))
+    })
+}
+
 /// # Errors
 ///
 /// Returns an error when the git repository cannot be found or commit diffs cannot be read.
-pub fn file_heatmap() -> Result<Vec<FileHeatmapEntry>> {
-    let repo = Repository::discover(".").context("failed to locate git repository")?;
+pub fn file_heatmap(worktree_path: &Path) -> Result<Vec<FileHeatmapEntry>> {
+    let repo = Repository::discover(worktree_path).context("failed to locate git repository")?;
     let mut revwalk = repo.revwalk().context("failed to create git revwalk")?;
     revwalk
         .set_sorting(Sort::TOPOLOGICAL | Sort::TIME)
@@ -223,11 +306,7 @@ mod tests {
             "hot two",
         )?;
 
-        let previous_dir = std::env::current_dir()?;
-        std::env::set_current_dir(temp.path())?;
-        let entries = file_heatmap();
-        std::env::set_current_dir(previous_dir)?;
-        let entries = entries?;
+        let entries = file_heatmap(temp.path())?;
 
         assert_eq!(entries[0].path, "src/hot.rs");
         assert_eq!(entries[0].commits, 2);

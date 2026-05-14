@@ -75,11 +75,20 @@ impl TuiApp {
         if self.code_search.is_some() {
             return self.handle_code_search_key(key).await;
         }
+        if self.worktree_picker.is_some() {
+            return self.handle_worktree_picker_key(key, service).await;
+        }
         if self.theme_picker.is_some() {
             return self.handle_theme_picker_key(key, service).await;
         }
         if self.commit_picker.is_some() {
             return self.handle_commit_picker_key(key, service).await;
+        }
+        if self.branch_picker.is_some() {
+            return self.handle_branch_picker_key(key, service).await;
+        }
+        if self.theme_picker.is_some() {
+            return self.handle_theme_picker_key(key, service).await;
         }
         if self.review_picker.is_some() {
             return self.handle_review_picker_key(key, service).await;
@@ -446,6 +455,7 @@ mod tests {
         let relative_path = "src/tui/app/input/code_search.rs";
         let mut app = make_test_app_with_files(vec![empty_diff_file(relative_path)])?;
         app.diff_source = DiffSource::RootDirectory;
+        app.worktree_path = tempdir.path().to_path_buf();
         app.code_search = Some(CodeSearchState {
             query: "use".into(),
             cursor_col: 3,
@@ -1095,6 +1105,7 @@ mod tests {
             themes,
             theme_index: 0,
             log_path: PathBuf::from("test.log"),
+            worktree_path: PathBuf::from("."),
         }))
     }
 

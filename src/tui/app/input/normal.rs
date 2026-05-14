@@ -33,6 +33,28 @@ impl TuiApp {
             self.open_thread_selector();
             return Ok(());
         }
+        if matches!(key.code, KeyCode::Char('w')) && key.modifiers.contains(KeyModifiers::CONTROL) {
+            if let Err(error) = self.open_worktree_picker().await {
+                self.status_line = format!("worktree picker failed: {error}");
+            }
+            return Ok(());
+        }
+        if matches!(key.code, KeyCode::Char('o')) && key.modifiers.is_empty() {
+            self.open_file_viewer();
+            return Ok(());
+        }
+        if matches!(key.code, KeyCode::Char('b')) && key.modifiers.contains(KeyModifiers::CONTROL) {
+            if let Err(error) = self.open_branch_picker() {
+                self.status_line = format!("branch picker failed: {error}");
+            }
+            return Ok(());
+        }
+        if matches!(key.code, KeyCode::Char('o')) && key.modifiers.contains(KeyModifiers::CONTROL) {
+            if let Err(error) = self.open_commit_picker() {
+                self.status_line = format!("commit picker failed: {error}");
+            }
+            return Ok(());
+        }
 
         if matches!(key.code, KeyCode::Char('z')) && key.modifiers.is_empty() {
             if let Some(pressed_at) = self.pending_z_prefix_at

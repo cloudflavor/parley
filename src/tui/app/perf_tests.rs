@@ -11,6 +11,7 @@ use anyhow::Result;
 use ratatui::Terminal;
 use ratatui::backend::TestBackend;
 use std::hint::black_box;
+use std::path::PathBuf;
 use std::time::{Duration, Instant};
 
 const PERF_DRAW_FILES: usize = 120;
@@ -256,6 +257,7 @@ fn make_perf_app_with_files(files: Vec<DiffFile>, comments: Vec<LineComment>) ->
         themes,
         theme_index,
         log_path: "perf.log".into(),
+        worktree_path: PathBuf::from("."),
     }))
 }
 

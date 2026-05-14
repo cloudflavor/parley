@@ -14,6 +14,8 @@ pub struct AppConfig {
     #[serde(default = "default_log_level")]
     pub log_level: String,
     pub ai: AiConfig,
+    #[serde(default)]
+    pub last_worktree: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
@@ -145,6 +147,7 @@ impl Default for AppConfig {
             ignore_parley_dir: default_ignore_parley_dir(),
             log_level: default_log_level(),
             ai: AiConfig::default(),
+            last_worktree: None,
         }
     }
 }

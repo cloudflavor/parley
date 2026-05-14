@@ -39,6 +39,7 @@ pub(crate) fn make_test_app_with_files_and_comments(
         themes,
         theme_index,
         log_path: PathBuf::from("/tmp/test.log"),
+        worktree_path: PathBuf::from("."),
     }))
 }
 

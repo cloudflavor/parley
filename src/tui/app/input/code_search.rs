@@ -2,6 +2,7 @@ use super::*;
 use crate::git::diff::{DiffSource, load_root_directory_file};
 use anyhow::{Context, Result};
 use std::io::ErrorKind;
+use std::path::Path;
 use tokio::process::Command;
 
 const CODE_SEARCH_MAX_RESULTS: usize = 200;
@@ -120,7 +121,7 @@ impl TuiApp {
 
         search.message = format!("searching for {query}");
         self.search_query = Some(query.clone());
-        let run = run_code_search(&query).await?;
+        let run = run_code_search(&query, &self.worktree_path).await?;
         let result_count = run.results.len();
         search.results = run.results;
         search.engine = Some(run.engine);
@@ -190,9 +191,10 @@ impl TuiApp {
             .position(|file| file.path == result.path)
         {
             index
-        } else if let Some(file) = load_root_directory_file(&self.config, result.path.clone())
-            .await
-            .with_context(|| format!("failed to load {}", result.path))?
+        } else if let Some(file) =
+            load_root_directory_file(&self.config, result.path.clone(), &self.worktree_path)
+                .await
+                .with_context(|| format!("failed to load {}", result.path))?
         {
             self.diff.files.push(file);
             self.invalidate_visible_file_indices_cache();
@@ -234,9 +236,10 @@ impl TuiApp {
             return Ok(());
         }
 
-        if let Some(file) = load_root_directory_file(&self.config, path.to_string())
-            .await
-            .with_context(|| format!("failed to load {path}"))?
+        if let Some(file) =
+            load_root_directory_file(&self.config, path.to_string(), &self.worktree_path)
+                .await
+                .with_context(|| format!("failed to load {path}"))?
             && let Some(slot) = self.diff.files.get_mut(file_index)
         {
             *slot = file;
@@ -248,8 +251,8 @@ impl TuiApp {
     }
 }
 
-async fn run_code_search(query: &str) -> Result<CodeSearchRun> {
-    match run_rg_search(query).await {
+async fn run_code_search(query: &str, worktree_path: &Path) -> Result<CodeSearchRun> {
+    match run_rg_search(query, worktree_path).await {
         Ok(results) => Ok(CodeSearchRun {
             engine: "rg",
             results,
@@ -261,15 +264,16 @@ async fn run_code_search(query: &str) -> Result<CodeSearchRun> {
         {
             Ok(CodeSearchRun {
                 engine: "grep",
-                results: run_grep_search(query).await?,
+                results: run_grep_search(query, worktree_path).await?,
             })
         }
         Err(error) => Err(error),
     }
 }
 
-async fn run_rg_search(query: &str) -> Result<Vec<CodeSearchResult>> {
+async fn run_rg_search(query: &str, worktree_path: &Path) -> Result<Vec<CodeSearchResult>> {
     let output = Command::new("rg")
+        .current_dir(worktree_path)
         .args([
             "--line-number",
             "--column",
@@ -292,8 +296,9 @@ async fn run_rg_search(query: &str) -> Result<Vec<CodeSearchResult>> {
     Ok(parse_rg_output(&String::from_utf8_lossy(&output.stdout)))
 }
 
-async fn run_grep_search(query: &str) -> Result<Vec<CodeSearchResult>> {
+async fn run_grep_search(query: &str, worktree_path: &Path) -> Result<Vec<CodeSearchResult>> {
     let files_output = Command::new("git")
+        .current_dir(worktree_path)
         .args(["ls-files", "--cached", "--others", "--exclude-standard"])
         .output()
         .await
@@ -314,6 +319,7 @@ async fn run_grep_search(query: &str) -> Result<Vec<CodeSearchResult>> {
             break;
         }
         let output = Command::new("grep")
+            .current_dir(worktree_path)
             .args(["-nI", "-e", query, "--"])
             .args(chunk)
             .output()

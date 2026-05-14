@@ -7,6 +7,7 @@ use crate::domain::config::{
 use crate::utils::time::now_ms;
 use anyhow::{Context, Result, anyhow};
 use serde_json::Value;
+use std::path::Path;
 use std::process::Stdio;
 use std::time::Duration;
 use tokio::fs;
@@ -35,6 +36,7 @@ pub(super) async fn invoke_provider(
     mode: AiSessionMode,
     prompt: &str,
     progress_sender: Option<mpsc::UnboundedSender<AiProgressEvent>>,
+    worktree_path: Option<&Path>,
 ) -> Result<ProviderInvocation> {
     let effective_transport = transport.or(config.ai.default_transport);
     let provider_cfg = config
@@ -75,6 +77,9 @@ pub(super) async fn invoke_provider(
 
     let mut command = Command::new(&provider_cfg.client);
     command.kill_on_drop(true);
+    if let Some(path) = worktree_path {
+        command.current_dir(path);
+    }
     let args = normalized_provider_args(provider, &provider_cfg, mode);
     command.args(&args);
     let codex_output_path = codex_output_path(provider)?;

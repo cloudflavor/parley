@@ -36,14 +36,19 @@ impl DiffSource {
 ///
 /// Returns an error when the git repository cannot be discovered, the requested revision cannot be
 /// resolved, the diff cannot be rendered, or the rendered patch cannot be parsed.
-pub async fn load_git_diff(config: &AppConfig, source: &DiffSource) -> Result<DiffDocument> {
+pub async fn load_git_diff(
+    config: &AppConfig,
+    source: &DiffSource,
+    worktree_path: &Path,
+) -> Result<DiffDocument> {
     debug!(?source, "loading git diff");
     let document = match source {
-        DiffSource::RootDirectory => load_root_directory_document(config).await?,
+        DiffSource::RootDirectory => load_root_directory_document(config, worktree_path).await?,
         _ => {
             let source_for_worker = source.clone();
             let config = config.clone();
-            spawn_blocking(move || load_git_diff_sync(&config, &source_for_worker))
+            let path = worktree_path.to_path_buf();
+            spawn_blocking(move || load_git_diff_sync(&config, &source_for_worker, &path))
                 .await
                 .context("failed to join git diff worker task")??
         }
@@ -56,20 +61,65 @@ pub async fn load_git_diff(config: &AppConfig, source: &DiffSource) -> Result<Di
 ///
 /// Returns an error for the same repository discovery, diff rendering, and parsing failures as
 /// [`load_git_diff`].
-pub async fn load_git_diff_head(config: &AppConfig) -> Result<DiffDocument> {
-    load_git_diff(config, &DiffSource::WorkingTree).await
+pub async fn load_git_diff_head(config: &AppConfig, worktree_path: &Path) -> Result<DiffDocument> {
+    load_git_diff(config, &DiffSource::WorkingTree, worktree_path).await
 }
 
 /// # Errors
 ///
 /// Returns an error when the git repository cannot be discovered or root paths cannot be listed.
-pub async fn load_root_directory_file_list(config: &AppConfig) -> Result<DiffDocument> {
-    let (_workdir, source_paths) = collect_root_directory_source_paths(config).await?;
+pub async fn load_root_directory_file_list(
+    config: &AppConfig,
+    worktree_path: &Path,
+) -> Result<DiffDocument> {
+    let (_workdir, source_paths) =
+        collect_root_directory_source_paths(config, worktree_path).await?;
     let files = source_paths
         .iter()
         .map(|path| root_directory_placeholder_file(path))
         .collect();
     Ok(DiffDocument { files })
+}
+
+/// Read file content at a specific git ref (branch, commit, tag).
+/// Format: "ref:path/to/file" e.g., "main:src/lib.rs" or "abc123:file.txt"
+///
+/// # Errors
+///
+/// Returns an error when the repository cannot be found, ref is invalid, or file doesn't exist.
+pub fn read_file_at_ref(worktree_path: &Path, ref_path: &str) -> Result<String> {
+    let repo = Repository::discover(worktree_path).context("failed to discover git repository")?;
+
+    let Some((rev, path)) = ref_path.split_once(':') else {
+        return Err(anyhow::anyhow!(
+            "invalid format: use 'ref:path' (e.g., 'main:src/lib.rs')"
+        ));
+    };
+
+    let obj = repo
+        .revparse_single(rev)
+        .with_context(|| format!("failed to resolve ref '{rev}'"))?;
+
+    let tree = if let Some(commit) = obj.as_commit() {
+        commit
+            .tree()
+            .with_context(|| format!("failed to read tree for commit {rev}"))?
+    } else if let Some(tree) = obj.as_tree() {
+        tree.clone()
+    } else {
+        return Err(anyhow::anyhow!("ref '{rev}' is not a commit or tree"));
+    };
+
+    let entry = tree
+        .get_path(std::path::Path::new(path))
+        .with_context(|| format!("file '{path}' not found at ref '{rev}'"))?;
+
+    let blob = repo
+        .find_blob(entry.id())
+        .with_context(|| format!("failed to read blob for '{path}'"))?;
+
+    String::from_utf8(blob.content().to_vec())
+        .with_context(|| format!("file '{}' contains invalid UTF-8", path))
 }
 
 /// # Errors
@@ -79,16 +129,20 @@ pub async fn load_root_directory_file_list(config: &AppConfig) -> Result<DiffDoc
 pub async fn load_root_directory_file(
     config: &AppConfig,
     relative_path: String,
+    worktree_path: &Path,
 ) -> Result<Option<DiffFile>> {
     let Some(relative_path) = safe_root_relative_path(&relative_path) else {
         return Ok(None);
     };
-    let workdir = match spawn_blocking(|| {
-        let repo = Repository::discover(".").context("failed to discover git repository")?;
-        let workdir = repo
-            .workdir()
-            .context("root directory reviews require a non-bare git repository")?;
-        Ok::<_, anyhow::Error>(workdir.to_path_buf())
+    let workdir = match spawn_blocking({
+        let path = worktree_path.to_path_buf();
+        move || {
+            let repo = Repository::discover(&path).context("failed to discover git repository")?;
+            let workdir = repo
+                .workdir()
+                .context("root directory reviews require a non-bare git repository")?;
+            Ok::<_, anyhow::Error>(workdir.to_path_buf())
+        }
     })
     .await
     .context("failed to resolve root workdir")?
@@ -100,7 +154,8 @@ pub async fn load_root_directory_file(
     let filtered = spawn_blocking({
         let config = config.clone();
         let relative_path = relative_path.clone();
-        move || filter_paths_for_root_directory(&config, vec![relative_path])
+        let worktree_path = worktree_path.to_path_buf();
+        move || filter_paths_for_root_directory(&config, vec![relative_path], &worktree_path)
     })
     .await
     .context("failed to filter root file path")??;
@@ -111,8 +166,12 @@ pub async fn load_root_directory_file(
     root_directory_file(&workdir, &relative_path).await
 }
 
-fn load_git_diff_sync(config: &AppConfig, source: &DiffSource) -> Result<DiffDocument> {
-    let repo = Repository::discover(".").context("failed to discover git repository")?;
+fn load_git_diff_sync(
+    config: &AppConfig,
+    source: &DiffSource,
+    path: &Path,
+) -> Result<DiffDocument> {
+    let repo = Repository::discover(path).context("failed to discover git repository")?;
     load_git_diff_for_repo(&repo, config, source)
 }
 
@@ -172,8 +231,12 @@ fn load_diff_text(repo: &Repository, source: &DiffSource) -> Result<String> {
     render_diff_text(diff)
 }
 
-async fn load_root_directory_document(config: &AppConfig) -> Result<DiffDocument> {
-    let (workdir, source_paths) = collect_root_directory_source_paths(config).await?;
+async fn load_root_directory_document(
+    config: &AppConfig,
+    worktree_path: &Path,
+) -> Result<DiffDocument> {
+    let (workdir, source_paths) =
+        collect_root_directory_source_paths(config, worktree_path).await?;
 
     let mut files = Vec::new();
     for path in source_paths {
@@ -187,11 +250,13 @@ async fn load_root_directory_document(config: &AppConfig) -> Result<DiffDocument
 
 async fn collect_root_directory_source_paths(
     config: &AppConfig,
+    worktree_path: &Path,
 ) -> Result<(PathBuf, BTreeSet<PathBuf>)> {
     let (workdir, mut paths) = spawn_blocking({
         let config = config.clone();
+        let path = worktree_path.to_path_buf();
         move || {
-            let repo = Repository::discover(".").context("failed to discover git repository")?;
+            let repo = Repository::discover(&path).context("failed to discover git repository")?;
             let workdir = repo
                 .workdir()
                 .context("root directory reviews require a non-bare git repository")?;
@@ -212,7 +277,8 @@ async fn collect_root_directory_source_paths(
     };
     let source_paths = spawn_blocking({
         let config = config.clone();
-        move || filter_paths_for_root_directory(&config, candidate_paths)
+        let worktree_path = worktree_path.to_path_buf();
+        move || filter_paths_for_root_directory(&config, candidate_paths, &worktree_path)
     })
     .await
     .context("failed to filter git-aware root directory paths")??;
@@ -223,8 +289,9 @@ async fn collect_root_directory_source_paths(
 fn filter_paths_for_root_directory(
     config: &AppConfig,
     mut paths: Vec<PathBuf>,
+    worktree_path: &Path,
 ) -> Result<BTreeSet<PathBuf>> {
-    let repo = Repository::discover(".").context("failed to discover git repository")?;
+    let repo = Repository::discover(worktree_path).context("failed to discover git repository")?;
     let mut filtered_paths = BTreeSet::new();
     for path in paths.drain(..) {
         if should_ignore_file(path.to_string_lossy().as_ref(), config, Some(&repo))? {
@@ -956,7 +1023,7 @@ mod tests {
         assert_eq!(doc.files.len(), 1);
         let lines = &doc.files[0].hunks[0].lines;
         assert!(lines.iter().any(|line| line.raw == "-hello"));
-        assert!(lines.iter().any(|line| line.raw == "+hello \u{FFFD}"));
+        assert!(lines.iter().any(|line| line.raw == "+hello �"));
         Ok(())
     }
 

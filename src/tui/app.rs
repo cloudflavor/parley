@@ -12,6 +12,7 @@ use crate::git::diff::{
     DiffSource, load_git_diff, load_root_directory_file, load_root_directory_file_list,
 };
 use crate::git::history::{FileHeatmapEntry, file_heatmap};
+use crate::git::worktree::RepositoryContext;
 use crate::services::ai_session::{
     AiProgressEvent, AiSessionResult, RunAiSessionInput, run_ai_session_with_progress,
 };
@@ -59,6 +60,7 @@ pub async fn run_tui(
     no_mouse: bool,
     diff_source: DiffSource,
     create_review_if_missing: bool,
+    ctx: &RepositoryContext,
 ) -> Result<()> {
     let mut terminal_session = TerminalSession::new(!no_mouse)?;
     let review = if create_review_if_missing {
@@ -75,10 +77,11 @@ pub async fn run_tui(
     };
     let themes = load_themes()?;
     let mut config = service.load_config().await?;
+    let worktree_path = ctx.selected_worktree.clone();
     let diff = if matches!(diff_source, DiffSource::RootDirectory) {
         DiffDocument { files: Vec::new() }
     } else {
-        load_git_diff(&config, &diff_source).await?
+        load_git_diff(&config, &diff_source, &worktree_path).await?
     };
 
     if config.user_name.trim().is_empty() || config.user_name == "User" {
@@ -103,15 +106,17 @@ pub async fn run_tui(
         themes,
         theme_index,
         log_path,
+        worktree_path,
     });
     if matches!(app.diff_source, DiffSource::RootDirectory) {
         app.root_diff_load_started_at = Some(Instant::now());
         app.status_line = "Loading reviewable root files...".into();
         let config = app.config.clone();
         let diff_source = app.diff_source.clone();
+        let wt = app.worktree_path.clone();
         app.root_diff_load_task = Some(task::spawn(async move {
             let _ = diff_source;
-            load_root_directory_file_list(&config).await
+            load_root_directory_file_list(&config, &wt).await
         }));
     } else {
         app.refresh_review_and_diff(&service).await?;
@@ -386,11 +391,27 @@ struct CommitPickerEntry {
     oid: String,
     short_oid: String,
     summary: String,
+    branch: Option<String>,
 }
 
 #[derive(Debug, Clone)]
 struct CommitPickerState {
     commits: Vec<CommitPickerEntry>,
+    query: String,
+    cursor_col: usize,
+    selected_index: usize,
+    scroll: usize,
+}
+
+#[derive(Debug, Clone)]
+struct BranchPickerEntry {
+    name: String,
+    is_current: bool,
+}
+
+#[derive(Debug, Clone)]
+struct BranchPickerState {
+    branches: Vec<BranchPickerEntry>,
     query: String,
     cursor_col: usize,
     selected_index: usize,
@@ -409,6 +430,23 @@ struct ReviewPickerEntry {
 #[derive(Debug, Clone)]
 struct ReviewPickerState {
     reviews: Vec<ReviewPickerEntry>,
+    query: String,
+    cursor_col: usize,
+    selected_index: usize,
+    scroll: usize,
+}
+
+#[derive(Debug, Clone)]
+struct WorktreePickerEntry {
+    name: String,
+    path: String,
+    branch: String,
+    is_current: bool,
+}
+
+#[derive(Debug, Clone)]
+struct WorktreePickerState {
+    worktrees: Vec<WorktreePickerEntry>,
     query: String,
     cursor_col: usize,
     selected_index: usize,
@@ -498,6 +536,7 @@ enum CommandPaletteAction {
     OpenThemePicker,
     OpenCommitPicker,
     OpenReviewPicker,
+    OpenWorktreePicker,
     OpenThreadSelector,
     CreateReview,
     OpenCodeSearch,
@@ -646,6 +685,7 @@ struct TuiAppInit {
     themes: Vec<UiTheme>,
     theme_index: usize,
     log_path: PathBuf,
+    worktree_path: PathBuf,
 }
 
 #[derive(Debug)]
@@ -663,6 +703,7 @@ struct TuiApp {
     ai_provider: AiProvider,
     ai_transport: Option<AgentTransport>,
     log_path: PathBuf,
+    worktree_path: PathBuf,
     selected_file: usize,
     secondary_selected_file: usize,
     active_diff_pane: DiffPane,
@@ -689,6 +730,8 @@ struct TuiApp {
     theme_picker: Option<ThemePickerState>,
     commit_picker: Option<CommitPickerState>,
     review_picker: Option<ReviewPickerState>,
+    worktree_picker: Option<WorktreePickerState>,
+    branch_picker: Option<BranchPickerState>,
     thread_selector: Option<ThreadSelectorState>,
     code_search: Option<CodeSearchState>,
     file_search: FileSearchState,

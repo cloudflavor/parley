@@ -21,6 +21,8 @@ mod provider;
 #[cfg(test)]
 mod tests;
 
+use std::path::PathBuf;
+
 #[derive(Debug, Clone)]
 pub struct RunAiSessionInput {
     pub review_name: String,
@@ -29,6 +31,7 @@ pub struct RunAiSessionInput {
     pub comment_ids: Vec<u64>,
     pub mode: AiSessionMode,
     pub diff_source: DiffSource,
+    pub worktree_path: Option<PathBuf>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -150,7 +153,11 @@ async fn run_ai_session_inner(
     );
     let config = service.load_config().await?;
     let mut review = service.load_review(&input.review_name).await?;
-    let diff_document = match load_git_diff(&config, &input.diff_source).await {
+    let worktree = input
+        .worktree_path
+        .as_deref()
+        .unwrap_or_else(|| std::path::Path::new("."));
+    let diff_document = match load_git_diff(&config, &input.diff_source, worktree).await {
         Ok(document) => Some(document),
         Err(error) => {
             warn!(error = %error, "ai session prompt context: unable to load git diff");
@@ -311,6 +318,7 @@ async fn process_ai_session_target(
         context.input.mode,
         &prompt,
         context.progress_sender.clone(),
+        context.input.worktree_path.as_deref(),
     )
     .await
     {

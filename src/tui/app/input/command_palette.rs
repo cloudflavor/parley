@@ -115,6 +115,11 @@ impl TuiApp {
                 keywords: "review context session comments threads",
             },
             CommandPaletteItem {
+                action: CommandPaletteAction::OpenWorktreePicker,
+                label: "Open Worktree Picker",
+                keywords: "worktree git switch context cwd directory",
+            },
+            CommandPaletteItem {
                 action: CommandPaletteAction::OpenThreadSelector,
                 label: "Open Thread Selector",
                 keywords: "thread comments jump selector navigate",
