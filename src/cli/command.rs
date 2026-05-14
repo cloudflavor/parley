@@ -7,6 +7,9 @@ use clap::Parser;
     about = "Local AI code review sessions for git changes"
 )]
 pub struct Cli {
+    /// Use a specific git worktree by name or path.
+    #[arg(long, global = true)]
+    pub worktree: Option<String>,
     #[command(subcommand)]
     pub command: Command,
 }
@@ -46,6 +49,11 @@ pub enum Command {
     },
     #[command(name = "mcp")]
     Mcp,
+    #[command(name = "worktree")]
+    Worktree {
+        #[command(subcommand)]
+        command: WorktreeCommand,
+    },
 }
 
 #[derive(Debug, Parser)]
@@ -143,6 +151,16 @@ pub enum ReviewCommand {
         #[arg(long = "comment-id")]
         comment_ids: Vec<u64>,
     },
+}
+
+#[derive(Debug, Parser)]
+pub enum WorktreeCommand {
+    /// List known worktrees for the repository.
+    #[command(name = "list")]
+    List,
+    /// Print the resolved active worktree path.
+    #[command(name = "current")]
+    Current,
 }
 
 #[cfg(test)]
@@ -278,6 +296,30 @@ mod tests {
             cli.command,
             Command::Config {
                 command: super::ConfigCommand::UseLocal
+            }
+        ));
+    }
+
+    #[test]
+    fn worktree_list_command_parses() {
+        let cli = Cli::parse_from(["parley", "worktree", "list"]);
+
+        assert!(matches!(
+            cli.command,
+            Command::Worktree {
+                command: super::WorktreeCommand::List
+            }
+        ));
+    }
+
+    #[test]
+    fn worktree_current_command_parses() {
+        let cli = Cli::parse_from(["parley", "worktree", "current"]);
+
+        assert!(matches!(
+            cli.command,
+            Command::Worktree {
+                command: super::WorktreeCommand::Current
             }
         ));
     }

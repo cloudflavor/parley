@@ -1,7 +1,9 @@
-use crate::cli::{Cli, Command, ConfigCommand, ReviewCommand};
+use crate::cli::{Cli, Command, ConfigCommand, ReviewCommand, WorktreeCommand};
 use crate::domain::review::ReviewState;
 use crate::git::diff::DiffSource;
-use crate::git::root::discover_workdir;
+use crate::git::worktree::{
+    RepositoryContext, discover_from_cwd, discover_with_worktree, list_worktrees,
+};
 use crate::persistence::store::Store;
 use crate::services::ai_session::{RunAiSessionInput, default_ai_session_mode, run_ai_session};
 use crate::services::review_service::{AddCommentInput, AddReplyInput, ReviewService};
@@ -10,7 +12,6 @@ use clap::Parser;
 use std::env;
 use std::ffi::OsString;
 use std::io::{IsTerminal, stdin, stdout};
-use std::path::Path;
 use tokio::fs;
 
 pub mod cli;
@@ -30,18 +31,28 @@ pub mod utils;
 /// execution fails.
 pub async fn run() -> Result<()> {
     let args: Vec<OsString> = env::args_os().collect();
-    let command = if should_run_mcp(&args) {
-        Command::Mcp
+    let cli = if should_run_mcp(&args) {
+        Cli {
+            worktree: None,
+            command: Command::Mcp,
+        }
     } else {
-        Cli::parse().command
+        Cli::parse()
     };
 
-    let current_dir = env::current_dir().context("failed to read current working directory")?;
-    let project_root = discover_workdir(current_dir).await?;
+    let ctx = if let Some(ref wt) = cli.worktree {
+        discover_with_worktree(
+            env::current_dir().context("failed to read cwd")?,
+            Some(wt.as_str()),
+        )
+        .await?
+    } else {
+        discover_from_cwd().await?
+    };
 
-    match command {
+    match cli.command {
         Command::Config { command } => {
-            handle_config_command(command, &project_root).await?;
+            handle_config_command(command, &ctx).await?;
         }
         Command::Tui {
             review,
@@ -51,21 +62,24 @@ pub async fn run() -> Result<()> {
             base,
             head,
         } => {
-            let store = Store::resolve(&project_root).await?;
+            let store = Store::resolve_from_context(&ctx).await?;
             let service = ReviewService::new(store);
             let diff_source = resolve_tui_diff_source(commit, root, base, head);
             let review_name = review.context("missing required --review")?;
-            tui::run_tui(service, review_name, no_mouse, diff_source, false).await?;
+            tui::run_tui(service, review_name, no_mouse, diff_source, false, &ctx).await?;
         }
         Command::Review { command } => {
-            let store = Store::resolve(&project_root).await?;
+            let store = Store::resolve_from_context(&ctx).await?;
             let service = ReviewService::new(store);
-            handle_review_command(command, &service).await?;
+            handle_review_command(command, &service, &ctx).await?;
         }
         Command::Mcp => {
-            let store = Store::resolve(&project_root).await?;
+            let store = Store::resolve_from_context(&ctx).await?;
             let service = ReviewService::new(store);
             mcp::run_mcp(service).await?;
+        }
+        Command::Worktree { command } => {
+            handle_worktree_command(command, &ctx).await?;
         }
     }
 
@@ -108,18 +122,17 @@ fn resolve_tui_diff_source(
     }
 }
 
-async fn handle_config_command(command: ConfigCommand, project_root: &Path) -> Result<()> {
+async fn handle_config_command(command: ConfigCommand, ctx: &RepositoryContext) -> Result<()> {
     match command {
         ConfigCommand::Path => {
-            let store = Store::resolve(project_root).await?;
-            println!("{}", store.root_path().display());
+            println!("{}", ctx.storage_root.display());
         }
         ConfigCommand::UseLocal => {
-            let local_root = project_root.join(".parley");
+            let local_root = ctx.selected_worktree.join(".parley");
             fs::create_dir_all(&local_root)
                 .await
                 .with_context(|| format!("failed to create {}", local_root.display()))?;
-            let store = Store::from_project_root(project_root);
+            let store = Store::from_project_root(&ctx.selected_worktree);
             store.ensure_dirs().await?;
             println!("{}", store.root_path().display());
         }
@@ -128,7 +141,35 @@ async fn handle_config_command(command: ConfigCommand, project_root: &Path) -> R
     Ok(())
 }
 
-async fn handle_review_command(command: ReviewCommand, service: &ReviewService) -> Result<()> {
+async fn handle_worktree_command(command: WorktreeCommand, ctx: &RepositoryContext) -> Result<()> {
+    match command {
+        WorktreeCommand::List => {
+            let worktrees = list_worktrees(&ctx.selected_worktree).await?;
+            for wt in worktrees {
+                let marker = if wt.is_current { " *" } else { "" };
+                let branch = wt
+                    .branch
+                    .as_deref()
+                    .or(wt.head_summary.as_deref())
+                    .unwrap_or("-");
+                println!("{}{}\t{}\t{}", wt.name, marker, wt.path.display(), branch);
+            }
+        }
+        WorktreeCommand::Current => {
+            println!("{}", ctx.selected_worktree.display());
+            if let Some(ref name) = ctx.current_worktree_name {
+                println!("{name}");
+            }
+        }
+    }
+    Ok(())
+}
+
+async fn handle_review_command(
+    command: ReviewCommand,
+    service: &ReviewService,
+    ctx: &RepositoryContext,
+) -> Result<()> {
     match command {
         ReviewCommand::Create { name } => {
             let review = service.create_review(&name).await?;
@@ -252,6 +293,7 @@ async fn handle_review_command(command: ReviewCommand, service: &ReviewService) 
                     comment_ids,
                     mode,
                     diff_source: DiffSource::WorkingTree,
+                    worktree_path: Some(ctx.selected_worktree.clone()),
                 },
             )
             .await?;
@@ -267,6 +309,7 @@ mod tests {
     use super::handle_config_command;
     use super::should_run_mcp;
     use crate::cli::ConfigCommand;
+    use crate::git::worktree::RepositoryContext;
     use std::ffi::OsString;
     use tempfile::tempdir;
     use tokio::fs as tokio_fs;
@@ -286,8 +329,15 @@ mod tests {
     #[tokio::test]
     async fn config_use_local_should_create_local_store() -> anyhow::Result<()> {
         let tempdir = tempdir()?;
+        let ctx = RepositoryContext {
+            selected_worktree: tempdir.path().to_path_buf(),
+            main_worktree: Some(tempdir.path().to_path_buf()),
+            common_git_dir: tempdir.path().join(".git"),
+            storage_root: tempdir.path().join(".parley"),
+            current_worktree_name: None,
+        };
 
-        handle_config_command(ConfigCommand::UseLocal, tempdir.path()).await?;
+        handle_config_command(ConfigCommand::UseLocal, &ctx).await?;
 
         assert!(tokio_fs::try_exists(tempdir.path().join(".parley/reviews")).await?);
         Ok(())
