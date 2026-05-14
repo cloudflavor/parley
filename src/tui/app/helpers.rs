@@ -261,7 +261,7 @@ fn enter_terminal_screen(
 fn run_pager(path: &Path) -> Result<()> {
     let status = Command::new("sh")
         .arg("-c")
-        .arg("exec ${PAGER:-less} \"$1\"")
+        .arg("exec ${PAGER:-less -N -R -S} \"$1\"")
         .arg("parley-pager")
         .arg(path)
         .status()
