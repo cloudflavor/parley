@@ -25,7 +25,13 @@ Primary docs site: [https://parley.cloudflavor.io](https://parley.cloudflavor.io
 Parley separates:
 
 - Diff source: what code you are reviewing (`working tree`, `--commit`, or `--base/--head` range)
-- Review session: local state under `.parley/` (review name, threaded comments, status history)
+- Review session: repo-scoped state under the active Parley store (review name, threaded comments, status history)
+
+By default, Parley stores repo-scoped state under `$HOME/.config/parley/repos/<repo-name>-<hash>/`. If the repository already has a `.parley/` directory, Parley uses it instead. To opt a repository into local checked-in or shared state explicitly, run:
+
+```bash
+parley config use-local
+```
 
 ### Thread lifecycle
 
@@ -203,13 +209,15 @@ Parley exposes JSON-RPC MCP tooling for review automation, including:
 
 ## Local State and Configuration
 
-Parley stores local review data under:
+Parley stores review data in the active store. By default that is:
 
 ```text
-.parley/
+$HOME/.config/parley/repos/<repo-name>-<hash>/
 ```
 
-By default, `.parley/` is excluded from review diff file lists.  
+If `.parley/` already exists in the repository, Parley uses it as the active store. Run `parley config use-local` to create it explicitly for repositories that should keep Parley state in the project.
+
+By default, `.parley/` is excluded from review diff file lists when local storage is active.
 To include it again, set:
 
 ```toml
@@ -219,7 +227,7 @@ ignore_parley_dir = false
 in:
 
 ```text
-.parley/config.toml
+<active-store>/config.toml
 ```
 
 ## Documentation

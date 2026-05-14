@@ -398,10 +398,17 @@ pub(super) fn detached_thread_body_lines(
         let collapsed_line = Line::from(vec![
             Span::styled(
                 "▸ original anchor: ",
-                Style::default().fg(colors.comment_title).add_modifier(Modifier::BOLD),
+                Style::default()
+                    .fg(colors.comment_title)
+                    .add_modifier(Modifier::BOLD),
             ),
             Span::styled(
-                format!("{} @ {} ({})", anchor.file_path, ref_text, anchor.side.as_str()),
+                format!(
+                    "{} @ {} ({})",
+                    anchor.file_path,
+                    ref_text,
+                    anchor.side.as_str()
+                ),
                 Style::default().fg(colors.text_muted),
             ),
         ]);
@@ -465,9 +472,10 @@ fn original_anchor_context_lines(
     let code_bg = colors.markdown_code_bg;
     let border_style = Style::default().fg(colors.markdown_quote_mark).bg(code_bg);
     let horizontal = "─".repeat(inner_width);
-    lines.push(Line::from(vec![
-        Span::styled(format!("╭{horizontal}╮"), border_style),
-    ]));
+    lines.push(Line::from(vec![Span::styled(
+        format!("╭{horizontal}╮"),
+        border_style,
+    )]));
 
     let mut syntax_painter = SyntaxPainter::for_path(&anchor.file_path, colors);
     for line in anchor.before_context.iter().rev() {
@@ -501,9 +509,10 @@ fn original_anchor_context_lines(
         );
     }
 
-    lines.push(Line::from(vec![
-        Span::styled(format!("╰{horizontal}╯"), border_style),
-    ]));
+    lines.push(Line::from(vec![Span::styled(
+        format!("╰{horizontal}╯"),
+        border_style,
+    )]));
     lines
 }
 
@@ -578,10 +587,7 @@ fn push_context_code_line(
         lines.push(Line::from(""));
         return;
     }
-    let prefix_chars: Vec<(Style, char)> = prefix
-        .chars()
-        .map(|ch| (prefix_style, ch))
-        .collect();
+    let prefix_chars: Vec<(Style, char)> = prefix.chars().map(|ch| (prefix_style, ch)).collect();
     let trimmed = if styled_chars.len() > available {
         &styled_chars[..available]
     } else {

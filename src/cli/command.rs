@@ -13,6 +13,11 @@ pub struct Cli {
 
 #[derive(Debug, Parser)]
 pub enum Command {
+    #[command(name = "config")]
+    Config {
+        #[command(subcommand)]
+        command: ConfigCommand,
+    },
     #[command(name = "tui")]
     Tui {
         /// Review name to open in the TUI.
@@ -41,6 +46,16 @@ pub enum Command {
     },
     #[command(name = "mcp")]
     Mcp,
+}
+
+#[derive(Debug, Parser)]
+pub enum ConfigCommand {
+    /// Print the active Parley store path for the current repository.
+    #[command(name = "path")]
+    Path,
+    /// Explicitly create and use repository-local `.parley` storage.
+    #[command(name = "use-local")]
+    UseLocal,
 }
 
 #[derive(Debug, Parser)]
@@ -253,5 +268,17 @@ mod tests {
         let message = error.to_string();
         assert!(message.contains("--root"));
         assert!(message.contains("--commit"));
+    }
+
+    #[test]
+    fn config_command_parses_use_local() {
+        let cli = Cli::parse_from(["parley", "config", "use-local"]);
+
+        assert!(matches!(
+            cli.command,
+            Command::Config {
+                command: super::ConfigCommand::UseLocal
+            }
+        ));
     }
 }

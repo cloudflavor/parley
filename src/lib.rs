@@ -1,12 +1,17 @@
-use crate::cli::{Cli, Command, ReviewCommand};
+use crate::cli::{Cli, Command, ConfigCommand, ReviewCommand};
 use crate::domain::review::ReviewState;
 use crate::git::diff::DiffSource;
+use crate::git::root::discover_workdir;
+use crate::persistence::store::Store;
 use crate::services::ai_session::{RunAiSessionInput, default_ai_session_mode, run_ai_session};
 use crate::services::review_service::{AddCommentInput, AddReplyInput, ReviewService};
 use anyhow::{Context, Result, anyhow};
 use clap::Parser;
+use std::env;
 use std::ffi::OsString;
-use std::io::IsTerminal;
+use std::io::{IsTerminal, stdin, stdout};
+use std::path::Path;
+use tokio::fs;
 
 pub mod cli;
 pub mod docs;
@@ -24,19 +29,20 @@ pub mod utils;
 /// Returns an error when CLI command handling, repository access, persistence, MCP I/O, or TUI
 /// execution fails.
 pub async fn run() -> Result<()> {
-    let args: Vec<OsString> = std::env::args_os().collect();
+    let args: Vec<OsString> = env::args_os().collect();
     let command = if should_run_mcp(&args) {
         Command::Mcp
     } else {
         Cli::parse().command
     };
 
-    let project_root =
-        std::env::current_dir().context("failed to read current working directory")?;
-    let store = crate::persistence::store::Store::from_project_root(&project_root);
-    let service = ReviewService::new(store);
+    let current_dir = env::current_dir().context("failed to read current working directory")?;
+    let project_root = discover_workdir(current_dir).await?;
 
     match command {
+        Command::Config { command } => {
+            handle_config_command(command, &project_root).await?;
+        }
         Command::Tui {
             review,
             no_mouse,
@@ -45,14 +51,20 @@ pub async fn run() -> Result<()> {
             base,
             head,
         } => {
+            let store = Store::resolve(&project_root).await?;
+            let service = ReviewService::new(store);
             let diff_source = resolve_tui_diff_source(commit, root, base, head);
             let review_name = review.context("missing required --review")?;
             tui::run_tui(service, review_name, no_mouse, diff_source, false).await?;
         }
         Command::Review { command } => {
+            let store = Store::resolve(&project_root).await?;
+            let service = ReviewService::new(store);
             handle_review_command(command, &service).await?;
         }
         Command::Mcp => {
+            let store = Store::resolve(&project_root).await?;
+            let service = ReviewService::new(store);
             mcp::run_mcp(service).await?;
         }
     }
@@ -61,7 +73,7 @@ pub async fn run() -> Result<()> {
 }
 
 fn should_run_mcp(args: &[OsString]) -> bool {
-    if args.len() == 1 && !std::io::stdin().is_terminal() && !std::io::stdout().is_terminal() {
+    if args.len() == 1 && !stdin().is_terminal() && !stdout().is_terminal() {
         return true;
     }
 
@@ -94,6 +106,26 @@ fn resolve_tui_diff_source(
     } else {
         DiffSource::WorkingTree
     }
+}
+
+async fn handle_config_command(command: ConfigCommand, project_root: &Path) -> Result<()> {
+    match command {
+        ConfigCommand::Path => {
+            let store = Store::resolve(project_root).await?;
+            println!("{}", store.root_path().display());
+        }
+        ConfigCommand::UseLocal => {
+            let local_root = project_root.join(".parley");
+            fs::create_dir_all(&local_root)
+                .await
+                .with_context(|| format!("failed to create {}", local_root.display()))?;
+            let store = Store::from_project_root(project_root);
+            store.ensure_dirs().await?;
+            println!("{}", store.root_path().display());
+        }
+    }
+
+    Ok(())
 }
 
 async fn handle_review_command(command: ReviewCommand, service: &ReviewService) -> Result<()> {
@@ -232,8 +264,12 @@ async fn handle_review_command(command: ReviewCommand, service: &ReviewService) 
 
 #[cfg(test)]
 mod tests {
+    use super::handle_config_command;
     use super::should_run_mcp;
+    use crate::cli::ConfigCommand;
     use std::ffi::OsString;
+    use tempfile::tempdir;
+    use tokio::fs as tokio_fs;
 
     #[test]
     fn should_run_mcp_when_first_arg_is_mcp() {
@@ -245,5 +281,15 @@ mod tests {
     fn should_run_mcp_when_stdio_flag_is_present() {
         let args = vec![OsString::from("parley"), OsString::from("--stdio")];
         assert!(should_run_mcp(&args));
+    }
+
+    #[tokio::test]
+    async fn config_use_local_should_create_local_store() -> anyhow::Result<()> {
+        let tempdir = tempdir()?;
+
+        handle_config_command(ConfigCommand::UseLocal, tempdir.path()).await?;
+
+        assert!(tokio_fs::try_exists(tempdir.path().join(".parley/reviews")).await?);
+        Ok(())
     }
 }
