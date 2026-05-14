@@ -107,16 +107,16 @@ pub fn read_file_at_ref(worktree_path: &Path, ref_path: &str) -> Result<String> 
     } else if let Some(tree) = obj.as_tree() {
         tree.clone()
     } else {
-        return Err(anyhow::anyhow!("ref '{}' is not a commit or tree", rev));
+        return Err(anyhow::anyhow!("ref '{rev}' is not a commit or tree"));
     };
 
     let entry = tree
         .get_path(std::path::Path::new(path))
-        .with_context(|| format!("file '{}' not found at ref '{}'", path, rev))?;
+        .with_context(|| format!("file '{path}' not found at ref '{rev}'"))?;
 
     let blob = repo
         .find_blob(entry.id())
-        .with_context(|| format!("failed to read blob for '{}'", path))?;
+        .with_context(|| format!("failed to read blob for '{path}'"))?;
 
     String::from_utf8(blob.content().to_vec())
         .with_context(|| format!("file '{}' contains invalid UTF-8", path))
