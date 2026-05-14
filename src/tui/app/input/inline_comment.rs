@@ -196,12 +196,7 @@ impl TuiApp {
             _ => return None,
         };
         let original_anchor = self.stored_anchor_snapshot_for_row_range(
-            row_index,
-            row_index,
-            side,
-            old_line,
-            new_line,
-            None,
+            row_index, row_index, side, old_line, new_line, None,
         )?;
 
         Some(CommentTarget {

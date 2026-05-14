@@ -130,11 +130,9 @@ impl TuiApp {
     pub(crate) fn is_thread_expanded(
         &self,
         comment_id: u64,
-        selected_comment_id: Option<u64>,
+        _selected_comment_id: Option<u64>,
     ) -> bool {
         !self.collapsed_threads.contains(&comment_id)
-            && (selected_comment_id == Some(comment_id)
-                || self.expanded_threads.contains(&comment_id))
     }
 
     pub(crate) fn toggle_selected_thread_expansion(&mut self) {
@@ -305,7 +303,7 @@ mod tests {
         app.collapsed_threads.insert(1);
 
         assert!(!app.is_thread_expanded(1, Some(1)));
-        assert!(!app.is_thread_expanded(2, None));
+        assert!(app.is_thread_expanded(2, None));
         Ok(())
     }
 
@@ -325,8 +323,7 @@ mod tests {
         assert!(app.collapsed_threads.contains(&1));
         assert!(!app.collapsed_threads.contains(&2));
         assert!(!app.is_thread_expanded(1, Some(1)));
-        // Thread 2 is not selected and not explicitly expanded, so it stays collapsed
-        assert!(!app.is_thread_expanded(2, None));
+        assert!(app.is_thread_expanded(2, None));
 
         app.toggle_selected_thread_expansion();
 

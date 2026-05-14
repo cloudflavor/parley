@@ -390,12 +390,8 @@ fn exact_current_projection(
         .iter()
         .flat_map(|hunk| hunk.lines.iter())
         .find(|line| {
-            line_matches_anchor_reference(
-                line,
-                anchor.side,
-                anchor.old_line,
-                anchor.new_line,
-            ) && selected_text_matches_line(line, &anchor.selected_text)
+            line_matches_anchor_reference(line, anchor.side, anchor.old_line, anchor.new_line)
+                && selected_text_matches_line(line, &anchor.selected_text)
         })
         .map(|line| CurrentAnchorProjection {
             file_path: anchor.file_path.clone(),
