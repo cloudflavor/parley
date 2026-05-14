@@ -1,0 +1,3 @@
+# Enforce uninlined format args to match CI behavior (rust:1.88)
+# This lint is enabled by default in Rust 1.88+ clippy
+disallowed-types = []

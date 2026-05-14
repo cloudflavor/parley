@@ -221,10 +221,7 @@ async fn process_ai_session_targets(
             context.progress_sender.as_ref(),
             context.input.provider,
             "system",
-            format!(
-                "thread #{comment_id}: start ({}/{})",
-                step_number, total_targets
-            ),
+            format!("thread #{comment_id}: start ({step_number}/{total_targets})"),
         );
         debug!(
             review = %context.input.review_name,

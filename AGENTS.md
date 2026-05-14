@@ -14,3 +14,4 @@
   - **NEVER tell the user to run the Opal pipeline without first verifying that ALL checks AND ALL tests pass.**
   - **If clippy/check/tests fail, fix ALL errors before proceeding.**
   - **This is the highest priority rule. Do not skip this step.**
+- The CI pipeline uses `rust:1.88` image. To catch all CI clippy errors locally, ensure the project's `clippy.toml` is present and run clippy with the same flags as CI: `cargo clippy --all-targets --all-features -- -D warnings`
