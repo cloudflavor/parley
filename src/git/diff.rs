@@ -83,7 +83,7 @@ pub async fn load_root_directory_file(
     let Some(relative_path) = safe_root_relative_path(&relative_path) else {
         return Ok(None);
     };
-    let workdir = spawn_blocking(|| {
+    let workdir = match spawn_blocking(|| {
         let repo = Repository::discover(".").context("failed to discover git repository")?;
         let workdir = repo
             .workdir()
@@ -91,7 +91,11 @@ pub async fn load_root_directory_file(
         Ok::<_, anyhow::Error>(workdir.to_path_buf())
     })
     .await
-    .context("failed to resolve root workdir")??;
+    .context("failed to resolve root workdir")?
+    {
+        Ok(workdir) => workdir,
+        Err(_) => return Ok(None),
+    };
 
     let filtered = spawn_blocking({
         let config = config.clone();

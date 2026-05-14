@@ -426,14 +426,31 @@ mod tests {
 
     #[tokio::test]
     async fn code_search_hydrates_root_placeholder_before_opening_match_line() -> Result<()> {
-        let path = "src/tui/app/input/code_search.rs";
-        let mut app = make_test_app(vec![path])?;
+        use git2::Repository;
+        use std::fs;
+        use tempfile::tempdir;
+        use tokio::fs as tokio_fs;
+
+        let tempdir = tempdir()?;
+        Repository::init(tempdir.path())?;
+        let src_dir = tempdir
+            .path()
+            .join("src")
+            .join("tui")
+            .join("app")
+            .join("input");
+        tokio_fs::create_dir_all(&src_dir).await?;
+        let file_path = src_dir.join("code_search.rs");
+        fs::write(&file_path, "use std::io::ErrorKind;\n")?;
+
+        let relative_path = "src/tui/app/input/code_search.rs";
+        let mut app = make_test_app_with_files(vec![empty_diff_file(relative_path)])?;
         app.diff_source = DiffSource::RootDirectory;
         app.code_search = Some(CodeSearchState {
             query: "use".into(),
             cursor_col: 3,
             results: vec![CodeSearchResult {
-                path: path.into(),
+                path: relative_path.into(),
                 line: 1,
                 column: 1,
                 text: "use std::io::ErrorKind;".into(),
@@ -444,7 +461,11 @@ mod tests {
             message: "1 match via rg".into(),
         });
 
-        app.open_code_search_result_at_index(0).await?;
+        let original_dir = std::env::current_dir()?;
+        std::env::set_current_dir(tempdir.path())?;
+        let result = app.open_code_search_result_at_index(0).await;
+        std::env::set_current_dir(original_dir)?;
+        result?;
 
         let active_row = app
             .current_rows()
