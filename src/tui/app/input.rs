@@ -87,9 +87,6 @@ impl TuiApp {
         if self.branch_picker.is_some() {
             return self.handle_branch_picker_key(key, service).await;
         }
-        if self.file_viewer.is_some() {
-            return self.handle_file_viewer_key(key);
-        }
         if self.theme_picker.is_some() {
             return self.handle_theme_picker_key(key, service).await;
         }

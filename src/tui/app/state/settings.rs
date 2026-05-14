@@ -214,26 +214,14 @@ impl TuiApp {
         };
 
         let file_path = file.path.clone();
-        let worktree_name = self
-            .worktree_path
-            .file_name()
-            .map(|n| n.to_string_lossy().to_string())
-            .unwrap_or_default();
-
         let full_path = self.worktree_path.join(&file_path);
-        match std::fs::read_to_string(&full_path) {
-            Ok(content) => {
-                self.file_viewer = Some(super::FileViewerState {
-                    content,
-                    title: format!("{} - {}", file_path, worktree_name),
-                    scroll: 0,
-                });
-                self.status_line = format!("viewing {} (q/Esc to close)", file_path);
-            }
-            Err(e) => {
-                self.status_line = format!("failed to read file: {e}");
-            }
+        if !full_path.exists() {
+            self.status_line = format!("file not found: {file_path}");
+            return;
         }
+
+        self.pending_action = Some(super::PendingUiAction::OpenFileInPager(full_path));
+        self.status_line = format!("opening {file_path} in pager");
     }
 
     pub(crate) async fn apply_branch_picker_selection(

@@ -61,7 +61,6 @@ impl TuiApp {
             review_picker: None,
             worktree_picker: None,
             branch_picker: None,
-            file_viewer: None,
             thread_selector: None,
             code_search: None,
             file_search: FileSearchState {

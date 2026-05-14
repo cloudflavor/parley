@@ -419,13 +419,6 @@ struct BranchPickerState {
 }
 
 #[derive(Debug, Clone)]
-struct FileViewerState {
-    content: String,
-    title: String,
-    scroll: usize,
-}
-
-#[derive(Debug, Clone)]
 struct ReviewPickerEntry {
     name: String,
     state: ReviewState,
@@ -739,7 +732,6 @@ struct TuiApp {
     review_picker: Option<ReviewPickerState>,
     worktree_picker: Option<WorktreePickerState>,
     branch_picker: Option<BranchPickerState>,
-    file_viewer: Option<FileViewerState>,
     thread_selector: Option<ThreadSelectorState>,
     code_search: Option<CodeSearchState>,
     file_search: FileSearchState,
