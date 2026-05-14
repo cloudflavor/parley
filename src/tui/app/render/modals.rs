@@ -297,15 +297,7 @@ pub(super) fn draw_commit_picker(frame: &mut Frame<'_>, app: &TuiApp) {
                 .as_ref()
                 .map(|b| format!("[{b}] "))
                 .unwrap_or_else(String::new);
-            let head_marker = if commit.is_ancestor_of_head {
-                "* "
-            } else {
-                "  "
-            };
-            let label = format!(
-                "{}{}{} {}",
-                head_marker, commit.short_oid, branch_tag, commit.summary
-            );
+            let label = format!("{}{} {}", commit.short_oid, branch_tag, commit.summary);
             items.push(ListItem::new(fit_to_width(
                 &label,
                 usize::from(rows[1].width.saturating_sub(6)).max(8),
