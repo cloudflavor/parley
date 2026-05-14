@@ -9,7 +9,6 @@ pub struct CommitSummary {
     pub short_oid: String,
     pub summary: String,
     pub branch: Option<String>,
-    pub is_ancestor_of_head: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -67,7 +66,6 @@ pub fn recent_commits(limit: usize, worktree_path: &Path) -> Result<Vec<CommitSu
             short_oid,
             summary,
             branch,
-            is_ancestor_of_head: true,
         });
     }
 

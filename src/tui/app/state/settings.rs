@@ -140,7 +140,6 @@ impl TuiApp {
                     short_oid: commit.short_oid,
                     summary: commit.summary,
                     branch: commit.branch,
-                    is_ancestor_of_head: commit.is_ancestor_of_head,
                 })
                 .collect(),
             query: String::new(),
