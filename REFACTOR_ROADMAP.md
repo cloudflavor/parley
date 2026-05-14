@@ -1,487 +1,280 @@
 # Refactor Roadmap
 
+**Last Updated:** 2026-05-14  
+**Total Clone Calls:** 211 across codebase  
+**Primary Focus:** Reduce unnecessary allocations, prefer borrowed accessors, improve render path efficiency
+
 Purpose: reduce LOC, remove duplicated logic, improve performance, and increase focused tests without losing behavior. This file is written for an AI agent to consume one slice at a time.
 
-Rules for every slice:
+## Best Practices Reference (from rust-best-practices skill)
+
+### Borrowing & Ownership
+- Prefer `&T` over `.clone()` unless ownership transfer is required
+- Use `&str` over `String`, `&[T]` over `Vec<T>` in function parameters
+- Small `Copy` types (≤24 bytes) can be passed by value
+- Use `Cow<'_, T>` when ownership is ambiguous
+
+### Performance
+- Always benchmark with `--release` flag
+- Run `cargo clippy --all-targets --all-features --locked -- -D warnings`
+- Avoid cloning in loops; use `.iter()` instead of `.into_iter()` for Copy types
+- Prefer iterators over manual loops; avoid intermediate `.collect()` calls
+
+### Key Lints
+- `redundant_clone` - unnecessary cloning
+- `large_enum_variant` - oversized variants (consider boxing)
+- `needless_collect` - premature collection
+
+---
+
+## Current Hotspots (Updated Metrics)
+
+### Clone-Heavy Files (211 total clone calls)
+
+| File | Clone Count | Primary Patterns |
+|------|-------------|------------------|
+| `src/tui/app/state/anchor.rs` | 15 | String clones for file_path, selected_text; Side enum clones; review.comments full vector clone |
+| `src/tui/app/render/overlays.rs` | 15 | theme().colors.clone() (9×); query/result snapshot clones |
+| `src/tui/app/state/viewport.rs` | 13 | DisplayRow field clones in row cache build; cache key clones |
+| `src/tui/app/state/ai_session.rs` | 13 | String clones for file_path, review_name; session vector clones |
+| `src/tui/app/render/threads.rs` | 13 | theme().colors.clone(); indent_str.clone() (5×); comment clones in tests |
+| `src/tui/app/render/diff.rs` | 13 | theme().colors.clone(); cached render entry clones; file path clones |
+| `src/tui/app/render/modals.rs` | 11 | (needs analysis) |
+| `src/tui/app/state/review.rs` | 10 | (needs analysis) |
+| `src/git/diff.rs` | 10 | config.clone() (4×) for worker threads; tree/hunk header clones |
+| `src/tui/app/state/settings.rs` | 9 | (needs analysis) |
+
+### Allocation-Heavy Files (collect::<Vec> patterns)
+
+| File | Vec Collections | Primary Patterns |
+|------|-----------------|------------------|
+| `src/git/diff.rs` | 5 | content.lines().collect(); path filtering; test parent refs |
+| `src/tui/app/state/viewport.rs` | 4 | row cache building; highlight vectors |
+| `src/tui/app/state/thread_management.rs` | 4 | comment filtering; status updates |
+| `src/tui/app/state/anchor.rs` | 4 | selected_text_for_rows; file_content_text; hunk_lines collection |
+| `src/tui/app/render/diff.rs` | 4 | comment collection; search results; line character splitting |
+| `src/git/history.rs` | 4 | heatmap entries; path filtering; commit parent refs |
+| `src/tui/app/state/file_navigation.rs` | 3 | visible indices; group vectors |
+| `src/tui/app/render/threads.rs` | 3 | thread body lines; comment rendering |
+| `src/services/ai_session/prompt.rs` | 3 | anchor projection lines; hunk scoring |
+
+---
+
+## Detailed Per-File Analysis
+
+### anchor.rs (15 clones, 4 collects)
+
+**Clone locations:**
+- Line 27: `file.path.clone()` - String for StoredAnchorSnapshot
+- Line 32: `selected_text.clone()` - String already computed locally
+- Line 51: `self.review.comments.clone()` - **HOTSPOT**: full comment vector clone for iteration
+- Lines 127, 228, 231, 237, 240, 255, 293: `DiffSide` enum clones (likely Copy candidate)
+- Line 232: `anchor.selected_text.clone()` - conditional String clone
+- Lines 390-391: `hunk.header.clone()` and hunk line collection
+- Lines 408-409: revision String clones for DiffSource variants
+
+**Vec collection locations:**
+- Lines 270, 276: `selected_text_for_rows` and context window building
+- Lines 375, 383: `file_content_text` and row iteration
+- Line 391: `hunk.lines.iter().map(...).collect()` for snapshot
+
+**Recommendations:**
+1. Change `refresh_comment_anchor_projections` to iterate over `&self.review.comments` instead of cloning
+2. Check if `DiffSide` can derive `Copy` (likely ≤24 bytes)
+3. Return `impl Iterator` from helper functions where ownership not required
+4. Use `Cow<'_, str>` for `selected_text` fields that may be borrowed
+
+---
+
+### overlays.rs (15 clones, mostly theme colors)
+
+**Clone locations:**
+- Lines 21, 87, 217, 319, 461, 725, 816, 880, 989: `app.theme().colors.clone()` (9×) - **CRITICAL HOTSPOT**
+- Line 115: `selector.query.clone()` - String for thread selector
+- Line 480: `heatmap.entries.clone()` - vector clone for overlay
+- Lines 867, 973, 977, 978: snapshot query/result clones
+
+**Recommendations:**
+1. **Highest priority**: Change `theme().colors` to return `&ThemeColors` reference
+2. All render functions take `&ThemeColors` parameter instead of cloning
+3. Snapshot queries can use `&str` references where lifetime permits
+4. `heatmap.entries` iteration should use borrowed accessor
+
+---
+
+### viewport.rs (13 clones, 4 collects)
+
+**Clone locations:**
+- Lines 244, 248: URL parts parsing and slot assignment
+- Lines 310-311, 328, 331-332: `DisplayRow` field clones during row cache build - **HOTSPOT**
+- Lines 377, 403: cache key clones for diff/thread render cache
+- Line 689: `row.code.clone()` for render output
+- Lines 720-721, 734: test cache key clones
+
+**Vec collection locations:**
+- Line 427: row cache highlights initialization
+- Lines 615, 627, 659: various render helper collections
+
+**Recommendations:**
+1. `DisplayRow` build in `rebuild_row_cache_for_file` should borrow from source `DiffFile`
+2. Cache keys can use `Rc<String>` or `Arc<str>` if shared ownership needed
+3. Consider `Cow<'_, str>` for `DisplayRow.code` field
+
+---
+
+### threads.rs (13 clones, 3 collects)
+
+**Clone locations:**
+- Lines 43, 675: `app.theme().colors.clone()` (render functions)
+- Line 47: `comment.side.clone()` for anchor formatting
+- Lines 260, 278, 288, 296, 315: `indent_str.clone()` (5×) - String clone in loop
+- Line 326: `span.content.clone()` for styled spans
+- Lines 436, 444: thread body cache get/set clones
+- Lines 638, 727: test comment clones
+
+**Recommendations:**
+1. `indent_str` clones in render loops should be `&str` or pre-computed once
+2. Thread body cache should store `Arc<[Line]>` or borrowed content
+3. `comment.side` likely Copy candidate
+
+---
 
-- Preserve behavior first. Delete or simplify only when tests prove the behavior still exists.
-- Prefer borrowed inputs: `&str`, `&Path`, slices, and references.
-- Avoid cloning domain objects just to inspect them. Clone only when ownership is required by storage, async tasks, or cache keys.
-- Prefer iterator-returning helpers when the caller does not need ownership. Use `impl Iterator<Item = T>` or `impl Iterator<Item = &T>` where it keeps code readable.
-- Avoid adding abstractions that do not remove duplicated code or reduce allocation.
-- Add focused tests next to the changed behavior.
-- Keep imports as leaf imports, one item per `use` line. Put `mod` declarations before imports.
+### diff.rs (render) (13 clones, 4 collects)
+
+**Clone locations:**
+- Line 41: `app.theme().colors.clone()` - render function
+- Line 54: `file.path.clone()` for file path extraction
+- Line 118: `search_query.clone()` for render state
+- Lines 130-132: cached render entry clones (lines, row_map, link_hits)
+- Lines 351-353: cache entry field clones
+- Lines 551, 557: `row.raw.clone()` for span building
+- Lines 1016, 1049: help line and content line clones
 
-## Current Hotspots
+**Vec collection locations:**
+- Line 143: comment collection for rendering
+- Line 220: search result collection
+- Line 399: highlight span collection
+- Line 1111: `line.chars().collect()` for character indexing
 
-Clone-heavy files:
+**Recommendations:**
+1. Cache entries should store `Arc<Lines>` or borrowed references
+2. `row.raw` can be `&str` in render path
+3. Search highlights should use borrowed accessors
 
-- `src/tui/app/state/anchor.rs`: 15 clones
-- `src/tui/app/render/overlays.rs`: 15 clones
-- `src/tui/app/state/viewport.rs`: 13 clones
-- `src/tui/app/render/threads.rs`: 13 clones
-- `src/tui/app/render/diff.rs`: 13 clones
-- `src/tui/app/state/ai_session.rs`: 12 clones
-- `src/git/diff.rs`: 9 clones
-- `src/services/ai_session.rs`: 7 clones
-- `src/services/ai_session/prompt.rs`: 7 clones
+---
 
-Allocation-heavy files:
+### ai_session.rs (state) (13 clones)
 
-- `src/tui/app/state/text_buffer.rs`: frequent `Vec<char>` collection for edits
-- `src/tui/app/state/viewport.rs`: row/render cache cloning and temporary vectors
-- `src/tui/app/state/file_navigation.rs`: visible index and group vectors cloned from cache
-- `src/tui/app/render/diff.rs`: cloned cached render rows and cloned comments
-- `src/git/diff.rs`: path and line vectors during root and diff parsing
-- `src/domain/reference.rs`: parses through owned `Vec<char>` and owned strings
-- `src/services/ai_session/prompt.rs`: hunk/range/snippet temporary vectors
-- `src/git/history.rs`: duplicated path collection for heatmap
+**Clone locations:**
+- Line 152: `session.file_path.clone()` for UI state
+- Line 338: session file path mapping
+- Line 345: `session.clone()` for pending queue
+- Lines 358, 370: file path clones for navigation
+- Lines 464, 467, 549: task file path clones for event handling
+- Lines 674, 679-680, 683, 692: session init and service clones
 
-## Slice 1: Shared Search Backend
+**Recommendations:**
+1. File paths can use `Arc<str>` for shared ownership
+2. Session queue can use references with proper lifetimes
+3. Service clone may be necessary for async boundaries (verify)
 
-Files:
+---
 
-- `src/tui/app/input/search.rs`
-- `src/tui/app/input/code_search.rs`
-- New candidate: `src/tui/app/input/search_backend.rs`
+### git/diff.rs (10 clones, 5 collects)
 
-Problem:
+**Clone locations:**
+- Lines 48-49: `source.clone()`, `config.clone()` for worker thread - **necessary for async**
+- Line 108: `tree.clone()` for git tree access
+- Lines 155-156: `config.clone()`, `relative_path.clone()` for blocking task
+- Lines 256, 279: `config.clone()` for path filtering workers
+- Line 405: `display_path.clone()` for DiffFile construction
+- Lines 441-442: `hunk.header.clone()` for placeholder hunks
 
-- File search and code search duplicate rg-first/grep-fallback command execution.
-- Both files duplicate rg/grep output parsing into `CodeSearchResult`.
-- Both have separate max-result truncation and parse tests.
+**Vec collection locations:**
+- Line 427: `content.lines().collect()` for file parsing
+- Line 488: path component filtering
+- Lines 1057, 1146-1147: test path/parent collections
 
-Actions:
+**Recommendations:**
+1. Worker thread clones are **necessary** for `spawn_blocking` - document this
+2. `hunk.header` clones for placeholders may be avoidable with borrowed construction
+3. Path filtering can use iterator chaining without intermediate collect
 
-- Extract a shared backend with `SearchScope::Workspace` and `SearchScope::File(&str)`.
-- Keep rg as primary engine and grep as fallback only when rg is missing.
-- Share `parse_rg_output_line` and `parse_grep_output_line`.
-- Return one `SearchRun { engine, results }` type used by both flows.
-- Keep result collection bounded at 200.
+---
 
-Performance simplification:
+### services/ai_session/prompt.rs (7 clones, 3 collects)
 
-- Avoid duplicate parser allocations.
-- For grep workspace fallback, keep chunking but avoid building extra intermediate result vectors per parser where possible.
+**Clone locations:**
+- Line 354: `path.clone()` for file marker formatting
+- Lines 395, 401-402, 438-439, 442: anchor field clones for projection
+- Line 442: `range.clone()` for line range
 
-Tests:
+**Vec collection locations:**
+- Lines 422, 429: anchor projection line filtering and text collection
+- Line 505: hunk scoring vector for sorting
 
-- One parser test for rg output.
-- One parser test for grep output.
-- One test that file scope passes file paths through the shared parser.
-- One test that workspace scope excludes `worktrees/`.
+**Recommendations:**
+1. `CurrentAnchorProjection` can use `&str` for `file_path` with lifetime
+2. Line filtering can return `impl Iterator` instead of collecting
+3. Hunk scoring can use slice sorting without intermediate vector
 
-Acceptance:
+---
 
-- `search.rs` and `code_search.rs` no longer define their own rg/grep parsers.
-- Existing `/` in-file search behavior remains current-file only.
-- Global code search behavior remains available through the code search UI only.
+## Slice Priority (Updated)
 
-## Slice 2: Borrowed Comment Accessors
+Based on clone concentration and risk assessment:
 
-Files:
+1. **Slice 0: Theme Colors Borrowing** (NEW - highest impact, lowest risk)
+   - Files: `src/tui/app/render/overlays.rs`, `src/tui/app/render/diff.rs`, `src/tui/app/render/threads.rs`
+   - Impact: Removes 9+ unnecessary clones from render paths
+   - Actions: Change `theme().colors` to return `&ThemeColors`, update all render functions
 
-- `src/tui/app/state/file_navigation.rs`
-- `src/tui/app/state/thread_management.rs`
-- `src/tui/app/render/diff.rs`
+2. **Slice 7: Copy Enums and Small Types**
+   - Files: `src/domain/diff.rs`, `src/domain/review.rs`
+   - Check `DiffSide`, `DiffLineKind`, `CommentStatus` for Copy derivation
 
-Problem:
+3. **Slice 5: Shared Git Path Helper**
 
-- `comments_for_file` returns `Vec<&LineComment>`, forcing allocation in hot render paths.
-- `comments_for_selected_file`, `selected_comment_details`, expanded/collapsed id lookups, and diff rendering repeatedly collect comments.
-- `render/diff.rs` clones comments into `Vec<LineComment>` before rendering.
+4. **Slice 8: No-Allocation Hunk/Snippet Helpers**
 
-Actions:
+5. **Slice 2: Borrowed Comment Accessors** (upgraded priority)
+   - Files: `src/tui/app/state/file_navigation.rs`, `src/tui/app/state/thread_management.rs`, `src/tui/app/render/diff.rs`
+   - Impact: Removes `comments.clone()` in anchor.rs line 51 and render paths
 
-- Add `comment_indices_for_file(&self, file_path: &str) -> impl Iterator<Item = usize> + '_`.
-- Add `comments_for_file_iter(&self, file_path: &str) -> impl Iterator<Item = &LineComment> + '_`.
-- Convert hot render paths to use iterators or small local index lists only when reuse requires it.
-- Keep `comments_for_file` only if tests or low-volume UI paths still need a vector; otherwise remove it.
+6. **Slice 1: Shared Search Backend**
 
-Performance simplification:
+7. **Slice 4: Anchor Projection No Temporary Vectors**
 
-- Remove per-frame comment vector allocation in `draw_diff_view_for_pane`.
-- Avoid cloning `LineComment` for render-only use.
+8. **Slice 12: File Navigation Cache Borrowing**
 
-Tests:
+9. **Slice 3: Render Cache Borrowing**
 
-- Preserve existing tests for comment index rebuild.
-- Add a test that selected comment lookup works after comment order changes.
-- Add a render-path test around multiple comments in the same file.
+10. **Slice 6: TextBuffer Edit Efficiency**
 
-Acceptance:
+11. **Slice 9: MCP Dispatch Cleanup**
 
-- No `.cloned().collect::<Vec<_>>()` for comments in `render/diff.rs`.
-- `selected_comment_details` does not allocate a comment vector.
+12. **Slice 10: Provider Cache-Key Helper**
 
-## Slice 3: Render Cache Borrowing
+13. **Slice 11: Storage Compatibility Decision**
 
-Files:
-
-- `src/tui/app/render/diff.rs`
-- `src/tui/app/state/viewport.rs`
-- `src/tui/app/render/threads.rs`
-
-Problem:
-
-- Cached diff render entries are cloned out of the cache before viewport slicing.
-- `last_diff_row_map` and link hit state are copied with `to_vec`.
-- Highlight cache returns cloned highlight parts even when the caller only reads them.
-
-Actions:
-
-- Split render-cache usage into "borrow cached entry" and "build entry" paths.
-- Render visible lines from borrowed cache slices where possible.
-- Replace `row_map.to_vec()` with assignment only when ownership is needed after rendering.
-- Evaluate whether `last_diff_row_map` can store the cache key plus viewport range instead of copying the full map every frame.
-- Add a borrowed highlight accessor that returns `&[(Style, String)]` after ensuring cache population.
-
-Performance simplification:
-
-- Reduce full render-cache clones for every frame.
-- Keep cache invalidation behavior unchanged.
-
-Tests:
-
-- Existing diff scroll tests must pass.
-- Add a cache-hit test that verifies rendering uses cached rows without rebuilding thread bodies.
-
-Acceptance:
-
-- Cache hit path in `draw_diff_view_for_pane` does not clone `lines`, `row_map`, and `link_hits` just to compute scroll and visible lines.
-- Thread expansion/collapse still invalidates the correct file cache.
-
-## Slice 4: Anchor Projection Without Temporary Vectors
-
-Files:
-
-- `src/tui/app/state/anchor.rs`
-- `src/services/ai_session/prompt.rs`
-
-Problem:
-
-- Anchor range projection collects row indices and normalized text into vectors before joining.
-- Refreshing projections clones the entire comment list before iterating.
-- `DiffSide` and `CommentLineRange` are cloned where copy/borrowed values would be enough.
-
-Actions:
-
-- Change `DiffSide` and `CommentStatus` to `Copy` if serde/domain usage allows it.
-- Replace `refresh_comment_anchor_projections` clone of `review.comments` with index-based iteration or a two-phase collection of `(comment_id, projection)` only.
-- Replace `exact_row_range_projection` temporary `Vec<usize>` with a single pass tracking last matching row and building projected text directly.
-- Replace `selected_text_for_rows` and `file_content_text` vector-then-join with direct string builders.
-- Share range matching helpers between TUI anchor code and AI prompt projection where practical.
-
-Performance simplification:
-
-- Remove cloning of all comments during projection refresh.
-- Remove range projection temporary vectors.
-
-Tests:
-
-- Existing anchor projection tests must pass.
-- Add a test for multi-line range projection preserving selected text comparison.
-
-Acceptance:
-
-- No `let comments = self.review.comments.clone()` in anchor projection refresh.
-- No `collect::<Vec<_>>().join("\n")` in anchor text construction.
-
-## Slice 5: Root/Diff Path Normalization Helpers
-
-Files:
-
-- `src/git/diff.rs`
-- `src/git/history.rs`
-- New candidate: `src/git/path.rs`
-
-Problem:
-
-- `normalize_relative_path` and `normalize_git_path` duplicate component-to-forward-slash logic.
-- Both collect path components into vectors just to join.
-- Root directory path collection creates temporary vectors from `BTreeSet`.
-
-Actions:
-
-- Extract a shared `normalize_repo_path(path: &Path) -> String`.
-- Implement it with a direct string builder instead of `collect::<Vec<_>>().join("/")`.
-- Reuse it in diff and history.
-- In root source path collection, pass `Vec<PathBuf>` only where API ownership requires it; otherwise accept `impl IntoIterator<Item = PathBuf>`.
-
-Performance simplification:
-
-- Remove duplicate path normalization logic and component vectors.
-
-Tests:
-
-- Move existing normalization tests to the shared helper.
-- Add absolute/non-normal component test if behavior exists today.
-
-Acceptance:
-
-- One path normalization implementation.
-- `git/history.rs` no longer has its own normalization helper.
-
-## Slice 6: TextBuffer Edit Efficiency
-
-Files:
-
-- `src/tui/app/state/text_buffer.rs`
-- `src/tui/app/helpers.rs`
-
-Problem:
-
-- Single-character edits convert whole lines into `Vec<char>` on each keypress.
-- Word movement converts the whole buffer to text and then to chars.
-- This is a hot path for inline comments and prompts.
-
-Actions:
-
-- Add helper functions to convert character column to byte index for one line.
-- Replace insert/delete/backspace/kill operations with `String::insert`, `replace_range`, `remove`, or `truncate` at byte boundaries.
-- Keep Unicode correctness by using char-boundary byte indices.
-- Keep whole-buffer conversion only for operations that genuinely span lines.
-
-Performance simplification:
-
-- Avoid per-keypress `Vec<char>` allocation for line-local edits.
-
-Tests:
-
-- Add tests for ASCII insert/delete/backspace.
-- Add tests for multi-byte Unicode editing at char columns.
-- Add tests for word-left/right across lines.
-
-Acceptance:
-
-- `insert_char`, `backspace`, `delete_char`, `kill_to_end`, and `replace_range_on_cursor_line` do not collect line chars into a vector.
-
-## Slice 7: AI Session Targeting and Status Borrowing
-
-Files:
-
-- `src/services/ai_session.rs`
-- `src/domain/review.rs`
-
-Problem:
-
-- Target selection clones `CommentStatus`.
-- `comment_is_targetable` takes owned status.
-- `comment_status` returns owned status.
-- `AiSessionResult::new` clones strings from input/config even where formatting could be centralized.
-
-Actions:
-
-- Make simple enums `Copy` where appropriate: `Author`, `CommentStatus`, `DiffSide`, `ReviewState`.
-- Change `comment_is_targetable(status: CommentStatus)` to use copied status or borrowed status consistently.
-- Return `Option<CommentStatus>` by copy from `comment_status`.
-- Keep `target_ids` owned because async processing mutates review state between targets.
-- Review `AiSessionResult::new` for only necessary owned output fields.
-
-Performance simplification:
-
-- Remove status clones and reduce enum ownership friction across services/TUI.
-
-Tests:
-
-- Existing AI session targetability tests must pass.
-- Add a test that targeted addressed comments are skipped and open/pending are processed.
-
-Acceptance:
-
-- No `.clone()` on `CommentStatus`, `Author`, or `DiffSide` just to match or pass by value.
-
-## Slice 8: Prompt Context Builders
-
-Files:
-
-- `src/services/ai_session/prompt.rs`
-- `src/domain/reference.rs`
-
-Problem:
-
-- Snippet helpers collect all file lines into `Vec<&str>` before slicing.
-- Hunk choice collects scored hunks into a vector and sorts only to find minimum distance.
-- Referenced file parsing returns owned refs even when callers only need path/line during iteration.
-
-Actions:
-
-- Replace `choose_best_hunk` scoring vector with `min_by_key`.
-- Replace file snippet `Vec<&str>` collection with streaming line enumeration and bounded context capture.
-- Add `parse_file_references_iter(input: &str) -> impl Iterator<Item = FileReference>` only if it does not make parsing harder to read.
-- If iterator parsing is too complex, keep owned parser but remove duplicate downstream collections.
-
-Performance simplification:
-
-- Avoid reading full file lines into a second vector for small snippets.
-- Avoid sorting when only minimum distance is needed.
-
-Tests:
-
-- Existing prompt excerpt tests must pass.
-- Add tests for line snippets near file start/end and range snippets.
-
-Acceptance:
-
-- `choose_best_hunk` does not allocate.
-- Snippet helpers do not collect all lines before selecting context.
-
-## Slice 9: MCP Tool Dispatch Table
-
-Files:
-
-- `src/mcp/runtime.rs`
-
-Problem:
-
-- Tool schemas are embedded in a long `json!` block.
-- Tool call dispatch mixes argument parsing, service calls, and response wrapping in one function.
-- Documentation resource metadata is collected into vectors in multiple places.
-
-Actions:
-
-- Extract tool schema construction into small named functions.
-- Extract one function per tool handler.
-- Add `documentation_resources() -> impl Iterator<Item = Value>` or a small helper used by both resource list and docs tool.
-- Keep JSON response shape unchanged.
-
-Performance simplification:
-
-- This is mostly LOC and maintainability. Avoid over-abstracting into trait objects.
-
-Tests:
-
-- Existing MCP tests must pass.
-- Add one test per extracted tool handler only where behavior is not already covered.
-
-Acceptance:
-
-- `handle_tools_call` is a short dispatcher.
-- Tool schema JSON is not embedded as one large block.
-
-## Slice 10: Provider Client Cache Keys
-
-Files:
-
-- `src/services/ai_session/provider/acp.rs`
-- `src/services/ai_session/provider/pi_rpc.rs`
-- `src/domain/config.rs`
-
-Problem:
-
-- ACP and Pi RPC build client cache keys with repeated `format!` and joined args.
-- Both client caches use similar `OnceCell<Mutex<HashMap<String, Arc<Mutex<_>>>>>` patterns.
-- Provider command profile conversion clones args into `Vec<String>`.
-
-Actions:
-
-- Extract a small cache-key helper that takes cwd, client, and `&[String]`.
-- Consider a generic `get_or_spawn_client` only if it removes net code without obscuring provider differences.
-- Change command profile helpers to expose static slices and clone only at final config construction.
-
-Performance simplification:
-
-- Reduce duplicated cache-key code and unnecessary string assembly helpers.
-
-Tests:
-
-- Existing provider tests must pass.
-- Add test for cache key stability with same args and different cwd/client.
-
-Acceptance:
-
-- Cache key construction exists once.
-- Provider-specific protocol handling stays provider-specific.
-
-## Slice 11: Store Legacy Compatibility Boundary
-
-Files:
-
-- `src/persistence/store.rs`
-
-Problem:
-
-- Flat review compatibility remains mixed with normal list/load flow.
-- Config JSON compatibility is already removed; flat review compatibility should be isolated or removed by policy.
-
-Actions:
-
-- Decide whether flat `.parley/reviews/<name>.json` compatibility still matters.
-- If keeping it, move all legacy review helpers into a clearly named section or module.
-- If removing it, delete `load_legacy_review`, `legacy_review_name`, `legacy_review_path`, and the legacy test.
-
-Performance simplification:
-
-- Normal review listing should only walk per-review directories if legacy is removed.
-
-Tests:
-
-- If kept, legacy load/list test remains.
-- If removed, add a test that flat files are ignored.
-
-Acceptance:
-
-- Normal storage path is visually direct.
-- Legacy behavior is either gone or isolated.
-
-## Slice 12: TUI File Navigation Caches
-
-Files:
-
-- `src/tui/app/state/file_navigation.rs`
-- `src/tui/app/render/sidebar.rs`
-
-Problem:
-
-- `visible_file_indices` returns a cloned cached vector.
-- `ordered_visible_file_groups` rebuilds grouped vectors on each call.
-- Selection movement should use all visible files, but grouping/rendering also needs viewport-limited row maps.
-
-Actions:
-
-- Add borrowed accessor for cached visible indices: `visible_file_indices_ref`.
-- Keep a separate owned computation only on cache miss.
-- Consider caching ordered groups with a key that includes filter/sort/query/collapsed groups if render profiling shows repeated rebuilds.
-- Do not reintroduce viewport-limited navigation bugs.
-
-Performance simplification:
-
-- Avoid clone-on-read for visible file indices.
-- Keep navigation based on full visible data, not rendered viewport rows.
-
-Tests:
-
-- Existing large-project navigator test must pass.
-- Add a test that cache hit returns stable visible order after unrelated scroll changes.
-
-Acceptance:
-
-- Moving file selection does not allocate through a full cloned visible list on every keypress unless needed for mutation safety.
-
-## Suggested Order
-
-1. Slice 7: copy small enums and remove low-risk clones.
-2. Slice 5: shared git path helper.
-3. Slice 8: no-allocation hunk/snippet helpers.
-4. Slice 1: shared search backend.
-5. Slice 2: borrowed comment accessors.
-6. Slice 4: anchor projection no temporary vectors.
-7. Slice 12: file navigation cache borrowing.
-8. Slice 3: render cache borrowing.
-9. Slice 6: TextBuffer edit efficiency.
-10. Slice 9: MCP dispatch cleanup.
-11. Slice 10: provider cache-key helper.
-12. Slice 11: storage compatibility decision.
+---
 
 ## Measurement Checklist
 
 Run before and after each slice:
 
-- `cargo fmt`
-- `cargo check`
-- `cargo clippy --all-targets --all-features -- -D warnings`
-- `cargo test --all-targets --all-features`
-- `rg -n "\\.clone\\(\\)" src`
-- `rg -n "collect::<Vec|\\.collect\\(\\)" src`
+```bash
+cargo fmt
+cargo check
+cargo clippy --all-targets --all-features -- -D warnings
+cargo test --all-targets --all-features
+rg -n "\.clone\(\)" src --count | sort -t: -k2 -rn
+rg -n "collect::<Vec" src --count | sort -t: -k2 -rn
+```
 
-Do not chase zero clones or zero collects. Some ownership is correct for persisted models, async task boundaries, cache keys, and UI-owned render lines.
+Do not chase zero clones or zero collects. Some ownership is correct for:
+- Persisted models
+- Async task boundaries
+- Cache keys
+- UI-owned render lines
+- Worker thread inputs (required for `spawn_blocking`)
