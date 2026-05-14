@@ -139,6 +139,8 @@ impl TuiApp {
                     oid: commit.oid,
                     short_oid: commit.short_oid,
                     summary: commit.summary,
+                    branch: commit.branch,
+                    is_ancestor_of_head: commit.is_ancestor_of_head,
                 })
                 .collect(),
             query: String::new(),
@@ -250,6 +252,10 @@ impl TuiApp {
                 commit.oid.to_ascii_lowercase().contains(&needle)
                     || commit.short_oid.to_ascii_lowercase().contains(&needle)
                     || commit.summary.to_ascii_lowercase().contains(&needle)
+                    || commit
+                        .branch
+                        .as_ref()
+                        .is_some_and(|b| b.to_ascii_lowercase().contains(&needle))
             })
             .map(|(idx, _)| idx)
             .collect()

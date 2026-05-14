@@ -391,6 +391,8 @@ struct CommitPickerEntry {
     oid: String,
     short_oid: String,
     summary: String,
+    branch: Option<String>,
+    is_ancestor_of_head: bool,
 }
 
 #[derive(Debug, Clone)]

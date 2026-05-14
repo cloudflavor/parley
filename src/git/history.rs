@@ -8,6 +8,8 @@ pub struct CommitSummary {
     pub oid: String,
     pub short_oid: String,
     pub summary: String,
+    pub branch: Option<String>,
+    pub is_ancestor_of_head: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -35,17 +37,29 @@ pub fn recent_commits(limit: usize, worktree_path: &Path) -> Result<Vec<CommitSu
     }
 
     let repo = Repository::discover(worktree_path).context("failed to locate git repository")?;
+
+    let head_ref = repo
+        .head()
+        .ok()
+        .and_then(|h| h.shorthand().map(String::from));
+
     let mut revwalk = repo.revwalk().context("failed to create git revwalk")?;
     revwalk
         .set_sorting(Sort::TOPOLOGICAL | Sort::TIME)
         .context("failed to configure git revwalk sorting")?;
     revwalk
-        .push_head()
-        .context("failed to start git revwalk from HEAD")?;
+        .push_glob("*")
+        .context("failed to push all refs to revwalk")?;
 
     let mut commits = Vec::with_capacity(limit);
-    for oid_result in revwalk.take(limit) {
+    let mut seen = HashSet::new();
+    for oid_result in revwalk {
         let oid = oid_result.context("failed to walk git history")?;
+        if seen.contains(&oid) {
+            continue;
+        }
+        seen.insert(oid);
+
         let commit = repo
             .find_commit(oid)
             .with_context(|| format!("failed to load commit {oid}"))?;
@@ -55,14 +69,46 @@ pub fn recent_commits(limit: usize, worktree_path: &Path) -> Result<Vec<CommitSu
             .to_string();
         let oid_text = oid.to_string();
         let short_oid: String = oid_text.chars().take(12).collect();
+
+        let branch = find_branch_for_commit(&repo, oid);
+        let is_ancestor_of_head = head_ref
+            .as_ref()
+            .and_then(|_| repo.head().ok())
+            .and_then(|head| head.target())
+            .and_then(|head_oid| repo.merge_base(oid, head_oid).ok())
+            .map(|base| base == oid)
+            .unwrap_or(false);
+
         commits.push(CommitSummary {
             oid: oid_text,
             short_oid,
             summary,
+            branch,
+            is_ancestor_of_head,
         });
+
+        if commits.len() >= limit {
+            break;
+        }
     }
 
+    commits.sort_by(|a, b| {
+        b.is_ancestor_of_head
+            .cmp(&a.is_ancestor_of_head)
+            .then_with(|| a.summary.cmp(&b.summary))
+    });
+
     Ok(commits)
+}
+
+fn find_branch_for_commit(repo: &Repository, oid: git2::Oid) -> Option<String> {
+    repo.branches(None).ok()?.flatten().find_map(|(branch, _)| {
+        branch
+            .get()
+            .target()
+            .filter(|target| *target == oid)
+            .and_then(|_| branch.name().ok().flatten().map(String::from))
+    })
 }
 
 /// # Errors

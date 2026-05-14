@@ -278,7 +278,7 @@ pub(super) fn draw_commit_picker(frame: &mut Frame<'_>, app: &TuiApp) {
         Paragraph::new(vec![
             filter_line,
             Line::from(Span::styled(
-                "Filter by commit message or SHA",
+                "Filter by SHA, message, or branch",
                 Style::default().fg(colors.text_muted),
             )),
         ])
@@ -292,7 +292,20 @@ pub(super) fn draw_commit_picker(frame: &mut Frame<'_>, app: &TuiApp) {
     let mut items = Vec::new();
     for &commit_index in filtered.iter().skip(scroll).take(visible_rows) {
         if let Some(commit) = picker.commits.get(commit_index) {
-            let label = format!("{} {}", commit.short_oid, commit.summary);
+            let branch_tag = commit
+                .branch
+                .as_ref()
+                .map(|b| format!("[{b}] "))
+                .unwrap_or_else(String::new);
+            let head_marker = if commit.is_ancestor_of_head {
+                "* "
+            } else {
+                "  "
+            };
+            let label = format!(
+                "{}{}{} {}",
+                head_marker, commit.short_oid, branch_tag, commit.summary
+            );
             items.push(ListItem::new(fit_to_width(
                 &label,
                 usize::from(rows[1].width.saturating_sub(6)).max(8),

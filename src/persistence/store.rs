@@ -54,7 +54,14 @@ impl Store {
         ctx: &crate::git::worktree::RepositoryContext,
     ) -> StoreResult<Self> {
         let global_root = default_global_root()?;
-        Self::resolve_with_global_root(&ctx.storage_root, global_root).await
+        let local_root = ctx.selected_worktree.join(".parley");
+        Self::resolve_with_local_and_global_root(
+            &local_root,
+            &ctx.storage_root,
+            global_root,
+            &ctx.selected_worktree,
+        )
+        .await
     }
 
     /// # Errors
@@ -75,18 +82,61 @@ impl Store {
     ) -> StoreResult<Self> {
         let project_root = project_root.as_ref();
         let local_root = project_root.join(".parley");
-        match fs::metadata(&local_root).await {
-            Ok(metadata) if metadata.is_dir() => return Ok(Self { root: local_root }),
-            Ok(_) => return Err(StoreError::LocalStorePathNotDirectory(local_root)),
+        Self::resolve_with_local_and_global_root(
+            &local_root,
+            &local_root,
+            global_root,
+            project_root,
+        )
+        .await
+    }
+
+    /// # Errors
+    ///
+    /// Returns an error when an existing local `.parley` marker is not a directory.
+    /// Prefers local_root if it exists, falls back to storage_root, then to global storage.
+    pub async fn resolve_with_local_and_global_root(
+        local_root: impl AsRef<Path>,
+        storage_root: impl AsRef<Path>,
+        global_root: impl AsRef<Path>,
+        project_root: &Path,
+    ) -> StoreResult<Self> {
+        let local_root = local_root.as_ref();
+        let storage_root = storage_root.as_ref();
+        match fs::metadata(local_root).await {
+            Ok(metadata) if metadata.is_dir() => {
+                return Ok(Self {
+                    root: local_root.to_path_buf(),
+                });
+            }
+            Ok(_) => {
+                return Err(StoreError::LocalStorePathNotDirectory(
+                    local_root.to_path_buf(),
+                ));
+            }
             Err(error) if error.kind() == ErrorKind::NotFound => {}
             Err(error) => return Err(StoreError::Io(error)),
         }
 
+        match fs::metadata(storage_root).await {
+            Ok(metadata) if metadata.is_dir() => {
+                return Ok(Self {
+                    root: storage_root.to_path_buf(),
+                });
+            }
+            Ok(_) => {
+                return Err(StoreError::LocalStorePathNotDirectory(
+                    storage_root.to_path_buf(),
+                ));
+            }
+            Err(error) if error.kind() == ErrorKind::NotFound => {}
+            Err(error) => return Err(StoreError::Io(error)),
+        }
+
+        let global_repos = global_root.as_ref().join("repos");
+        fs::create_dir_all(&global_repos).await?;
         Ok(Self {
-            root: global_root
-                .as_ref()
-                .join("repos")
-                .join(repo_storage_name(project_root).await?),
+            root: global_repos.join(repo_storage_name(project_root).await?),
         })
     }
 
