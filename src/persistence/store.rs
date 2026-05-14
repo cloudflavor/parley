@@ -39,6 +39,24 @@ impl Store {
         }
     }
 
+    #[must_use]
+    pub fn from_storage_root(storage_root: impl AsRef<Path>) -> Self {
+        Self {
+            root: storage_root.as_ref().to_path_buf(),
+        }
+    }
+
+    /// # Errors
+    ///
+    /// Returns an error when global storage cannot be resolved or an existing local `.parley`
+    /// marker is not a directory.
+    pub async fn resolve_from_context(
+        ctx: &crate::git::worktree::RepositoryContext,
+    ) -> StoreResult<Self> {
+        let global_root = default_global_root()?;
+        Self::resolve_with_global_root(&ctx.storage_root, global_root).await
+    }
+
     /// # Errors
     ///
     /// Returns an error when global storage cannot be resolved or an existing local `.parley`
@@ -537,6 +555,7 @@ mod tests {
             ignore_parley_dir: true,
             log_level: "debug".to_string(),
             ai: AiConfig::default(),
+            last_worktree: None,
         };
 
         store.save_config(&config).await?;
