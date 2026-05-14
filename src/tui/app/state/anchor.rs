@@ -1,6 +1,7 @@
 use super::*;
 use crate::domain::diff::{DiffFile, DiffHunk};
 use crate::domain::review::{CommentLineRange, DiffAnchorSnapshot, SourceAnchorSnapshot};
+use crate::tui::app::helpers::comment_reference_matches_display_row;
 
 impl TuiApp {
     pub(crate) fn stored_anchor_snapshot_for_row_range(
@@ -62,10 +63,27 @@ impl TuiApp {
         comment: &LineComment,
         row: &DisplayRow,
     ) -> bool {
-        let Some(projection) = self.comment_anchor_projection(comment) else {
+        if comment.detached {
             return false;
-        };
-        projection_matches_row(projection, row)
+        }
+        if let Some(projection) = self.comment_anchor_projection(comment) {
+            return projection_matches_row(projection, row);
+        }
+        comment_reference_matches_display_row(comment, row)
+    }
+
+    pub(crate) fn comment_matches_for_navigation(
+        &self,
+        comment: &LineComment,
+        row: &DisplayRow,
+    ) -> bool {
+        if let Some(projection) = self.comment_anchor_projection(comment) {
+            return projection_matches_row(projection, row);
+        }
+        if comment.detached {
+            return comment_reference_matches_display_row(comment, row);
+        }
+        comment_reference_matches_display_row(comment, row)
     }
 
     pub(crate) fn comment_line_range_contains_current_projection(

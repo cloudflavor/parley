@@ -204,7 +204,7 @@ impl TuiApp {
         let target_row = rows
             .iter()
             .enumerate()
-            .find(|(_, row)| self.comment_matches_current_projection(comment, row));
+            .find(|(_, row)| self.comment_matches_for_navigation(comment, row));
         let Some(target_row) = target_row else {
             return;
         };

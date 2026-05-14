@@ -346,8 +346,7 @@ mod tests {
     }
 
     #[test]
-    fn exact_anchor_projection_marks_refactored_line_outdated_without_mutating_comment()
-    -> Result<()> {
+    fn exact_anchor_projection_falls_back_to_line_matching_when_outdated() -> Result<()> {
         let comment = comment_with_original_anchor(1, "src/a.rs", 2, "fn target() {}");
         let app = make_test_app_with_files_and_comments(
             vec![diff_file_with_context_lines(
@@ -363,7 +362,7 @@ mod tests {
             .ok_or_else(|| anyhow!("candidate row should exist"))?;
         let stored = &app.review.comments[0];
 
-        assert!(!app.comment_matches_current_projection(stored, row));
+        assert!(app.comment_matches_current_projection(stored, row));
         assert_eq!(stored.old_line, Some(2));
         assert_eq!(stored.new_line, Some(2));
         assert!(!stored.detached);
@@ -459,7 +458,7 @@ mod tests {
     }
 
     #[test]
-    fn exact_anchor_projection_marks_root_mode_file_change_outdated() -> Result<()> {
+    fn exact_anchor_projection_falls_back_in_root_mode_when_file_changed() -> Result<()> {
         let mut comment = comment_with_original_anchor(1, "src/a.rs", 2, "fn original() {}");
         if let Some(anchor) = comment.original_anchor.as_mut() {
             anchor.source = Some(SourceAnchorSnapshot {
@@ -482,7 +481,7 @@ mod tests {
             .find(|row| row.new_line == Some(2))
             .ok_or_else(|| anyhow!("changed root row should exist"))?;
 
-        assert!(!app.comment_matches_current_projection(&app.review.comments[0], changed_row));
+        assert!(app.comment_matches_current_projection(&app.review.comments[0], changed_row));
         assert_eq!(
             app.projected_comment_reference(&app.review.comments[0]),
             "2:2"
@@ -574,5 +573,48 @@ mod tests {
             raw: format!("-{code}"),
             code: code.to_string(),
         }
+    }
+
+    #[test]
+    fn detached_comment_is_still_invisible_to_projection_fallback() -> Result<()> {
+        let mut comment = make_comment_with_anchor(1, "src/a.rs", CommentStatus::Open, 2, 2);
+        comment.detached = true;
+        let app = make_test_app_with_files_and_comments(
+            vec![diff_file_with_context_lines(
+                "src/a.rs",
+                &[(1, "fn before() {}"), (2, "fn target() {}")],
+            )],
+            vec![comment],
+        )?;
+        let row = app
+            .current_rows()
+            .iter()
+            .find(|row| row.new_line == Some(2))
+            .ok_or_else(|| anyhow!("row at line 2 should exist"))?;
+
+        assert!(!app.comment_matches_current_projection(&app.review.comments[0], row));
+        Ok(())
+    }
+
+    #[test]
+    fn comment_without_projection_matches_by_line_number() -> Result<()> {
+        let mut comment = make_comment_with_anchor(1, "src/a.rs", CommentStatus::Open, 2, 2);
+        comment.original_anchor = None;
+        comment.line_anchor = None;
+        let app = make_test_app_with_files_and_comments(
+            vec![diff_file_with_context_lines(
+                "src/a.rs",
+                &[(1, "fn before() {}"), (2, "fn target() {}")],
+            )],
+            vec![comment],
+        )?;
+        let row = app
+            .current_rows()
+            .iter()
+            .find(|row| row.new_line == Some(2))
+            .ok_or_else(|| anyhow!("row at line 2 should exist"))?;
+
+        assert!(app.comment_matches_current_projection(&app.review.comments[0], row));
+        Ok(())
     }
 }
