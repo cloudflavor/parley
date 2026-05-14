@@ -29,12 +29,12 @@ struct FileHeatmapStats {
 /// # Errors
 ///
 /// Returns an error when the git repository cannot be found or its commit history cannot be read.
-pub fn recent_commits(limit: usize) -> Result<Vec<CommitSummary>> {
+pub fn recent_commits(limit: usize, worktree_path: &Path) -> Result<Vec<CommitSummary>> {
     if limit == 0 {
         return Ok(Vec::new());
     }
 
-    let repo = Repository::discover(".").context("failed to locate git repository")?;
+    let repo = Repository::discover(worktree_path).context("failed to locate git repository")?;
     let mut revwalk = repo.revwalk().context("failed to create git revwalk")?;
     revwalk
         .set_sorting(Sort::TOPOLOGICAL | Sort::TIME)
@@ -68,8 +68,8 @@ pub fn recent_commits(limit: usize) -> Result<Vec<CommitSummary>> {
 /// # Errors
 ///
 /// Returns an error when the git repository cannot be found or commit diffs cannot be read.
-pub fn file_heatmap() -> Result<Vec<FileHeatmapEntry>> {
-    let repo = Repository::discover(".").context("failed to locate git repository")?;
+pub fn file_heatmap(worktree_path: &Path) -> Result<Vec<FileHeatmapEntry>> {
+    let repo = Repository::discover(worktree_path).context("failed to locate git repository")?;
     let mut revwalk = repo.revwalk().context("failed to create git revwalk")?;
     revwalk
         .set_sorting(Sort::TOPOLOGICAL | Sort::TIME)
@@ -223,11 +223,7 @@ mod tests {
             "hot two",
         )?;
 
-        let previous_dir = std::env::current_dir()?;
-        std::env::set_current_dir(temp.path())?;
-        let entries = file_heatmap();
-        std::env::set_current_dir(previous_dir)?;
-        let entries = entries?;
+        let entries = file_heatmap(temp.path())?;
 
         assert_eq!(entries[0].path, "src/hot.rs");
         assert_eq!(entries[0].commits, 2);

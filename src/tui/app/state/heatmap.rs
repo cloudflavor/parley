@@ -17,7 +17,8 @@ impl TuiApp {
             loaded_at: None,
         });
         self.file_heatmap_started_at = Some(Instant::now());
-        self.file_heatmap_task = Some(task::spawn_blocking(file_heatmap));
+        let wt = self.worktree_path.clone();
+        self.file_heatmap_task = Some(task::spawn_blocking(move || file_heatmap(&wt)));
         self.status_line = "loading git file heatmap".into();
     }
 

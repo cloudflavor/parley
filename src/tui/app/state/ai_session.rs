@@ -677,6 +677,7 @@ impl TuiApp {
             comment_ids,
             mode,
             diff_source: self.diff_source.clone(),
+            worktree_path: Some(self.worktree_path.clone()),
         };
         let (progress_tx, progress_rx) = mpsc::unbounded_channel();
         let service_clone = service.clone();

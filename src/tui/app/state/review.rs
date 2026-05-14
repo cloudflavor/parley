@@ -116,8 +116,9 @@ impl TuiApp {
         }
         let config = self.config.clone();
         let path = file.path.clone();
+        let wt = self.worktree_path.clone();
         self.root_file_load_task = Some(task::spawn(async move {
-            load_root_directory_file(&config, path)
+            load_root_directory_file(&config, path, &wt)
                 .await
                 .map(|file| (file_index, file))
         }));
@@ -242,7 +243,7 @@ impl TuiApp {
             .retain(|id| self.review.comments.iter().any(|comment| comment.id == *id));
         self.collapsed_threads
             .retain(|id| self.review.comments.iter().any(|comment| comment.id == *id));
-        self.diff = load_git_diff(&self.config, &self.diff_source).await?;
+        self.diff = load_git_diff(&self.config, &self.diff_source, &self.worktree_path).await?;
         self.invalidate_visible_file_indices_cache();
         self.row_cache.clear();
         self.root_hydrated_files.clear();

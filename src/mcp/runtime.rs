@@ -408,6 +408,7 @@ async fn handle_tools_call(service: &ReviewService, params: Value) -> Result<Val
                     comment_ids,
                     mode,
                     diff_source: DiffSource::WorkingTree,
+                    worktree_path: None,
                 },
             )
             .await?;
