@@ -392,14 +392,14 @@ fn exact_current_projection(
         .find(|line| {
             line_matches_anchor_reference(
                 line,
-                anchor.side.clone(),
+                anchor.side,
                 anchor.old_line,
                 anchor.new_line,
             ) && selected_text_matches_line(line, &anchor.selected_text)
         })
         .map(|line| CurrentAnchorProjection {
             file_path: anchor.file_path.clone(),
-            side: anchor.side.clone(),
+            side: anchor.side,
             old_line: line.old_line,
             new_line: line.new_line,
             line_range: None,
@@ -436,7 +436,7 @@ fn exact_current_range_projection(
 
     Some(CurrentAnchorProjection {
         file_path: anchor.file_path.clone(),
-        side: anchor.side.clone(),
+        side: anchor.side,
         old_line: anchor.old_line,
         new_line: anchor.new_line,
         line_range: Some(range.clone()),

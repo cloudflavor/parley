@@ -142,7 +142,7 @@ impl TuiApp {
                 rows,
                 target.old_line,
                 target.new_line,
-                target.side.clone(),
+                target.side,
                 target.selected_text.as_deref(),
             )?
         };
@@ -243,7 +243,7 @@ fn row_range_context_windows(
 fn projection_target(comment: &LineComment) -> ProjectionTarget {
     if let Some(anchor) = comment.original_anchor.as_ref() {
         return ProjectionTarget {
-            side: anchor.side.clone(),
+            side: anchor.side,
             old_line: anchor.old_line,
             new_line: anchor.new_line,
             line_range: anchor.line_range.clone(),
@@ -252,7 +252,7 @@ fn projection_target(comment: &LineComment) -> ProjectionTarget {
     }
 
     ProjectionTarget {
-        side: comment.side.clone(),
+        side: comment.side,
         old_line: comment.old_line,
         new_line: comment.new_line,
         line_range: comment.line_range.clone(),
@@ -270,7 +270,7 @@ fn exact_single_row_projection(
     rows.iter()
         .enumerate()
         .find(|(_, row)| {
-            row_matches_projection_reference(row, side.clone(), old_line, new_line)
+            row_matches_projection_reference(row, side, old_line, new_line)
                 && selected_text_matches_row(row, selected_text)
         })
         .map(|(index, _)| index)
@@ -308,7 +308,7 @@ fn projection_matches_row(projection: &AnchorProjection, row: &DisplayRow) -> bo
     }
     row_matches_projection_reference(
         row,
-        projection.side.clone(),
+        projection.side,
         projection.old_line,
         projection.new_line,
     )

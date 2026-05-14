@@ -42,7 +42,7 @@ impl TuiApp {
             .map(|comment| ThreadSelectorEntry {
                 comment_id: comment.id,
                 file_path: comment.file_path.clone(),
-                status: comment.status.clone(),
+                status: comment.status,
                 line_reference: format_comment_reference(comment),
                 preview: comment
                     .body
@@ -187,11 +187,11 @@ impl TuiApp {
         let active_file_index = self.active_file_index();
         if force {
             self.review
-                .set_comment_status_force(comment_id, status.clone(), now_ms()?)
+                .set_comment_status_force(comment_id, status, now_ms()?)
                 .map_err(|error| anyhow!(error))?;
         } else {
             self.review
-                .set_comment_status(comment_id, status.clone(), Author::User, now_ms()?)
+                .set_comment_status(comment_id, status, Author::User, now_ms()?)
                 .map_err(|error| anyhow!(error))?;
         }
         service.save_review(&self.review).await?;
@@ -282,7 +282,7 @@ mod tests {
         let statuses = app
             .comments_for_file("src/a.rs")
             .iter()
-            .map(|comment| comment.status.clone())
+            .map(|comment| comment.status)
             .collect::<Vec<_>>();
         assert_eq!(
             statuses,

@@ -164,7 +164,7 @@ async fn perf_mark_selected_comment_status_many_comments() -> Result<()> {
         app.rebuild_comment_index();
         app.mark_selected_comment_status(&service, CommentStatus::Addressed, false)
             .await?;
-        black_box(app.review.comments[0].status.clone());
+        black_box(app.review.comments[0].status);
     }
     let elapsed = started_at.elapsed();
 

@@ -44,7 +44,7 @@ pub(super) fn render_comment_thread(
     let expanded = app.is_thread_expanded(comment.id, spec.selected_comment_id);
     let layout = comment_thread_layout(
         app.side_by_side_diff && !matches!(app.diff_source, DiffSource::RootDirectory),
-        comment.side.clone(),
+        comment.side,
         spec.pane_inner_width,
     );
 

@@ -16,7 +16,7 @@ pub enum Author {
     Ai,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum CommentStatus {
     Open,
@@ -24,7 +24,7 @@ pub enum CommentStatus {
     Addressed,
 }
 
-#[derive(Debug, Clone, Serialize, Deserialize, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(rename_all = "snake_case")]
 pub enum DiffSide {
     Left,
@@ -366,7 +366,7 @@ impl ReviewSession {
             }
         }
 
-        comment.status = status.clone();
+        comment.status = status;
         comment.updated_at_ms = now_ms;
         comment.addressed_at_ms = if matches!(status, CommentStatus::Addressed) {
             Some(now_ms)

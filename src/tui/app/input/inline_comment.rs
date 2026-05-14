@@ -198,7 +198,7 @@ impl TuiApp {
         let original_anchor = self.stored_anchor_snapshot_for_row_range(
             row_index,
             row_index,
-            side.clone(),
+            side,
             old_line,
             new_line,
             None,
@@ -303,7 +303,7 @@ impl TuiApp {
         let original_anchor = self.stored_anchor_snapshot_for_row_range(
             range_start,
             range_end,
-            side.clone(),
+            side,
             old_line,
             new_line,
             line_range.clone(),

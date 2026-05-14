@@ -325,7 +325,7 @@ impl TuiApp {
         for hunk in &file.hunks {
             for line in &hunk.lines {
                 rows.push(DisplayRow {
-                    kind: line.kind.clone(),
+                    kind: line.kind,
                     old_line: line.old_line,
                     new_line: line.new_line,
                     raw: line.raw.clone(),

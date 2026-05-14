@@ -516,7 +516,7 @@ mod tests {
         let line = new_line.or(old_line).unwrap_or(1);
         let mut comment = make_comment_with_anchor(id, file_path, CommentStatus::Open, line, line);
         comment.line_anchor = None;
-        comment.side = side.clone();
+        comment.side = side;
         comment.old_line = old_line;
         comment.new_line = new_line;
         comment.original_anchor = Some(StoredAnchorSnapshot {
