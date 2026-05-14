@@ -17,7 +17,7 @@ cargo build --release
 Parley separates two things:
 
 - a **diff source** you are reviewing
-- a **review session** stored under `.parley/`
+- a **review session** stored in the active Parley store
 
 The diff source is the code you see in the TUI:
 
@@ -32,6 +32,30 @@ The review session is the structured review state Parley keeps locally:
 - line-anchored comment threads
 - thread statuses: `open`, `pending`, `addressed`
 - review state exists for compatibility, but TUI completion is thread-based
+
+## Storage location
+
+Parley first checks for a `.parley/` directory in the current repository. If it exists, that local directory is the active store.
+
+If `.parley/` does not exist, Parley stores repo-scoped state under:
+
+```text
+$HOME/.config/parley/repos/<repo-name>-<hash>/
+```
+
+The repo name keeps the global store readable, and the hash prevents collisions between repositories with the same directory name.
+
+Parley does not create `.parley/` in the repository during normal review commands. To explicitly opt a repository into local storage, run:
+
+```bash
+parley config use-local
+```
+
+To see the active store path for the current repository, run:
+
+```bash
+parley config path
+```
 
 That matters because comments are not just free-form notes. Each thread is attached to a file path and line reference, and replies update the parent thread status.
 
@@ -182,7 +206,7 @@ Starting an AI run opens and follows the current file's AI logs so provider star
 
 ### Customize AI task prompts
 
-Parley always builds thread context from the selected comment, replies, target file, diff hunk, and referenced files. You can replace the final task instructions appended to that context with markdown files configured in `.parley/config.toml`.
+Parley always builds thread context from the selected comment, replies, target file, diff hunk, and referenced files. You can replace the final task instructions appended to that context with markdown files configured in the active store's `config.toml`.
 
 Use one shared prompt for all AI modes:
 
@@ -315,9 +339,9 @@ Review state mostly follows thread state:
 - `Ctrl+z`: suspend Parley (run `fg` to resume)
 - `?`: open in-app docs/help overlay
 
-By default, agent providers use persistent transports instead of spawning a one-shot CLI prompt for every thread. OpenCode uses ACP with `opencode acp`, Codex uses `codex-acp`, Claude uses `claude-agent-acp`, and Pi uses `pi --mode rpc --no-session`. Pi is RPC, not ACP. Set a provider's `transport = "cli"` in `.parley/config.toml` only when you explicitly need the old one-shot behavior. If ACP is configured with a non-ACP command such as `codex exec` or `opencode run`, Parley fails fast and shows the config error in the AI logs.
+By default, agent providers use persistent transports instead of spawning a one-shot CLI prompt for every thread. OpenCode uses ACP with `opencode acp`, Codex uses `codex-acp`, Claude uses `claude-agent-acp`, and Pi uses `pi --mode rpc --no-session`. Pi is RPC, not ACP. Set a provider's `transport = "cli"` in the active store's `config.toml` only when you explicitly need the old one-shot behavior. If ACP is configured with a non-ACP command such as `codex exec` or `opencode run`, Parley fails fast and shows the config error in the AI logs.
 
-The default `.parley/config.toml` AI shape is:
+The default `config.toml` AI shape is:
 
 ```toml
 [ai]
@@ -398,7 +422,7 @@ That lets you keep one named review session while pointing the TUI at an explici
 
 ## Config
 
-Parley reads configuration from `.parley/config.toml` and stores review-owned state under `.parley/reviews/<review-name>/`.
+Parley reads configuration from the active store's `config.toml` and stores review-owned state under `reviews/<review-name>/` in that same store.
 
 Each review directory contains:
 
@@ -409,9 +433,9 @@ logs/tui.log
 
 All comments, replies, thread status, review status, and TUI logs for that review stay under this directory.
 
-Older flat review files in `.parley/reviews/<review-name>.json` are still loaded.
+Older flat review files in `reviews/<review-name>.json` are still loaded.
 
-By default, Parley ignores its own `.parley/` files when building the review diff so that review metadata and logs do not show up in the file list.
+By default, Parley ignores `.parley/` files when local storage is active so that review metadata and logs do not show up in the file list.
 
 To include `.parley/` in the diff again, set:
 

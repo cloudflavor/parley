@@ -1,9 +1,8 @@
 use crate::domain::config::AppConfig;
 use crate::domain::review::ReviewSession;
-use std::io::Error;
-use std::io::ErrorKind;
-use std::path::Path;
-use std::path::PathBuf;
+use std::env;
+use std::io::{Error, ErrorKind};
+use std::path::{Path, PathBuf};
 use tokio::fs;
 
 #[derive(Debug, thiserror::Error)]
@@ -20,6 +19,10 @@ pub enum StoreError {
     TomlDeserialize(#[from] toml::de::Error),
     #[error("toml serialize error: {0}")]
     TomlSerialize(#[from] toml::ser::Error),
+    #[error("could not resolve $HOME for global parley storage")]
+    HomeNotFound,
+    #[error("local .parley path exists but is not a directory: {0}")]
+    LocalStorePathNotDirectory(PathBuf),
 }
 
 pub type StoreResult<T> = Result<T, StoreError>;
@@ -34,6 +37,44 @@ impl Store {
         Self {
             root: project_root.as_ref().join(".parley"),
         }
+    }
+
+    /// # Errors
+    ///
+    /// Returns an error when global storage cannot be resolved or an existing local `.parley`
+    /// marker is not a directory.
+    pub async fn resolve(project_root: impl AsRef<Path>) -> StoreResult<Self> {
+        let global_root = default_global_root()?;
+        Self::resolve_with_global_root(project_root, global_root).await
+    }
+
+    /// # Errors
+    ///
+    /// Returns an error when an existing local `.parley` marker is not a directory.
+    pub async fn resolve_with_global_root(
+        project_root: impl AsRef<Path>,
+        global_root: impl AsRef<Path>,
+    ) -> StoreResult<Self> {
+        let project_root = project_root.as_ref();
+        let local_root = project_root.join(".parley");
+        match fs::metadata(&local_root).await {
+            Ok(metadata) if metadata.is_dir() => return Ok(Self { root: local_root }),
+            Ok(_) => return Err(StoreError::LocalStorePathNotDirectory(local_root)),
+            Err(error) if error.kind() == ErrorKind::NotFound => {}
+            Err(error) => return Err(StoreError::Io(error)),
+        }
+
+        Ok(Self {
+            root: global_root
+                .as_ref()
+                .join("repos")
+                .join(repo_storage_name(project_root).await?),
+        })
+    }
+
+    #[must_use]
+    pub fn root_path(&self) -> &Path {
+        &self.root
     }
 
     /// # Errors
@@ -209,6 +250,57 @@ async fn read_optional_file(path: &Path) -> StoreResult<Option<Vec<u8>>> {
     }
 }
 
+fn default_global_root() -> StoreResult<PathBuf> {
+    let home = env::var_os("HOME").ok_or(StoreError::HomeNotFound)?;
+    Ok(PathBuf::from(home).join(".config").join("parley"))
+}
+
+async fn repo_storage_name(project_root: &Path) -> StoreResult<String> {
+    let canonical_root = fs::canonicalize(project_root).await?;
+    let repo_name = canonical_root
+        .file_name()
+        .and_then(|value| value.to_str())
+        .map(normalize_path_component)
+        .filter(|value| !value.is_empty())
+        .unwrap_or_else(|| "repository".to_string());
+
+    Ok(format!(
+        "{repo_name}-{:016x}",
+        stable_path_hash(&canonical_root)
+    ))
+}
+
+fn stable_path_hash(path: &Path) -> u64 {
+    let mut hash = 14_695_981_039_346_656_037_u64;
+    for byte in path.to_string_lossy().as_bytes() {
+        hash ^= u64::from(*byte);
+        hash = hash.wrapping_mul(1_099_511_628_211);
+    }
+    hash
+}
+
+fn normalize_path_component(input: &str) -> String {
+    let mut output = String::with_capacity(input.len());
+    let mut previous_was_separator = false;
+
+    for ch in input.chars() {
+        if ch.is_ascii_alphanumeric() || matches!(ch, '.' | '_' | '-') {
+            output.push(ch);
+            previous_was_separator = false;
+            continue;
+        }
+
+        if !previous_was_separator && !output.is_empty() {
+            output.push('_');
+            previous_was_separator = true;
+        }
+    }
+
+    output
+        .trim_matches(|ch| matches!(ch, '_' | '.'))
+        .to_string()
+}
+
 /// # Errors
 ///
 /// Returns an error when the review name is empty after trimming or contains unsupported
@@ -249,6 +341,7 @@ mod tests {
     };
     use anyhow::Result;
     use tempfile::tempdir;
+    use tokio::fs as tokio_fs;
 
     #[tokio::test]
     async fn save_and_load_review_should_round_trip() -> Result<()> {
@@ -265,6 +358,49 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn resolve_should_prefer_existing_local_store() -> Result<()> {
+        let tmp = tempdir()?;
+        let global = tempdir()?;
+        tokio_fs::create_dir(tmp.path().join(".parley")).await?;
+
+        let store = super::Store::resolve_with_global_root(tmp.path(), global.path()).await?;
+
+        assert_eq!(store.root_path(), tmp.path().join(".parley"));
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn resolve_should_use_global_repo_named_store_without_local_marker() -> Result<()> {
+        let tmp = tempdir()?;
+        let global = tempdir()?;
+
+        let store = super::Store::resolve_with_global_root(tmp.path(), global.path()).await?;
+
+        let expected = global
+            .path()
+            .join("repos")
+            .join(super::repo_storage_name(tmp.path()).await?);
+        assert_eq!(store.root_path(), expected);
+        assert!(!tokio_fs::try_exists(tmp.path().join(".parley")).await?);
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn resolve_should_reject_local_store_file() -> Result<()> {
+        let tmp = tempdir()?;
+        let global = tempdir()?;
+        tokio_fs::write(tmp.path().join(".parley"), "").await?;
+
+        let result = super::Store::resolve_with_global_root(tmp.path(), global.path()).await;
+
+        assert!(matches!(
+            result,
+            Err(super::StoreError::LocalStorePathNotDirectory(_))
+        ));
+        Ok(())
+    }
+
+    #[tokio::test]
     async fn save_review_should_use_normalized_review_directory() -> Result<()> {
         let tmp = tempdir()?;
         let store = super::Store::from_project_root(tmp.path());
@@ -273,7 +409,7 @@ mod tests {
         store.save_review(&review).await?;
 
         let path = tmp.path().join(".parley/reviews/r1/review.json");
-        assert!(path.exists());
+        assert!(tokio_fs::try_exists(path).await?);
         Ok(())
     }
 
@@ -284,7 +420,7 @@ mod tests {
         store.ensure_dirs().await?;
         let review = super::ReviewSession::new("legacy".into(), 1);
         let data = serde_json::to_vec_pretty(&review)?;
-        tokio::fs::write(tmp.path().join(".parley/reviews/legacy.json"), data).await?;
+        tokio_fs::write(tmp.path().join(".parley/reviews/legacy.json"), data).await?;
 
         let loaded = store.load_review("legacy").await?;
         let reviews = store.list_reviews().await?;
@@ -300,8 +436,8 @@ mod tests {
         let store = super::Store::from_project_root(tmp.path());
         store.ensure_dirs().await?;
         let review_dir = tmp.path().join(".parley/reviews/old");
-        super::fs::create_dir_all(&review_dir).await?;
-        super::fs::write(
+        tokio_fs::create_dir_all(&review_dir).await?;
+        tokio_fs::write(
             review_dir.join("review.json"),
             r#"{
   "name": "old",
@@ -416,7 +552,7 @@ mod tests {
         let store = super::Store::from_project_root(tmp.path());
         store.ensure_dirs().await?;
 
-        super::fs::write(
+        tokio_fs::write(
             tmp.path().join(".parley").join("config.toml"),
             "name = \"User\"\ntheme = \"nord\"\n",
         )

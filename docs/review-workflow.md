@@ -149,7 +149,7 @@ Parley's AI prompt has two parts:
 - generated review context from the selected thread, replies, target file, diff hunk, and referenced files
 - task instructions for the selected AI mode
 
-Configure markdown files in `.parley/config.toml` to replace the task-instruction part:
+Configure markdown files in the active store's `config.toml` to replace the task-instruction part:
 
 ```toml
 [ai]

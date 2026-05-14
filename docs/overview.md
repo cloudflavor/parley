@@ -25,9 +25,11 @@ Parley is not just a diff viewer and not just a notes file.
 It combines:
 
 - a diff source: working tree, commit, or range
-- a local review session: named review metadata stored under `.parley/`
+- a local review session: named review metadata stored in the active Parley store
 
 Each review is its own context. Switching reviews changes the comment threads, replies, and review status shown in the TUI; it does not change the active diff source.
+
+Parley uses a repository-local `.parley/` directory only when that directory already exists. Otherwise it stores the current repository's state under `$HOME/.config/parley/repos/<repo-name>-<hash>/`. Run `parley config use-local` to explicitly create `.parley/` for a repository that should keep Parley state inside the project. Run `parley config path` to print the active store path.
 
 That review session tracks threads as structured objects with:
 
@@ -185,9 +187,9 @@ Use `i` in the TUI to cycle the active AI provider. The active provider is shown
 
 Use `I` in the TUI to toggle the active AI transport between ACP and CLI for providers that support both. The selected transport is saved as `ai.default_transport`, which accepts only the generic `acp` and `cli` choices. Pi ignores the toggle and keeps using provider-specific `pi_rpc`.
 
-### `.parley/config.toml` AI provider config
+### AI provider config
 
-Parley reads project-local config from `.parley/config.toml`. If the file is missing, these AI defaults are used:
+Parley reads config from the active store's `config.toml`. If the file is missing, these AI defaults are used:
 
 ```toml
 [ai]
@@ -247,7 +249,19 @@ refactor_prompt_path = "prompts/refactor.md"
 
 ## Local state and diff filtering
 
-Parley stores config under `.parley/` and review-owned data under normalized review directories:
+Parley stores config and review-owned data under the active store. By default, that store is global and repo-scoped:
+
+```text
+$HOME/.config/parley/repos/<repo-name>-<hash>/
+  config.toml
+  reviews/
+    <review-name>/
+      review.json
+      logs/
+        tui.log
+```
+
+If `.parley/` exists in the repository, Parley uses it as the active store:
 
 ```text
 .parley/
@@ -263,7 +277,9 @@ Comments, replies, thread state, review state, and TUI logs belong to that revie
 
 Older flat files such as `.parley/reviews/<review-name>.json` are still readable.
 
-Those `.parley/` files are ignored by default when Parley builds the review diff, so local review metadata does not pollute the file sidebar. This behavior is configurable through `.parley/config.toml`:
+Run `parley config use-local` to explicitly create local `.parley/` storage for a repository. Run `parley config path` to print the active store path.
+
+Local `.parley/` files are ignored by default when Parley builds the review diff, so local review metadata does not pollute the file sidebar. This behavior is configurable through the active store's `config.toml`:
 
 ```toml
 ignore_parley_dir = false
