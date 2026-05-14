@@ -309,7 +309,7 @@ mod tests {
     fn test_colors() -> Result<crate::tui::theme::ThemeColors> {
         let themes = load_themes()?;
         let index = resolve_theme_index(&themes, default_theme_name()).unwrap_or(0);
-        Ok(themes[index].colors.clone())
+        Ok(themes[index].colors)
     }
 
     #[test]

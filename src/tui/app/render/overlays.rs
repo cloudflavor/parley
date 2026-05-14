@@ -18,7 +18,7 @@ use ratatui::text::{Line, Span};
 use ratatui::widgets::{Block, Borders, Clear, Paragraph, Wrap};
 
 pub(super) fn draw_thread_navigator_overlay(frame: &mut Frame<'_>, app: &mut TuiApp) {
-    let colors = app.theme().colors.clone();
+    let colors = *app.theme_colors();
     let root = frame.area();
     if root.width < 40 || root.height < 10 {
         return;
@@ -84,7 +84,7 @@ pub(super) fn draw_thread_navigator_overlay(frame: &mut Frame<'_>, app: &mut Tui
 }
 
 pub(super) fn draw_thread_selector(frame: &mut Frame<'_>, app: &mut TuiApp) {
-    let colors = app.theme().colors.clone();
+    let colors = *app.theme_colors();
     let root = frame.area();
     if root.width < 52 || root.height < 10 {
         return;
@@ -214,7 +214,7 @@ fn thread_selector_line(
 }
 
 pub(super) fn draw_ai_progress_popup(frame: &mut Frame<'_>, app: &mut TuiApp) {
-    let colors = app.theme().colors.clone();
+    let colors = *app.theme_colors();
     let root = frame.area();
     if root.width < 40 || root.height < 10 {
         return;
@@ -316,7 +316,7 @@ pub(super) fn draw_ai_progress_popup(frame: &mut Frame<'_>, app: &mut TuiApp) {
 }
 
 pub(super) fn draw_ai_activity_overlay(frame: &mut Frame<'_>, app: &mut TuiApp) {
-    let colors = app.theme().colors.clone();
+    let colors = *app.theme_colors();
     let root = frame.area();
     if root.width < 48 || root.height < 10 {
         return;
@@ -458,7 +458,7 @@ fn ai_session_status_style(status: AiLogSessionStatus, colors: &ThemeColors) -> 
 }
 
 pub(super) fn draw_file_heatmap_overlay(frame: &mut Frame<'_>, app: &mut TuiApp) {
-    let colors = app.theme().colors.clone();
+    let colors = *app.theme_colors();
     let root = frame.area();
     if root.width < 60 || root.height < 12 {
         return;
@@ -722,7 +722,7 @@ pub(super) fn draw_shortcuts_modal(frame: &mut Frame<'_>, app: &mut TuiApp) {
     );
     let area = centered_rect(root, width, height);
     app.last_shortcuts_modal_area = Some(area);
-    let colors = app.theme().colors.clone();
+    let colors = *app.theme_colors();
 
     let docs_count = HELP_DOCS.len();
     let doc_index = app
@@ -813,7 +813,7 @@ pub(super) fn draw_command_prompt(frame: &mut Frame<'_>, app: &TuiApp) {
         return;
     };
 
-    let colors = app.theme().colors.clone();
+    let colors = *app.theme_colors();
     let root = frame.area();
     let height: u16 = 3;
     if root.height < height {
@@ -877,7 +877,7 @@ pub(super) fn draw_command_palette(frame: &mut Frame<'_>, app: &mut TuiApp) {
     let width = root.width.saturating_sub(4).clamp(52, 96);
     let height = root.height.saturating_sub(4).clamp(10, 22);
     let area = centered_rect(root, width, height);
-    let colors = app.theme().colors.clone();
+    let colors = *app.theme_colors();
 
     let all_items = TuiApp::command_palette_items();
     let filtered_items = TuiApp::command_palette_filtered_items(&palette_query, &all_items);
@@ -986,7 +986,7 @@ pub(super) fn draw_code_search(frame: &mut Frame<'_>, app: &mut TuiApp) {
     let width = root.width.saturating_sub(4).clamp(56, 112);
     let height = root.height.saturating_sub(4).clamp(10, 24);
     let area = centered_rect(root, width, height);
-    let colors = app.theme().colors.clone();
+    let colors = *app.theme_colors();
     let query_prefix = "/ ";
     let query_width = usize::from(area.width.saturating_sub(2)).saturating_sub(query_prefix.len());
     let query_width = query_width.max(1);

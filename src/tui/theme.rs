@@ -12,7 +12,7 @@ pub struct UiTheme {
     pub colors: ThemeColors,
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Copy)]
 pub struct ThemeColors {
     pub accent: Color,
     pub text_primary: Color,

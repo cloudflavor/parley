@@ -40,7 +40,7 @@ pub(super) fn render_comment_thread(
 ) {
     let app = spec.app;
     let comment = spec.comment;
-    let colors = app.theme().colors.clone();
+    let colors = *app.theme_colors();
     let expanded = app.is_thread_expanded(comment.id, spec.selected_comment_id);
     let layout = comment_thread_layout(
         app.side_by_side_diff && !matches!(app.diff_source, DiffSource::RootDirectory),
@@ -672,7 +672,7 @@ mod tests {
                 2,
             )],
         )?;
-        let colors = app.theme().colors.clone();
+        let colors = *app.theme_colors();
         let mut comment = make_comment_with_anchor(1, "src/a.rs", CommentStatus::Open, 2, 2);
         comment.original_anchor = Some(StoredAnchorSnapshot {
             file_path: "src/a.rs".to_string(),

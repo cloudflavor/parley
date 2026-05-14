@@ -39,7 +39,7 @@ fn rebuild_row_cache_should_defer_syntax_highlighting() -> Result<()> {
         .expect("row cache should be populated");
     assert!(cached.highlights.iter().all(Option::is_none));
 
-    let colors = app.theme().colors.clone();
+    let colors = *app.theme_colors();
     let mut painter = app
         .syntax_painter_for_file(0, &colors)
         .expect("syntax painter should be available");
@@ -210,7 +210,7 @@ fn assert_total_perf_under(name: &str, iterations: usize, elapsed: Duration, max
 
 fn warm_highlights_for_selected_file(app: &mut TuiApp) {
     let file_index = app.active_file_index();
-    let colors = app.theme().colors.clone();
+    let colors = *app.theme_colors();
     let Some(mut painter) = app.syntax_painter_for_file(file_index, &colors) else {
         return;
     };

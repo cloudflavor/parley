@@ -38,7 +38,7 @@ pub(super) fn draw_diff_view_for_pane(
     area: Rect,
     pane: DiffPane,
 ) {
-    let colors = app.theme().colors.clone();
+    let colors = *app.theme_colors();
     let is_active = !app.split_diff_view || pane == app.active_diff_pane;
     let file_index = match pane {
         DiffPane::Primary => app.selected_file,

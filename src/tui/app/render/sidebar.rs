@@ -14,7 +14,7 @@ use std::collections::BTreeMap;
 pub(super) fn draw_file_sidebar(frame: &mut Frame<'_>, app: &mut TuiApp, area: Rect) {
     app.last_file_row_map.clear();
     app.last_file_group_map.clear();
-    let colors = app.theme().colors.clone();
+    let colors = *app.theme_colors();
     let file_name_query = app.file_search_query().map(str::to_owned);
     let layout = file_sidebar_layout(area);
 

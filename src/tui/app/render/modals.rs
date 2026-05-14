@@ -23,7 +23,7 @@ pub(super) fn draw_settings_editor(frame: &mut Frame<'_>, app: &TuiApp) {
         SettingsEditorKind::UserName => "Set User Name",
         SettingsEditorKind::CreateReview => "Create Review",
     };
-    let colors = app.theme().colors.clone();
+    let colors = *app.theme_colors();
     let inner_width = usize::from(area.width.saturating_sub(2)).max(1);
     let horizontal_scroll = editor
         .cursor_col
@@ -69,7 +69,7 @@ pub(super) fn draw_theme_picker(frame: &mut Frame<'_>, app: &TuiApp) {
     let width = root.width.saturating_sub(2).clamp(60, 90);
     let height = root.height.saturating_sub(2).clamp(12, 22);
     let area = centered_rect(root, width, height);
-    let colors = app.theme().colors.clone();
+    let colors = *app.theme_colors();
     let selected = picker
         .selected_index
         .min(app.themes.len().saturating_sub(1));
@@ -244,7 +244,7 @@ pub(super) fn draw_branch_picker(frame: &mut Frame<'_>, app: &TuiApp) {
     let width = root.width.saturating_sub(2).clamp(64, 90);
     let height = root.height.saturating_sub(2).clamp(12, 20);
     let area = centered_rect(root, width, height);
-    let colors = app.theme().colors.clone();
+    let colors = *app.theme_colors();
     let filtered = app.branch_picker_filtered_indices();
     let selected = picker.selected_index.min(filtered.len().saturating_sub(1));
 
@@ -354,7 +354,7 @@ pub(super) fn draw_commit_picker(frame: &mut Frame<'_>, app: &TuiApp) {
     let width = root.width.saturating_sub(2).clamp(72, 120);
     let height = root.height.saturating_sub(2).clamp(14, 24);
     let area = centered_rect(root, width, height);
-    let colors = app.theme().colors.clone();
+    let colors = *app.theme_colors();
     let filtered = app.commit_picker_filtered_indices();
     let selected = picker.selected_index.min(filtered.len().saturating_sub(1));
 
@@ -467,7 +467,7 @@ pub(super) fn draw_review_picker(frame: &mut Frame<'_>, app: &TuiApp) {
     let width = root.width.saturating_sub(2).clamp(72, 120);
     let height = root.height.saturating_sub(2).clamp(14, 24);
     let area = centered_rect(root, width, height);
-    let colors = app.theme().colors.clone();
+    let colors = *app.theme_colors();
     let filtered = app.review_picker_filtered_indices();
     let selected = picker.selected_index.min(filtered.len().saturating_sub(1));
 
@@ -589,7 +589,7 @@ pub(super) fn draw_worktree_picker(frame: &mut Frame<'_>, app: &TuiApp) {
     let width = root.width.saturating_sub(2).clamp(64, 100);
     let height = root.height.saturating_sub(2).clamp(14, 24);
     let area = centered_rect(root, width, height);
-    let colors = app.theme().colors.clone();
+    let colors = *app.theme_colors();
     let filtered = app.worktree_picker_filtered_indices();
     let selected = picker.selected_index.min(filtered.len().saturating_sub(1));
 

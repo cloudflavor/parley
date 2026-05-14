@@ -1,4 +1,5 @@
 use super::*;
+use crate::tui::theme::ThemeColors;
 
 impl TuiApp {
     pub(crate) fn new(init: TuiAppInit) -> Self {
@@ -145,6 +146,10 @@ impl TuiApp {
 
     pub(crate) fn theme(&self) -> &UiTheme {
         &self.themes[self.theme_index]
+    }
+
+    pub(crate) fn theme_colors(&self) -> &ThemeColors {
+        &self.theme().colors
     }
 
     pub(crate) fn author_label(&self, author: &Author) -> &str {

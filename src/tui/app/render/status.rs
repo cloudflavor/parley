@@ -161,7 +161,7 @@ pub(super) fn draw_status_toast(frame: &mut ratatui::Frame<'_>, app: &TuiApp, st
     }
 
     let root = frame.area();
-    let colors = app.theme().colors.clone();
+    let colors = *app.theme_colors();
     let max_text_width = usize::from(root.width.saturating_sub(10)).clamp(12, 46);
     let trimmed = message.trim();
     if trimmed.is_empty() {
