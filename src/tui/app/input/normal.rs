@@ -39,16 +39,6 @@ impl TuiApp {
             }
             return Ok(());
         }
-        if matches!(key.code, KeyCode::Char('o')) && key.modifiers.is_empty() {
-            self.open_file_viewer();
-            return Ok(());
-        }
-        if matches!(key.code, KeyCode::Char('b')) && key.modifiers.contains(KeyModifiers::CONTROL) {
-            if let Err(error) = self.open_branch_picker() {
-                self.status_line = format!("branch picker failed: {error}");
-            }
-            return Ok(());
-        }
         if matches!(key.code, KeyCode::Char('o')) && key.modifiers.contains(KeyModifiers::CONTROL) {
             if let Err(error) = self.open_commit_picker() {
                 self.status_line = format!("commit picker failed: {error}");
@@ -57,21 +47,15 @@ impl TuiApp {
         }
 
         if matches!(key.code, KeyCode::Char('z')) && key.modifiers.is_empty() {
-            if let Some(pressed_at) = self.pending_z_prefix_at
-                && pressed_at.elapsed() < Self::Z_PREFIX_TIMEOUT
-            {
-                self.pending_z_prefix_at = None;
-                self.center_active_cursor_in_viewport();
-                self.constrain_selection();
-                return Ok(());
-            }
-            self.pending_z_prefix_at = Some(Instant::now());
-            self.status_line = "z pending: press z again to center".into();
+            self.toggle_content_fullscreen();
+            self.status_line = "content toggled fullscreen".into();
             return Ok(());
         }
-
-        if self.pending_z_prefix_at.take().is_some() {
-            self.toggle_content_fullscreen();
+        if matches!(key.code, KeyCode::Char('z')) && key.modifiers.contains(KeyModifiers::SHIFT) {
+            self.center_active_cursor_in_viewport();
+            self.constrain_selection();
+            self.status_line = "viewport centered".into();
+            return Ok(());
         }
 
         match key.code {
@@ -160,7 +144,7 @@ impl TuiApp {
                 self.cycle_file_filter_mode();
             }
             KeyCode::Char('O') if key.modifiers.contains(KeyModifiers::SHIFT) => {
-                self.cycle_file_sort_mode();
+                self.open_file_viewer();
             }
             KeyCode::Enter => {
                 self.toggle_active_file_group_collapsed();

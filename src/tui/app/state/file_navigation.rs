@@ -108,6 +108,15 @@ impl TuiApp {
                 .or_default()
                 .push(comment_index);
         }
+        for indices in index.values_mut() {
+            indices.sort_by_key(|&idx| {
+                review.comments[idx]
+                    .line_range
+                    .as_ref()
+                    .map(|r| (r.start_old_line, r.end_old_line))
+                    .unwrap_or((review.comments[idx].old_line, review.comments[idx].new_line))
+            });
+        }
         index
     }
 
