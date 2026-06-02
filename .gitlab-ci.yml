@@ -3,7 +3,7 @@ stages:
   - release
 
 default:
-  image: rust:nightly
+  image: rust:latest
   before_script:
     - rustup component add rustfmt clippy
 
@@ -35,23 +35,33 @@ test:
 build_release_amd64_linux:
   extends: .release_job
   script:
+    - VERSION=${CI_COMMIT_TAG#v:-dev}
+    - TARGET=x86_64-unknown-linux-gnu
     - cargo build --release --locked --bin parley
-    - mkdir -p /dist/x86_64-unknown-linux-gnu
-    - mv target/release/parley /dist/x86_64-unknown-linux-gnu/parley
+    - mkdir -p dist/$TARGET
+    - cp target/release/parley dist/$TARGET/parley
+    - cd dist/$TARGET
+    - sha256sum parley > parley.sha256
+    - tar -czvf parley-${VERSION}-linux-x86_64.tar.gz parley parley.sha256
   artifacts:
     paths:
-      - /dist/x86_64-unknown-linux-gnu/parley
+      - dist/x86_64-unknown-linux-gnu/parley-*.tar.gz
     expire_in: 7 days
 
 build_release_aarch64_linux:
   extends: .release_job
   script:
+    - VERSION=${CI_COMMIT_TAG#v:-dev}
+    - TARGET=aarch64-unknown-linux-gnu
     - cargo build --release --locked --bin parley
-    - mkdir -p /dist/aarch64-unknown-linux-gnu
-    - mv target/release/parley /dist/aarch64-unknown-linux-gnu/parley
+    - mkdir -p dist/$TARGET
+    - cp target/release/parley dist/$TARGET/parley
+    - cd dist/$TARGET
+    - sha256sum parley > parley.sha256
+    - tar -czvf parley-${VERSION}-linux-aarch64.tar.gz parley parley.sha256
   artifacts:
     paths:
-      - /dist/aarch64-unknown-linux-gnu/parley
+      - dist/aarch64-unknown-linux-gnu/parley-*.tar.gz
     expire_in: 7 days
 
 build_release_aarch64_macos:
@@ -62,10 +72,15 @@ build_release_aarch64_macos:
   before_script:
     - rustup component add rustfmt clippy
   script:
+    - VERSION=${CI_COMMIT_TAG#v:-dev}
+    - TARGET=aarch64-apple-darwin
     - cargo build --release --locked --bin parley
-    - mkdir -p /dist/aarch64-apple-darwin
-    - mv target/release/parley /dist/aarch64-apple-darwin/parley
+    - mkdir -p dist/$TARGET
+    - cp target/release/parley dist/$TARGET/parley
+    - cd dist/$TARGET
+    - shasum -a 256 parley > parley.sha256
+    - tar -czvf parley-${VERSION}-macos-aarch64.tar.gz parley parley.sha256
   artifacts:
     paths:
-      - /dist/aarch64-apple-darwin/parley
+      - dist/aarch64-apple-darwin/parley-*.tar.gz
     expire_in: 7 days
