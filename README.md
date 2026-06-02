@@ -122,6 +122,10 @@ Root mode lazy-loads file contents. JSON files are displayed with pretty formatt
 
 ## CLI Reference
 
+Global options (available on every command):
+
+- `--worktree <name|path>` — use a specific git worktree by name or path
+
 Top-level commands:
 
 - `parley tui`

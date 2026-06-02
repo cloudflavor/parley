@@ -93,6 +93,12 @@ If your terminal or SSH session mishandles mouse reporting, disable mouse captur
 parley tui --review my-review --no-mouse
 ```
 
+If you are in a repository with multiple worktrees, start Parley against a specific one:
+
+```bash
+parley tui --review my-review --worktree feature/my-branch
+```
+
 The TUI never creates or guesses a startup review. Review context is explicit so comments are always written under the intended review.
 
 ## Open a specific commit or range
@@ -435,7 +441,9 @@ That lets you keep one named review session while pointing the TUI at an explici
 
 ## Config
 
-Parley reads configuration from `$HOME/.config/parley/config.toml` and stores review-owned state under `.parley/reviews/<review-name>/`. If the user config file does not exist, Parley still reads the legacy `.parley/config.toml` path for existing checkouts.
+Parley reads configuration from `$HOME/.config/parley/config.toml`.
+
+By default, review-owned state is stored under `$HOME/.config/parley/repos/<repo-name>-<hash>/reviews/<review-name>/`. If `.parley/` exists in the repository, Parley uses `.parley/reviews/<review-name>/` instead.
 
 Each review directory contains:
 

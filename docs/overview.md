@@ -120,7 +120,7 @@ Use `Ctrl+k` and `Create Review` to create a new review from inside the TUI and 
 
 Use `Ctrl+k` and `Open Branch Picker` to switch git branch from a filtered list.
 
-Use `Ctrl+k` and `Open Worktree Picker` to switch git worktree from a filtered list.
+Use `Ctrl+k` and `Open Worktree Picker` to switch git worktree from a filtered list. You can also start Parley against a specific worktree from the CLI with `--worktree <name|path>`.
 
 Current limitation:
 
@@ -202,7 +202,7 @@ Use `I` in the TUI to toggle the active AI transport between ACP and CLI for pro
 
 ### `$HOME/.config/parley/config.toml` AI provider config
 
-Parley reads user config from `$HOME/.config/parley/config.toml`. If the file is missing, these AI defaults are used. Existing `.parley/config.toml` files are still read as a legacy fallback:
+Parley reads user config from `$HOME/.config/parley/config.toml`. If the file is missing, these AI defaults are used:
 
 ```toml
 [ai]
