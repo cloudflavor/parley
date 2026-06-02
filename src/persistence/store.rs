@@ -266,11 +266,7 @@ impl Store {
         let path = self.config_path()?;
 
         let Some(bytes) = read_optional_file(&path).await? else {
-            let legacy_path = self.legacy_config_path();
-            return match read_optional_file(&legacy_path).await? {
-                Some(bytes) => parse_config(bytes, &legacy_path),
-                None => Ok(AppConfig::default()),
-            };
+            return Ok(AppConfig::default());
         };
         parse_config(bytes, &path)
     }
@@ -294,10 +290,6 @@ impl Store {
             .as_ref()
             .map(|root| root.join("parley").join("config.toml"))
             .ok_or(StoreError::ConfigHomeUnavailable)
-    }
-
-    fn legacy_config_path(&self) -> PathBuf {
-        self.root.join("config.toml")
     }
 
     // Legacy compatibility for flat review files that predate per-review directories.
@@ -666,44 +658,15 @@ mod tests {
     }
 
     #[tokio::test]
-    async fn load_config_should_support_legacy_name_field() -> Result<()> {
+    async fn load_config_should_return_default_when_missing() -> Result<()> {
         let tmp = tempdir()?;
         let config_root = tempdir()?;
         let store = super::Store::from_project_root_and_config_root(tmp.path(), config_root.path());
-        super::fs::create_dir_all(config_root.path().join("parley")).await?;
-
-        tokio_fs::write(
-            tmp.path().join(".parley").join("config.toml"),
-            "name = \"User\"\ntheme = \"nord\"\n",
-        )
-        .await?;
 
         let loaded = store.load_config().await?;
 
-        assert_eq!(loaded.user_name, "User");
-        assert_eq!(loaded.theme, "nord");
-        assert_eq!(loaded.diff_view, DiffViewMode::SideBySide);
-        assert!(loaded.ignore_parley_dir);
-        assert_eq!(loaded.log_level, "info");
-        Ok(())
-    }
-
-    #[tokio::test]
-    async fn load_config_should_support_legacy_project_config_path() -> Result<()> {
-        let tmp = tempdir()?;
-        let config_root = tempdir()?;
-        let store = super::Store::from_project_root_and_config_root(tmp.path(), config_root.path());
-        store.ensure_dirs().await?;
-
-        super::fs::write(
-            tmp.path().join(".parley").join("config.toml"),
-            "user_name = \"Legacy\"\ntheme = \"nord\"\n",
-        )
-        .await?;
-
-        let loaded = store.load_config().await?;
-
-        assert_eq!(loaded.user_name, "Legacy");
+        // default_user_name() uses $USER env var, so just check it's non-empty
+        assert!(!loaded.user_name.is_empty());
         Ok(())
     }
 }
