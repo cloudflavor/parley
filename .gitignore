@@ -9,3 +9,4 @@ node_modules
 .opal/*
 !.opal/config.toml
 /worktrees
+dist
