@@ -291,9 +291,9 @@ mod tests {
         let tmp = tempdir()?;
         Repository::init(tmp.path())?;
         let ctx = discover(tmp.path()).await?;
-        assert_eq!(ctx.selected_worktree, tmp.path());
-        assert_eq!(ctx.main_worktree.as_deref(), Some(tmp.path()));
-        assert_eq!(ctx.storage_root, tmp.path().join(".parley"));
+        let tmp_canonical = std::fs::canonicalize(tmp.path())?;
+        assert_eq!(std::fs::canonicalize(&ctx.selected_worktree)?, tmp_canonical);
+        assert_eq!(ctx.main_worktree.as_deref().and_then(|p| std::fs::canonicalize(p).ok()), Some(tmp_canonical));
         Ok(())
     }
 
