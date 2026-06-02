@@ -120,6 +120,11 @@ impl TuiApp {
                 keywords: "worktree git switch context cwd directory",
             },
             CommandPaletteItem {
+                action: CommandPaletteAction::OpenBranchPicker,
+                label: "Open Branch Picker",
+                keywords: "branch git switch checkout",
+            },
+            CommandPaletteItem {
                 action: CommandPaletteAction::OpenThreadSelector,
                 label: "Open Thread Selector",
                 keywords: "thread comments jump selector navigate",

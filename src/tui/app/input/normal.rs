@@ -33,6 +33,12 @@ impl TuiApp {
             self.open_thread_selector();
             return Ok(());
         }
+        if matches!(key.code, KeyCode::Char('b')) && key.modifiers.contains(KeyModifiers::CONTROL) {
+            if let Err(error) = self.open_branch_picker() {
+                self.status_line = format!("branch picker failed: {error}");
+            }
+            return Ok(());
+        }
         if matches!(key.code, KeyCode::Char('w')) && key.modifiers.contains(KeyModifiers::CONTROL) {
             if let Err(error) = self.open_worktree_picker().await {
                 self.status_line = format!("worktree picker failed: {error}");

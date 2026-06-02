@@ -107,6 +107,7 @@
 - Command palette `Toggle Active File Group`: collapse or expand the active file group
 - Command palette `Collapse All File Groups`: collapse every file group visible under the current filter
 - Command palette `Open Commit Picker`: open recent commits, filter by message or SHA, and apply the selected commit as the active diff source
+- Command palette `Open Branch Picker`: switch git branch from a filtered list
 - Command palette `Open Review Picker`: open reviews, filter by name or state, and apply the selected review as the active comment context
 - Command palette `Open Thread Selector`: search and jump across all review threads
 - Command palette `Create Review`: create a new review context and switch to it
@@ -134,6 +135,9 @@
 - `Shift+C`: collapse all visible file groups
 - Mouse: click a file group header to collapse or expand it
 - `b`: toggle thread navigator
+- `Ctrl+b`: open branch picker (switch git branch)
+- `Ctrl+w`: open worktree picker (switch git worktree)
+- `Ctrl+o`: open commit picker (apply a commit as the active diff source)
 - `Ctrl+z`: suspend Parley (run `fg` to resume)
 - `Ctrl+t`: open thread selector (also closes it when open)
 

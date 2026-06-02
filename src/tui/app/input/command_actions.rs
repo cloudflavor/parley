@@ -66,6 +66,9 @@ impl TuiApp {
             CommandPaletteAction::OpenWorktreePicker => {
                 self.open_worktree_picker().await?;
             }
+            CommandPaletteAction::OpenBranchPicker => {
+                self.open_branch_picker()?;
+            }
             CommandPaletteAction::OpenThreadSelector => {
                 self.open_thread_selector();
             }

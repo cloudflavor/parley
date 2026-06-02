@@ -17,7 +17,7 @@ use crate::services::review_service::{
 };
 use anyhow::{Context, Result};
 use crossterm::event::{KeyCode, KeyEvent, KeyModifiers, MouseButton, MouseEvent, MouseEventKind};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 mod code_search;
 mod command_actions;

@@ -537,6 +537,7 @@ enum CommandPaletteAction {
     OpenCommitPicker,
     OpenReviewPicker,
     OpenWorktreePicker,
+    OpenBranchPicker,
     OpenThreadSelector,
     CreateReview,
     OpenCodeSearch,
