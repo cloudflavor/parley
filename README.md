@@ -219,7 +219,7 @@ ignore_parley_dir = false
 in:
 
 ```text
-.parley/config.toml
+$HOME/.config/parley/config.toml
 ```
 
 ## Documentation

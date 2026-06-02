@@ -180,9 +180,9 @@ Use `i` in the TUI to cycle the active AI provider. The active provider is shown
 
 Use `I` in the TUI to toggle the active AI transport between ACP and CLI for providers that support both. The selected transport is saved as `ai.default_transport`, which accepts only the generic `acp` and `cli` choices. Pi ignores the toggle and keeps using provider-specific `pi_rpc`.
 
-### `.parley/config.toml` AI provider config
+### `$HOME/.config/parley/config.toml` AI provider config
 
-Parley reads project-local config from `.parley/config.toml`. If the file is missing, these AI defaults are used:
+Parley reads user config from `$HOME/.config/parley/config.toml`. If the file is missing, these AI defaults are used. Existing `.parley/config.toml` files are still read as a legacy fallback:
 
 ```toml
 [ai]
@@ -258,7 +258,7 @@ Comments, replies, thread state, review state, and TUI logs belong to that revie
 
 Older flat files such as `.parley/reviews/<review-name>.json` are still readable.
 
-Those `.parley/` files are ignored by default when Parley builds the review diff, so local review metadata does not pollute the file sidebar. This behavior is configurable through `.parley/config.toml`:
+Those `.parley/` files are ignored by default when Parley builds the review diff, so local review metadata does not pollute the file sidebar. This behavior is configurable through `$HOME/.config/parley/config.toml`:
 
 ```toml
 ignore_parley_dir = false

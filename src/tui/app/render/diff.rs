@@ -283,8 +283,13 @@ pub(super) fn draw_diff_view_for_pane(
                 let comment_body_lines =
                     cached_comment_body_lines(app, comment, inner_width, &colors);
                 let anchor_expanded = app.expanded_anchor_threads.contains(&comment.id);
-                let detached_body_lines =
-                    detached_thread_body_lines(comment, &comment_body_lines, inner_width, &colors, anchor_expanded);
+                let detached_body_lines = detached_thread_body_lines(
+                    comment,
+                    &comment_body_lines,
+                    inner_width,
+                    &colors,
+                    anchor_expanded,
+                );
                 super::threads::push_thread_box(
                     &mut lines,
                     &mut row_map,

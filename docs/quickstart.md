@@ -182,7 +182,7 @@ Starting an AI run opens and follows the current file's AI logs so provider star
 
 ### Customize AI task prompts
 
-Parley always builds thread context from the selected comment, replies, target file, diff hunk, and referenced files. You can replace the final task instructions appended to that context with markdown files configured in `.parley/config.toml`.
+Parley always builds thread context from the selected comment, replies, target file, diff hunk, and referenced files. You can replace the final task instructions appended to that context with markdown files configured in `$HOME/.config/parley/config.toml`.
 
 Use one shared prompt for all AI modes:
 
@@ -315,9 +315,9 @@ Review state mostly follows thread state:
 - `Ctrl+z`: suspend Parley (run `fg` to resume)
 - `?`: open in-app docs/help overlay
 
-By default, agent providers use persistent transports instead of spawning a one-shot CLI prompt for every thread. OpenCode uses ACP with `opencode acp`, Codex uses `codex-acp`, Claude uses `claude-agent-acp`, and Pi uses `pi --mode rpc --no-session`. Pi is RPC, not ACP. Set a provider's `transport = "cli"` in `.parley/config.toml` only when you explicitly need the old one-shot behavior. If ACP is configured with a non-ACP command such as `codex exec` or `opencode run`, Parley fails fast and shows the config error in the AI logs.
+By default, agent providers use persistent transports instead of spawning a one-shot CLI prompt for every thread. OpenCode uses ACP with `opencode acp`, Codex uses `codex-acp`, Claude uses `claude-agent-acp`, and Pi uses `pi --mode rpc --no-session`. Pi is RPC, not ACP. Set a provider's `transport = "cli"` in `$HOME/.config/parley/config.toml` only when you explicitly need the old one-shot behavior. If ACP is configured with a non-ACP command such as `codex exec` or `opencode run`, Parley fails fast and shows the config error in the AI logs.
 
-The default `.parley/config.toml` AI shape is:
+The default `$HOME/.config/parley/config.toml` AI shape is:
 
 ```toml
 [ai]
@@ -398,7 +398,7 @@ That lets you keep one named review session while pointing the TUI at an explici
 
 ## Config
 
-Parley reads configuration from `.parley/config.toml` and stores review-owned state under `.parley/reviews/<review-name>/`.
+Parley reads configuration from `$HOME/.config/parley/config.toml` and stores review-owned state under `.parley/reviews/<review-name>/`. If the user config file does not exist, Parley still reads the legacy `.parley/config.toml` path for existing checkouts.
 
 Each review directory contains:
 
