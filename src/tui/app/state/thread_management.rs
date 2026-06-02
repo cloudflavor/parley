@@ -303,7 +303,7 @@ mod tests {
         app.collapsed_threads.insert(1);
 
         assert!(!app.is_thread_expanded(1, Some(1)));
-        assert!(app.is_thread_expanded(2, None));
+        assert!(!app.is_thread_expanded(2, None));
         Ok(())
     }
 
@@ -323,7 +323,8 @@ mod tests {
         assert!(app.collapsed_threads.contains(&1));
         assert!(!app.collapsed_threads.contains(&2));
         assert!(!app.is_thread_expanded(1, Some(1)));
-        assert!(app.is_thread_expanded(2, None));
+        // Thread 2 is not selected and not explicitly expanded, so it stays collapsed
+        assert!(!app.is_thread_expanded(2, None));
 
         app.toggle_selected_thread_expansion();
 

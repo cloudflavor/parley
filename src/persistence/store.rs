@@ -11,6 +11,8 @@ pub enum StoreError {
     InvalidReviewName(String),
     #[error("review not found: {0}")]
     ReviewNotFound(String),
+    #[error("HOME is not set; cannot resolve parley config directory")]
+    ConfigHomeUnavailable,
     #[error("io error: {0}")]
     Io(#[from] Error),
     #[error("json error: {0}")]
@@ -30,12 +32,25 @@ pub type StoreResult<T> = Result<T, StoreError>;
 #[derive(Debug, Clone)]
 pub struct Store {
     root: PathBuf,
+    config_root: Option<PathBuf>,
 }
 
 impl Store {
     pub fn from_project_root(project_root: impl AsRef<Path>) -> Self {
         Self {
             root: project_root.as_ref().join(".parley"),
+            config_root: default_config_root(),
+        }
+    }
+
+    #[cfg(test)]
+    fn from_project_root_and_config_root(
+        project_root: impl AsRef<Path>,
+        config_root: impl AsRef<Path>,
+    ) -> Self {
+        Self {
+            root: project_root.as_ref().join(".parley"),
+            config_root: Some(config_root.as_ref().to_path_buf()),
         }
     }
 
@@ -43,6 +58,7 @@ impl Store {
     pub fn from_storage_root(storage_root: impl AsRef<Path>) -> Self {
         Self {
             root: storage_root.as_ref().to_path_buf(),
+            config_root: default_config_root(),
         }
     }
 
@@ -107,6 +123,7 @@ impl Store {
             Ok(metadata) if metadata.is_dir() => {
                 return Ok(Self {
                     root: local_root.to_path_buf(),
+                    config_root: default_config_root(),
                 });
             }
             Ok(_) => {
@@ -122,6 +139,7 @@ impl Store {
             Ok(metadata) if metadata.is_dir() => {
                 return Ok(Self {
                     root: storage_root.to_path_buf(),
+                    config_root: default_config_root(),
                 });
             }
             Ok(_) => {
@@ -137,6 +155,7 @@ impl Store {
         fs::create_dir_all(&global_repos).await?;
         Ok(Self {
             root: global_repos.join(repo_storage_name(project_root).await?),
+            config_root: default_config_root(),
         })
     }
 
@@ -244,19 +263,16 @@ impl Store {
     /// Returns an error when config directories cannot be created or config data cannot be read or
     /// deserialized.
     pub async fn load_config(&self) -> StoreResult<AppConfig> {
-        self.ensure_dirs().await?;
-        let path = self.config_path();
+        let path = self.config_path()?;
 
         let Some(bytes) = read_optional_file(&path).await? else {
-            return Ok(AppConfig::default());
+            let legacy_path = self.legacy_config_path();
+            return match read_optional_file(&legacy_path).await? {
+                Some(bytes) => parse_config(bytes, &legacy_path),
+                None => Ok(AppConfig::default()),
+            };
         };
-        let text = String::from_utf8(bytes).map_err(|error| {
-            StoreError::Io(Error::new(
-                ErrorKind::InvalidData,
-                format!("invalid utf-8 in config.toml: {error}"),
-            ))
-        })?;
-        Ok(toml::from_str(&text)?)
+        parse_config(bytes, &path)
     }
 
     /// # Errors
@@ -264,13 +280,23 @@ impl Store {
     /// Returns an error when config directories cannot be created, config data cannot be serialized,
     /// or the config file cannot be written.
     pub async fn save_config(&self, config: &AppConfig) -> StoreResult<()> {
-        self.ensure_dirs().await?;
+        let path = self.config_path()?;
+        if let Some(parent) = path.parent() {
+            fs::create_dir_all(parent).await?;
+        }
         let data = toml::to_string_pretty(config)?;
-        fs::write(self.config_path(), data).await?;
+        fs::write(path, data).await?;
         Ok(())
     }
 
-    fn config_path(&self) -> PathBuf {
+    fn config_path(&self) -> StoreResult<PathBuf> {
+        self.config_root
+            .as_ref()
+            .map(|root| root.join("parley").join("config.toml"))
+            .ok_or(StoreError::ConfigHomeUnavailable)
+    }
+
+    fn legacy_config_path(&self) -> PathBuf {
         self.root.join("config.toml")
     }
 
@@ -301,6 +327,27 @@ impl Store {
         validate_review_name(name)?;
         Ok(self.reviews_dir().join(format!("{name}.json")))
     }
+}
+
+fn default_config_root() -> Option<PathBuf> {
+    std::env::var_os("XDG_CONFIG_HOME")
+        .filter(|value| !value.is_empty())
+        .map(PathBuf::from)
+        .or_else(|| {
+            std::env::var_os("HOME")
+                .filter(|value| !value.is_empty())
+                .map(|home| PathBuf::from(home).join(".config"))
+        })
+}
+
+fn parse_config(bytes: Vec<u8>, path: &Path) -> StoreResult<AppConfig> {
+    let text = String::from_utf8(bytes).map_err(|error| {
+        StoreError::Io(Error::new(
+            ErrorKind::InvalidData,
+            format!("invalid utf-8 in {}: {error}", path.display()),
+        ))
+    })?;
+    Ok(toml::from_str(&text)?)
 }
 
 async fn read_review_file(path: &Path) -> StoreResult<Option<ReviewSession>> {
@@ -597,7 +644,8 @@ mod tests {
     #[tokio::test]
     async fn save_and_load_config_should_round_trip() -> Result<()> {
         let tmp = tempdir()?;
-        let store = super::Store::from_project_root(tmp.path());
+        let config_root = tempdir()?;
+        let store = super::Store::from_project_root_and_config_root(tmp.path(), config_root.path());
         let config = super::AppConfig {
             user_name: "User".to_string(),
             theme: "nord".to_string(),
@@ -612,14 +660,17 @@ mod tests {
         let loaded = store.load_config().await?;
 
         assert_eq!(loaded, config);
+        assert!(config_root.path().join("parley/config.toml").exists());
+        assert!(!tmp.path().join(".parley/config.toml").exists());
         Ok(())
     }
 
     #[tokio::test]
     async fn load_config_should_support_legacy_name_field() -> Result<()> {
         let tmp = tempdir()?;
-        let store = super::Store::from_project_root(tmp.path());
-        store.ensure_dirs().await?;
+        let config_root = tempdir()?;
+        let store = super::Store::from_project_root_and_config_root(tmp.path(), config_root.path());
+        super::fs::create_dir_all(config_root.path().join("parley")).await?;
 
         tokio_fs::write(
             tmp.path().join(".parley").join("config.toml"),
@@ -634,6 +685,25 @@ mod tests {
         assert_eq!(loaded.diff_view, DiffViewMode::SideBySide);
         assert!(loaded.ignore_parley_dir);
         assert_eq!(loaded.log_level, "info");
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn load_config_should_support_legacy_project_config_path() -> Result<()> {
+        let tmp = tempdir()?;
+        let config_root = tempdir()?;
+        let store = super::Store::from_project_root_and_config_root(tmp.path(), config_root.path());
+        store.ensure_dirs().await?;
+
+        super::fs::write(
+            tmp.path().join(".parley").join("config.toml"),
+            "user_name = \"Legacy\"\ntheme = \"nord\"\n",
+        )
+        .await?;
+
+        let loaded = store.load_config().await?;
+
+        assert_eq!(loaded.user_name, "Legacy");
         Ok(())
     }
 }

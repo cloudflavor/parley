@@ -227,7 +227,7 @@ ignore_parley_dir = false
 in:
 
 ```text
-<active-store>/config.toml
+$HOME/.config/parley/config.toml
 ```
 
 ## Documentation
