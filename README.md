@@ -46,21 +46,28 @@ parley config use-local
 - `pending` means waiting for human review.
 - `addressed` means the individual thread is resolved.
 
-## Installation and Build
+## Installation
 
 Prerequisites:
 
-- Rust toolchain
+- Rust toolchain (for cargo install or building from source)
 - Git repository as working directory
 - Terminal with TUI support
 
-Install the `parley` binary:
+### Homebrew (macOS and Linux)
+
+```bash
+brew tap cloudflavor/tap
+brew install cloudflavor/tap/parley
+```
+
+### Cargo
 
 ```bash
 cargo install parley-cli
 ```
 
-Build locally:
+### Build from source
 
 ```bash
 cargo build --release
@@ -119,6 +126,8 @@ Top-level commands:
 
 - `parley tui`
 - `parley review <subcommand>`
+- `parley config <subcommand>`
+- `parley worktree <subcommand>`
 - `parley mcp`
 
 Common `review` subcommands:
@@ -133,6 +142,16 @@ Common `review` subcommands:
 - `mark-addressed ...`
 - `mark-open ...`
 - `run-ai-session ...`
+
+Config subcommands:
+
+- `path` — print the active Parley store path
+- `use-local` — create `.parley/` in the repository and use it as the active store
+
+Worktree subcommands:
+
+- `list` — list known worktrees for the repository
+- `current` — print the resolved active worktree path
 
 ## TUI Workflow and Key Controls
 
@@ -175,6 +194,7 @@ Providers:
 - `codex`
 - `claude`
 - `opencode`
+- `pi`
 
 Modes:
 

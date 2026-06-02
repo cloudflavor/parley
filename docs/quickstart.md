@@ -2,11 +2,20 @@
 
 ## Install
 
+### Homebrew (macOS and Linux)
+
+```bash
+brew tap cloudflavor/tap
+brew install cloudflavor/tap/parley
+```
+
+### Cargo
+
 ```bash
 cargo install parley-cli
 ```
 
-## Build
+## Build from source
 
 ```bash
 cargo build --release
@@ -64,8 +73,8 @@ The review session is the comment context. Switching reviews changes which comme
 ## Create a review session
 
 ```bash
-./target/release/parley review create my-review
-./target/release/parley review start my-review
+parley review create my-review
+parley review start my-review
 ```
 
 `review create` creates the local session. `review start` moves it into `under_review`, but the moment you add an `open` thread, the review state automatically becomes `open` again.
@@ -73,7 +82,7 @@ The review session is the comment context. Switching reviews changes which comme
 ## Open the TUI on your current changes
 
 ```bash
-./target/release/parley tui --review my-review
+parley tui --review my-review
 ```
 
 `--review` is required, and the review must already exist. Create it first with `review create`.
@@ -81,7 +90,7 @@ The review session is the comment context. Switching reviews changes which comme
 If your terminal or SSH session mishandles mouse reporting, disable mouse capture:
 
 ```bash
-./target/release/parley tui --review my-review --no-mouse
+parley tui --review my-review --no-mouse
 ```
 
 The TUI never creates or guesses a startup review. Review context is explicit so comments are always written under the intended review.
@@ -91,13 +100,13 @@ The TUI never creates or guesses a startup review. Review context is explicit so
 By default, the TUI opens the current working tree diff. You can also open historical revisions:
 
 ```bash
-./target/release/parley tui --commit HEAD~2
-./target/release/parley tui --base origin/trunk --head feature/my-branch
-./target/release/parley tui --base v0.1.0
+parley tui --commit HEAD~2
+parley tui --base origin/trunk --head feature/my-branch
+parley tui --base v0.1.0
 # everything after HEAD~2 (exclude that commit)
-./target/release/parley tui --base HEAD~2 --head HEAD
+parley tui --base HEAD~2 --head HEAD
 # everything after and including HEAD~2
-./target/release/parley tui --base HEAD~2^ --head HEAD
+parley tui --base HEAD~2^ --head HEAD
 ```
 
 - `--commit <rev>` shows that commit against its first parent.
@@ -138,7 +147,7 @@ Current limitation:
 Use root mode when you want to review the repository as files, not as a git diff:
 
 ```bash
-./target/release/parley tui --review my-review --root
+parley tui --review my-review --root
 ```
 
 `--review` is still required, and the review must already exist. Root mode does not create or guess a review.
@@ -223,6 +232,8 @@ reply_prompt_path = "prompts/parley-reply.md"
 refactor_prompt_path = "prompts/parley-refactor.md"
 ```
 
+Supported providers: `codex`, `claude`, `opencode`, `pi`.
+
 Mode-specific paths take precedence over `prompt_path`. Relative paths are resolved from the repository root where Parley is started. If a configured prompt file cannot be read, the AI session fails before invoking the provider.
 
 ## Core controls
@@ -234,7 +245,8 @@ Mode-specific paths take precedence over `prompt_path`. Relative paths are resol
 - `PgUp/PgDn`: page scroll
 - `Ctrl+u/Ctrl+d`: half-page scroll
 - `g/Shift+G`: jump to first or last line
-- `z` (double press): center active line in viewport
+- `z`: toggle content fullscreen
+- `Shift+Z`: center active line in viewport
 
 ### Search and jump
 
@@ -324,8 +336,9 @@ Review state mostly follows thread state:
 - Heatmap `s`: cycle sort by churn, added, removed, commits, net growth, net shrink, volatility, or path
 - Heatmap `Shift+S`: reverse the active heatmap sort
 - `Ctrl+f`: focus files filter input
-- `F`: cycle file filter mode
-- `O`: cycle file sort mode
+- `Shift+F`: cycle file filter mode
+- `Shift+O`: open file viewer
+- `Ctrl+w`: open worktree picker
 - `Shift+U`: edit user name
 - `t`: open theme picker
 - `T`: toggle light/dark theme variant
@@ -397,9 +410,9 @@ The thread selector is separate from the per-file thread navigator. `Ctrl+t` sea
 ## A realistic first session
 
 ```bash
-./target/release/parley review create parser-cleanup
-./target/release/parley review start parser-cleanup
-./target/release/parley tui --review parser-cleanup
+parley review create parser-cleanup
+parley review start parser-cleanup
+parley tui --review parser-cleanup
 ```
 
 Inside the TUI:
@@ -415,7 +428,7 @@ Inside the TUI:
 For a historical review:
 
 ```bash
-./target/release/parley tui --review parser-cleanup --base origin/trunk --head feature/parser-cleanup
+parley tui --review parser-cleanup --base origin/trunk --head feature/parser-cleanup
 ```
 
 That lets you keep one named review session while pointing the TUI at an explicit base/head diff.

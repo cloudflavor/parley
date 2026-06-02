@@ -292,8 +292,16 @@ mod tests {
         Repository::init(tmp.path())?;
         let ctx = discover(tmp.path()).await?;
         let tmp_canonical = std::fs::canonicalize(tmp.path())?;
-        assert_eq!(std::fs::canonicalize(&ctx.selected_worktree)?, tmp_canonical);
-        assert_eq!(ctx.main_worktree.as_deref().and_then(|p| std::fs::canonicalize(p).ok()), Some(tmp_canonical));
+        assert_eq!(
+            std::fs::canonicalize(&ctx.selected_worktree)?,
+            tmp_canonical
+        );
+        assert_eq!(
+            ctx.main_worktree
+                .as_deref()
+                .and_then(|p| std::fs::canonicalize(p).ok()),
+            Some(tmp_canonical)
+        );
         Ok(())
     }
 

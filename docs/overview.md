@@ -4,6 +4,15 @@ Parley is a terminal-first review tool for local git diffs, optimized for iterat
 
 Install with:
 
+### Homebrew (macOS and Linux)
+
+```bash
+brew tap cloudflavor/tap
+brew install cloudflavor/tap/parley
+```
+
+### Cargo
+
 ```bash
 cargo install parley-cli
 ```
@@ -108,6 +117,10 @@ From inside the TUI, use `Ctrl+k` to open the command palette, choose `Open Comm
 Use `Ctrl+k` and `Open Review Picker` to switch the active review context. The picker filters by review name or state and shows each review's thread counts. Applying a review reloads the review-owned comments while keeping the current diff source.
 
 Use `Ctrl+k` and `Create Review` to create a new review from inside the TUI and switch to it immediately. Entering a name in the review picker that has no matches also opens the create-review prompt with that name.
+
+Use `Ctrl+k` and `Open Branch Picker` to switch git branch from a filtered list.
+
+Use `Ctrl+k` and `Open Worktree Picker` to switch git worktree from a filtered list.
 
 Current limitation:
 

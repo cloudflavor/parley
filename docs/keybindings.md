@@ -9,7 +9,8 @@
 - `Ctrl+u/Ctrl+d`: half-page scroll
 - `g`: top
 - `Shift+G`: bottom
-- `z` (double press): center active line in viewport
+- `z`: toggle content fullscreen
+- `Shift+Z`: center active line in viewport
 - `R`: refresh review and diff/root source
 
 ## Search and jump
@@ -21,6 +22,7 @@
 - Code search `type`: update results live
 - Code search `Enter`: open selected file and line
 - Code search `↑/↓`, `j/k`, `PgUp/PgDn`, `Home`, `End`: move selected result
+- Code search `Ctrl+a/Ctrl+e`: move cursor to start/end of query
 - Code search mouse: click a result to open that file and line
 - Code search `Esc`: close search
 
@@ -101,6 +103,7 @@
 
 - `?`: open help docs
 - `Ctrl+k`: command palette
+- Command palette `Ctrl+a/Ctrl+e`: move cursor to start/end of query
 - Command palette `Search Codebase`: open live repository search
 - Command palette `Show AI Activity`: open the global AI session activity pane
 - Command palette `Toggle AI Transport`: switch between ACP and CLI for the active provider
@@ -121,8 +124,8 @@
 - Heatmap color follows the active sort metric
 - `Ctrl+f`: file filter input
 - `Esc` or `Enter` or `Ctrl+f`: exit file filter
-- `F`: cycle file filter mode
-- `O`: cycle file sort mode
+- `Shift+F`: cycle file filter mode
+- `Shift+O`: open file viewer
 - `Shift+U`: edit user name
 - `t`: open theme picker
 - `T`: toggle light/dark theme variant
